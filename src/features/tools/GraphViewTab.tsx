@@ -320,7 +320,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
     setRunning(true);
     setError(null);
     try {
-      const outcome = await ipc("execute_query", { connectionId, sql: query, confirmDestructive: false, maxRows: 2000 });
+      const outcome = await ipc("execute_query", { connectionId, sql: query, confirmDestructive: false, maxRows: 2000, schema: null });
       const next = extractGraph(outcome);
       setGraph(next);
       setSelected(null);
@@ -342,7 +342,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
     setExpanding(true);
     setError(null);
     try {
-      const outcome = await ipc("execute_query", { connectionId, sql: expandFor(language, node.id), confirmDestructive: false, maxRows: 2000 });
+      const outcome = await ipc("execute_query", { connectionId, sql: expandFor(language, node.id), confirmDestructive: false, maxRows: 2000, schema: null });
       const added = extractGraph(outcome);
       setGraph((current) => (current === null ? added : mergeGraph(current, added)));
       if (added.nodes.length === 0) setError(`${node.caption} has no neighbours in reach of that query.`);

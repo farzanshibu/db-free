@@ -204,6 +204,7 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
           sql,
           confirmDestructive: false,
           maxRows: 50,
+          schema: null,
         });
         setMessages((prev) => prev.map((m) => (m.id === msgId ? { ...m, running: false, outcome, runError: null } : m)));
         showInfo(`Query executed in ${outcome.elapsedMs}ms.`);

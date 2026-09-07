@@ -45,7 +45,7 @@ pub async fn run_workflow(state: State<'_, AppState>, req: RunWorkflowRequest) -
         )
         .await;
         match outcome {
-            Ok(o) => steps.push(WorkflowStepResult { step_id: step.id.clone(), name: step.name.clone(), ok: true, elapsed_ms: o.elapsed_ms, rows: Some(o.total_rows()), error: None }),
+            Ok(o) => steps.push(WorkflowStepResult { step_id: step.id.clone(), name: step.name.clone(), ok: true, elapsed_ms: o.elapsed_ms, rows: Some(o.row_count()), error: None }),
             Err(err) => {
                 steps.push(WorkflowStepResult { step_id: step.id.clone(), name: step.name.clone(), ok: false, elapsed_ms: 0, rows: None, error: Some(err.message().to_string()) });
                 if step.stop_on_error {

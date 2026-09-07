@@ -1,4 +1,4 @@
-// SOT: results-pane, statement-tabs, query-result-grid
+// SOT: results-pane, statement-tabs, query-result-grid, result-row-total
 import { useState } from "react";
 import { Button, Chip } from "@heroui/react";
 import type { QueryOutcome } from "@/lib/bindings";
@@ -7,6 +7,16 @@ import { useWorkspace } from "@/stores/workspace";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { EmptyState } from "@/components/global/EmptyState";
 import { cn } from "@/lib/cn";
+
+// WHAT:  Says how many rows the script really has, not just how many fit.
+// WHY:   A row cap that reads as the whole answer is worse than no cap: "1,000
+//        rows" and "1,000 of 84,213 rows" lead to opposite conclusions.
+// WHERE: src-tauri/src/services/query.rs (QueryOutcome.totalRows)
+function rowSummary(shown: number, total: number | null, truncated: boolean): string {
+  if (!truncated) return `${formatCount(shown)} rows`;
+  if (total === null) return `${formatCount(shown)} rows (capped)`;
+  return `${formatCount(shown)} of ${formatCount(total)} rows`;
+}
 
 export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
   const density = useWorkspace((s) => s.density);
@@ -18,6 +28,8 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
   const statements = outcome.statements;
   const index = Math.min(active, Math.max(0, statements.length - 1));
   const current = statements[index];
+  const truncated = statements.some((s) => s.kind === "rows" && s.result.truncated);
+  const shown = statements.reduce((sum, s) => sum + (s.kind === "rows" ? s.result.rows.length : 0), 0);
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -34,14 +46,18 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
           </Button>
         ))}
         <span className="ml-auto flex items-center gap-2">
+          {truncated ? (
+            <Chip size="sm" color="warning" variant="soft">
+              {rowSummary(shown, outcome.totalRows, truncated)}
+            </Chip>
+          ) : (
+            <Chip size="sm" variant="soft">
+              {rowSummary(shown, outcome.totalRows, truncated)}
+            </Chip>
+          )}
           <Chip size="sm" color="success" variant="soft">
             {formatMs(outcome.elapsedMs)}
           </Chip>
-          {current?.kind === "rows" && current.result.truncated ? (
-            <Chip size="sm" color="warning" variant="soft">
-              truncated at row cap
-            </Chip>
-          ) : null}
         </span>
       </div>
       <div className="min-h-0 flex-1">

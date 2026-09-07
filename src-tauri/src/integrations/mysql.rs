@@ -1662,6 +1662,10 @@ impl Integration for MysqlIntegration {
         self.run(sql, max_rows).await
     }
 
+    fn use_namespace(&self, namespace: &str) -> Option<(String, usize)> {
+        Some((format!("USE {}", quote_ident_for(self.engine(), namespace)), 1))
+    }
+
     async fn close(&self) {
         self.pool.close().await;
     }

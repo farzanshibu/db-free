@@ -80,7 +80,7 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
   const run = async (action: ObjectAction) => {
     setRunning(true);
     try {
-      const outcome = await ipc("execute_query", { connectionId, sql: action.statement, confirmDestructive: action.destructive, maxRows: 200 });
+      const outcome = await ipc("execute_query", { connectionId, sql: action.statement, confirmDestructive: action.destructive, maxRows: 200, schema: null });
       showInfo(`${action.label}: done in ${outcome.elapsedMs} ms.`);
       invalidateObjects(connectionId);
       window.dispatchEvent(new Event("db-free:refresh-tables"));

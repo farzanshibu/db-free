@@ -251,6 +251,23 @@ pub trait Integration: Send + Sync {
         Some(format!("CREATE TABLE {target} (\n{body}\n);"))
     }
 
+    // WHAT:  Statement that makes `namespace` the default schema for the rest of
+    //        a script, plus how many statement results running it will add.
+    // WHY:   The query editor's schema picker has to change what an unqualified
+    //        name resolves to. Only the adapter knows the spelling (`SET
+    //        search_path`, `USE`, `ALTER SESSION SET CURRENT_SCHEMA`) and what
+    //        its own driver reports back for it, and a pooled connection means
+    //        the statement has to ride along with the script rather than be set
+    //        once on the session.
+    // HOW:   Quote `namespace` — it comes from the UI. None means the engine has
+    //        no such statement (HTTP request-per-statement adapters, engines
+    //        whose namespace is fixed at connect time); the picker then only
+    //        scopes autocompletion and the database switcher does the real work.
+    // WHERE: src-tauri/src/services/query.rs (prepends it and drops its results)
+    fn use_namespace(&self, _namespace: &str) -> Option<(String, usize)> {
+        None
+    }
+
     // ---- object explorer / administration ------------------------------------
     // WHAT:  Lists objects of one kind. `parent` is the namespace for scoped kinds
     //        (`ObjectKind::scoped`) — None means every user namespace, system

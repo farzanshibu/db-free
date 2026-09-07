@@ -105,7 +105,7 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
     setRunning(true);
     setError(null);
     try {
-      const outcome = await ipc("execute_query", { connectionId, sql: command, confirmDestructive: false, maxRows: batch ?? 100 });
+      const outcome = await ipc("execute_query", { connectionId, sql: command, confirmDestructive: false, maxRows: batch ?? 100, schema: null });
       const rows = outcome.statements.find(isRows);
       setResult(rows ? rows.result : null);
       setElapsed(outcome.elapsedMs);

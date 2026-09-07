@@ -1836,6 +1836,10 @@ impl Integration for CassandraIntegration {
         Ok(out)
     }
 
+    fn use_namespace(&self, namespace: &str) -> Option<(String, usize)> {
+        Some((format!("USE {}", quote_ident(namespace)), 1))
+    }
+
     async fn close(&self) {}
 
     async fn ddl(&self, table: &TableRef) -> AppResult<Option<String>> {

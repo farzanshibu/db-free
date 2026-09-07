@@ -107,16 +107,24 @@ pub enum StatementResult {
     Affected { rows_affected: u64 },
 }
 
+// WHAT:  Everything one Run produced: a result per statement, how many rows the
+//        script would return in full, and the wall time the block measured.
+// HOW:   `total_rows` equals the rows in hand whenever nothing hit the row cap.
+//        Once the cap hits it is the counted total when the engine can be asked
+//        for one, and None when it cannot — so the UI can say "1,000 of 84,213"
+//        or "1,000 (capped)" but never present a cap as the whole answer.
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
 pub struct QueryOutcome {
     pub statements: Vec<StatementResult>,
+    pub total_rows: Option<u64>,
     pub elapsed_ms: u64,
 }
 
 impl QueryOutcome {
-    pub fn total_rows(&self) -> u64 {
+    /// Rows returned plus rows affected — what the history log records.
+    pub fn row_count(&self) -> u64 {
         self.statements
             .iter()
             .map(|s| match s {

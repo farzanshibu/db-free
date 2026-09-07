@@ -31,14 +31,17 @@ use destructive::{classify, StatementKind};
 //   4  statement classification     — labels each statement Read/Write/Destructive
 //   5  read-only gate               connection is read-only and a Write/Destructive exists
 //   6  destructive gate             Destructive present and caller did not confirm
-//   7  bounds                       page limit / row cap outside range (clamped, not rejected)
+//   7  bounds                       page limit / row cap outside range (clamped, not rejected; an
+//                                   absent row cap is "No limit", not a default)
 //   8  timeout                      handler exceeds the request's deadline
 //   9  history log                  — records SQL on success and error
 //  10  timing enrichment            — elapsed_ms attached to the outcome
 // ============================================================================
 
 pub const MAX_PAGE_LIMIT: u32 = 1_000;
-pub const MAX_RESULT_ROWS: u32 = 50_000;
+/// Ceiling for a row cap the caller named. "No limit" is a separate answer, not
+/// a bigger number — see `clamp_result_rows`.
+pub const MAX_RESULT_ROWS: u32 = 1_000_000;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
 
 pub struct SessionCtx {
@@ -135,7 +138,7 @@ where
     // 9 — history log (success and error alike)
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let (status, error, row_count) = match &result {
-        Ok(outcome) => (HistoryStatus::Ok, None, Some(outcome.total_rows())),
+        Ok(outcome) => (HistoryStatus::Ok, None, Some(outcome.row_count())),
         Err(err) => (HistoryStatus::Error, Some(err.message().to_string()), None),
     };
     let logged = state.with_store(|store| {
@@ -165,8 +168,14 @@ pub fn clamp_page_limit(limit: u32) -> u32 {
     limit.clamp(1, MAX_PAGE_LIMIT)
 }
 
+// WHAT:  The row cap one Run honours. `None` is the editor's "No limit": the
+//        caller asked for the whole result and gets it, so this is a ceiling to
+//        clamp to rather than a value to invent.
 pub fn clamp_result_rows(max_rows: Option<u32>) -> usize {
-    max_rows.unwrap_or(1_000).clamp(1, MAX_RESULT_ROWS) as usize
+    match max_rows {
+        Some(rows) => rows.clamp(1, MAX_RESULT_ROWS) as usize,
+        None => usize::MAX,
+    }
 }
 
 async fn resolve(state: &AppState, connection_id: &str) -> AppResult<SessionCtx> {
@@ -230,7 +239,7 @@ mod tests {
             StatementRequest { connection_id: id, sql, confirm_destructive: confirm },
             |ctx| async move {
                 let statements = ctx.integration.execute(sql, 10).await?;
-                Ok(QueryOutcome { statements, elapsed_ms: 0 })
+                Ok(QueryOutcome { statements, total_rows: None, elapsed_ms: 0 })
             },
         )
         .await
@@ -274,7 +283,8 @@ mod tests {
     fn bounds_clamp() {
         assert_eq!(clamp_page_limit(0), 1);
         assert_eq!(clamp_page_limit(5_000), MAX_PAGE_LIMIT);
-        assert_eq!(clamp_result_rows(None), 1_000);
+        assert_eq!(clamp_result_rows(None), usize::MAX, "None is \"No limit\", not a default");
         assert_eq!(clamp_result_rows(Some(0)), 1);
+        assert_eq!(clamp_result_rows(Some(u32::MAX)), MAX_RESULT_ROWS as usize);
     }
 }

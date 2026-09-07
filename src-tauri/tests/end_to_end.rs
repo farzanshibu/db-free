@@ -72,7 +72,7 @@ async fn run_sql(f: &Fixture, sql: &str, confirm: bool) -> Result<Vec<StatementR
         guard::StatementRequest { connection_id: &f.id, sql, confirm_destructive: confirm },
         |ctx| async move {
             let statements = ctx.integration.execute(sql, 1_000).await?;
-            Ok(db_free_lib::model::QueryOutcome { statements, elapsed_ms: 0 })
+            Ok(db_free_lib::model::QueryOutcome { statements, total_rows: None, elapsed_ms: 0 })
         },
     )
     .await

@@ -51,8 +51,8 @@ export function KeyTab({ connectionId, table }: { connectionId: string; table: T
       try {
         const [p, typeOut, ttlOut] = await Promise.all([
           ipc("fetch_table_page", { connectionId, table, query: { sort: [], filters: [], offset: 0, limit: 1000 } }),
-          ipc("execute_query", { connectionId, sql: `TYPE ${quote(key)}`, confirmDestructive: false, maxRows: 1 }),
-          ipc("execute_query", { connectionId, sql: `TTL ${quote(key)}`, confirmDestructive: false, maxRows: 1 }),
+          ipc("execute_query", { connectionId, sql: `TYPE ${quote(key)}`, confirmDestructive: false, maxRows: 1, schema: null }),
+          ipc("execute_query", { connectionId, sql: `TTL ${quote(key)}`, confirmDestructive: false, maxRows: 1, schema: null }),
         ]);
         if (token.cancelled) return;
         setPage(p);
@@ -72,7 +72,7 @@ export function KeyTab({ connectionId, table }: { connectionId: string; table: T
 
   const run = async (command: string, message: string) => {
     try {
-      await ipc("execute_query", { connectionId, sql: command, confirmDestructive: true, maxRows: 1 });
+      await ipc("execute_query", { connectionId, sql: command, confirmDestructive: true, maxRows: 1, schema: null });
       showInfo(message);
       setRefresh((r) => r + 1);
     } catch (raw) {
