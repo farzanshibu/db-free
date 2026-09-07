@@ -37,7 +37,7 @@ pub async fn commit_changes(state: State<'_, AppState>, req: ChangesRequest) -> 
     guard::statement(
         &state,
         guard::StatementRequest { connection_id: &req.connection_id, sql: &preview.script, confirm_destructive: false },
-        |ctx| async move { services::query::execute(&ctx, &script, 100).await },
+        |ctx| async move { services::query::execute(&ctx, &script, 100, None).await },
     )
     .await
 }

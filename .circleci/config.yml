@@ -1,0 +1,381 @@
+# SOT: circleci-pipeline, cross-platform-bundles, ci-cd
+#
+# WHAT:  The same contract as .github/workflows/release.yml, on CircleCI: check
+#        every commit, then on green main bump the version, tag it, build
+#        installers for macOS, Linux (x86_64 + aarch64) and Windows, and publish
+#        them to a GitHub release with the signed latest.json the updater reads.
+# WHY:   A second provider that can cut a release when the first one cannot.
+# HOW:   Every architecture builds on its own native executor — webkit2gtk and
+#        the bundled C dependencies (librocksdb-sys via bindgen, aws-lc-sys via
+#        cmake) are not worth cross-building. Bundles are handed to a single
+#        Linux `publish` job through the workspace, so the GitHub upload and the
+#        latest.json assembly are written once instead of per platform.
+# WHERE: .github/workflows/release.yml (the pipeline this mirrors),
+#        scripts/next-version.sh, scripts/set-version.sh
+#
+# Project environment variables this needs (Project Settings -> Environment
+# Variables), matching the secrets the GitHub workflow uses:
+#   GITHUB_TOKEN                        repo-scoped token: pushes the bump commit
+#                                       and tag, creates the release
+#   TAURI_SIGNING_PRIVATE_KEY           signs the bundles and latest.json
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+#
+# macOS executors are not on CircleCI's free plan. Without one, delete the
+# bundle-macos job from the release workflow below; everything else still runs.
+
+version: 2.1
+
+executors:
+  linux-x64:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: large
+  linux-arm64:
+    machine:
+      image: ubuntu-2204:current
+    resource_class: arm.large
+  macos:
+    macos:
+      xcode: "15.4.0"
+    resource_class: macos.m1.medium.gen1
+  windows:
+    machine:
+      image: windows-server-2022-gui:current
+      shell: bash.exe
+    resource_class: windows.medium
+
+commands:
+  linux_build_deps:
+    description: webkit2gtk for tauri, libclang for librocksdb-sys' bindgen, cmake for aws-lc-sys.
+    steps:
+      - run:
+          name: Install Linux build dependencies
+          command: |
+            export DEBIAN_FRONTEND=noninteractive
+            sudo apt-get update
+            sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev \
+              librsvg2-dev patchelf libdbus-1-dev pkg-config libclang-dev clang cmake
+            lib=$(ls /usr/lib/llvm-*/lib/libclang.so* /usr/lib/*/libclang*.so* 2>/dev/null | head -n1)
+            test -n "$lib" || { echo "libclang not found after install"; exit 1; }
+            echo "export LIBCLANG_PATH=$(dirname "$lib")" >> "$BASH_ENV"
+
+  node_toolchain:
+    description: Node 22 + pnpm, the versions the GitHub workflow pins.
+    parameters:
+      family:
+        type: enum
+        enum: ["linux", "macos", "windows"]
+    steps:
+      - when:
+          condition: {equal: ["linux", <<parameters.family>>]}
+          steps:
+            - run:
+                name: Install Node and pnpm
+                command: |
+                  curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+                  sudo apt-get install -y nodejs
+                  sudo corepack enable
+                  corepack prepare pnpm@10 --activate
+      - when:
+          condition: {equal: ["macos", <<parameters.family>>]}
+          steps:
+            - run:
+                name: Install Node and pnpm
+                command: |
+                  brew install node@22
+                  echo 'export PATH="/opt/homebrew/opt/node@22/bin:$PATH"' >> "$BASH_ENV"
+                  source "$BASH_ENV"
+                  corepack enable
+                  corepack prepare pnpm@10 --activate
+      - when:
+          condition: {equal: ["windows", <<parameters.family>>]}
+          steps:
+            - run:
+                name: Install Node, pnpm, LLVM and cmake
+                command: |
+                  choco install -y nodejs-lts --version=22.11.0
+                  choco install -y llvm cmake --installargs 'ADD_CMAKE_TO_PATH=System'
+                  echo 'export PATH="/c/Program Files/nodejs:/c/Program Files/LLVM/bin:$PATH"' >> "$BASH_ENV"
+                  echo 'export LIBCLANG_PATH="C:\\Program Files\\LLVM\\bin"' >> "$BASH_ENV"
+                  source "$BASH_ENV"
+                  corepack enable
+                  corepack prepare pnpm@10 --activate
+
+  rust_toolchain:
+    description: rustup stable, plus both mac targets so one universal bundle covers Apple Silicon and Intel.
+    parameters:
+      targets:
+        type: string
+        default: ""
+    steps:
+      - run:
+          name: Install Rust
+          command: |
+            if ! command -v rustup >/dev/null 2>&1; then
+              curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            fi
+            echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> "$BASH_ENV"
+            source "$BASH_ENV"
+            rustup toolchain install stable --profile minimal
+            rustup default stable
+            if [ -n "<<parameters.targets>>" ]; then
+              for t in $(echo "<<parameters.targets>>" | tr ',' ' '); do rustup target add "$t"; done
+            fi
+            rustc --version
+
+  cargo_cache:
+    parameters:
+      key:
+        type: string
+    steps:
+      - restore_cache:
+          keys:
+            - cargo-v1-<<parameters.key>>-{{ checksum "src-tauri/Cargo.lock" }}
+            - cargo-v1-<<parameters.key>>-
+
+  save_cargo_cache:
+    parameters:
+      key:
+        type: string
+    steps:
+      - save_cache:
+          key: cargo-v1-<<parameters.key>>-{{ checksum "src-tauri/Cargo.lock" }}
+          paths:
+            - ~/.cargo/registry
+            - ~/.cargo/git
+            - src-tauri/target
+
+  bundle_and_stage:
+    description: Build the installers and hand them to the publish job through the workspace.
+    parameters:
+      artifact_name:
+        type: string
+      args:
+        type: string
+        default: ""
+    steps:
+      - run:
+          name: Build installers
+          no_output_timeout: 60m
+          command: pnpm tauri build <<parameters.args>>
+      - run:
+          name: Collect bundles
+          command: |
+            out="staged/<<parameters.artifact_name>>"
+            mkdir -p "$out"
+            # One bundle dir per target triple; copy the installers, not the
+            # intermediate build tree.
+            find src-tauri/target -type d -name bundle -prune | while read -r dir; do
+              find "$dir" -type f \
+                \( -name '*.dmg' -o -name '*.app.tar.gz' -o -name '*.app.tar.gz.sig' \
+                -o -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' \
+                -o -name '*.AppImage.sig' -o -name '*.msi' -o -name '*.msi.sig' \
+                -o -name '*.exe' -o -name '*.exe.sig' \) -exec cp -v {} "$out/" \;
+            done
+            ls -la "$out"
+      - persist_to_workspace:
+          root: .
+          paths:
+            - staged
+      - store_artifacts:
+          path: staged
+
+jobs:
+  check:
+    executor: linux-x64
+    steps:
+      - checkout
+      - linux_build_deps
+      - node_toolchain: {family: "linux"}
+      - rust_toolchain
+      - cargo_cache: {key: "check"}
+      - run: pnpm install --frozen-lockfile
+      - run:
+          name: pnpm check
+          no_output_timeout: 45m
+          command: pnpm check
+      - save_cargo_cache: {key: "check"}
+
+  # WHAT:  Derives the next version from the Conventional Commit subjects since
+  #        the last tag, writes it into every file that carries one, and pushes
+  #        the bump commit and an annotated tag.
+  # WHY:   Every main commit ships, so the version has to move on its own.
+  version_and_tag:
+    executor: linux-x64
+    steps:
+      - checkout
+      - run:
+          name: Bump version and tag
+          command: |
+            git config user.name "circleci"
+            git config user.email "circleci@users.noreply.github.com"
+            next=$(bash scripts/next-version.sh)
+            # A tag already on the remote means that version shipped (or a run
+            # died after tagging), so walk the patch until the name is free.
+            while git ls-remote --exit-code --tags origin "refs/tags/v$next" >/dev/null 2>&1; do
+              next=$(python3 -c "import sys; p=sys.argv[1].split('.'); p[2]=str(int(p[2])+1); print('.'.join(p))" "$next")
+            done
+            bash scripts/set-version.sh "$next"
+            git add package.json src-tauri/tauri.conf.json src-tauri/Cargo.toml src-tauri/Cargo.lock
+            # Re-running after a failed build finds the files already bumped.
+            git diff --cached --quiet || git commit -m "chore(release): v$next"
+            git tag -a "v$next" -m "DB Free v$next"
+            origin="https://x-access-token:${GITHUB_TOKEN}@github.com/${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}.git"
+            git push "$origin" HEAD:main
+            git push "$origin" "refs/tags/v$next"
+            mkdir -p staged
+            echo "v$next" > staged/TAG
+      - persist_to_workspace:
+          root: .
+          paths:
+            - staged/TAG
+
+  bundle-linux:
+    parameters:
+      exec:
+        type: executor
+      artifact_name:
+        type: string
+    executor: <<parameters.exec>>
+    steps:
+      - checkout
+      - attach_workspace: {at: /tmp/ws}
+      - run:
+          name: Check out the tagged version
+          command: |
+            tag=$(cat /tmp/ws/staged/TAG)
+            git fetch --tags origin
+            git checkout "$tag"
+      - linux_build_deps
+      - node_toolchain: {family: "linux"}
+      - rust_toolchain
+      - cargo_cache: {key: "<<parameters.artifact_name>>"}
+      - run: pnpm install --frozen-lockfile
+      - bundle_and_stage: {artifact_name: "<<parameters.artifact_name>>"}
+      - save_cargo_cache: {key: "<<parameters.artifact_name>>"}
+
+  bundle-macos:
+    executor: macos
+    steps:
+      - checkout
+      - attach_workspace: {at: /tmp/ws}
+      - run:
+          name: Check out the tagged version
+          command: |
+            tag=$(cat /tmp/ws/staged/TAG)
+            git fetch --tags origin
+            git checkout "$tag"
+      - node_toolchain: {family: "macos"}
+      - rust_toolchain: {targets: "aarch64-apple-darwin,x86_64-apple-darwin"}
+      - run:
+          name: Point bindgen at Xcode's libclang
+          command: echo "export LIBCLANG_PATH=$(xcode-select -p)/Toolchains/XcodeDefault.xctoolchain/usr/lib" >> "$BASH_ENV"
+      - run: brew install cmake
+      - cargo_cache: {key: "macos-universal"}
+      - run: pnpm install --frozen-lockfile
+      # One universal .dmg runs on both Apple Silicon and Intel; two separate mac
+      # bundles would be strictly worse for users and double the build time.
+      - bundle_and_stage:
+          artifact_name: "macos-universal"
+          args: "--target universal-apple-darwin"
+      - save_cargo_cache: {key: "macos-universal"}
+
+  bundle-windows:
+    executor: windows
+    steps:
+      - checkout
+      - attach_workspace: {at: /tmp/ws}
+      - run:
+          name: Check out the tagged version
+          command: |
+            tag=$(cat /tmp/ws/staged/TAG)
+            git fetch --tags origin
+            git checkout "$tag"
+      - node_toolchain: {family: "windows"}
+      - rust_toolchain
+      - cargo_cache: {key: "windows-x64"}
+      - run: pnpm install --frozen-lockfile
+      - bundle_and_stage: {artifact_name: "windows-x64"}
+      - save_cargo_cache: {key: "windows-x64"}
+
+  # WHAT:  Creates the GitHub release, uploads every installer, and writes the
+  #        latest.json feed the in-app updater polls.
+  # WHY:   Written once on Linux rather than per platform: the bundle jobs only
+  #        have to leave their files in the workspace.
+  publish:
+    executor: linux-x64
+    steps:
+      - checkout
+      - attach_workspace: {at: /tmp/ws}
+      - run:
+          name: Install the GitHub CLI
+          command: |
+            curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg \
+              | sudo dd of=/usr/share/keyrings/githubcli-archive-keyring.gpg
+            echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" \
+              | sudo tee /etc/apt/sources.list.d/github-cli.list >/dev/null
+            sudo apt-get update && sudo apt-get install -y gh
+      - run:
+          name: Publish the release
+          command: |
+            tag=$(cat /tmp/ws/staged/TAG)
+            files=$(find /tmp/ws/staged -type f ! -name TAG)
+            test -n "$files" || { echo "no installers in the workspace"; exit 1; }
+            gh release create "$tag" --title "DB Free $tag" --generate-notes || \
+              echo "release $tag already exists, uploading into it"
+            gh release upload "$tag" $files --clobber
+      - run:
+          name: Write latest.json
+          command: |
+            tag=$(cat /tmp/ws/staged/TAG)
+            python3 scripts/latest-json.py \
+              --tag "$tag" \
+              --staged /tmp/ws/staged \
+              --repo "${CIRCLE_PROJECT_USERNAME}/${CIRCLE_PROJECT_REPONAME}" \
+              --out /tmp/latest.json
+            cat /tmp/latest.json
+            gh release upload "$tag" /tmp/latest.json --clobber
+      - store_artifacts:
+          path: /tmp/latest.json
+
+workflows:
+  # Pull requests and side branches get the checks and nothing else.
+  ci:
+    jobs:
+      - check:
+          filters:
+            branches:
+              ignore: main
+
+  release:
+    jobs:
+      - check:
+          filters:
+            branches:
+              only: main
+      - version_and_tag:
+          requires: [check]
+          filters:
+            branches:
+              only: main
+      - bundle-linux:
+          name: bundle-linux-x86_64
+          exec: linux-x64
+          artifact_name: linux-x86_64
+          requires: [version_and_tag]
+      - bundle-linux:
+          name: bundle-linux-aarch64
+          exec: linux-arm64
+          artifact_name: linux-aarch64
+          requires: [version_and_tag]
+      - bundle-windows:
+          requires: [version_and_tag]
+      # Remove this job if the CircleCI plan has no macOS executors.
+      - bundle-macos:
+          requires: [version_and_tag]
+      - publish:
+          requires:
+            - bundle-linux-x86_64
+            - bundle-linux-aarch64
+            - bundle-windows
+            - bundle-macos

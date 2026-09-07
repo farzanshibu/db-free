@@ -78,7 +78,7 @@ pub async fn import_file(state: State<'_, AppState>, req: ImportRequest) -> AppR
     guard::statement(
         &state,
         guard::StatementRequest { connection_id: &req.connection_id, sql: &script, confirm_destructive: false },
-        |ctx| async move { services::query::execute(&ctx, &script_for_run, 10).await },
+        |ctx| async move { services::query::execute(&ctx, &script_for_run, 10, None).await },
     )
     .await?;
     Ok(ImportReport { rows_inserted: rows.len() as u64, statements, elapsed_ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX) })
