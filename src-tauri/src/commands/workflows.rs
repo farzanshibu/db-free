@@ -41,7 +41,7 @@ pub async fn run_workflow(state: State<'_, AppState>, req: RunWorkflowRequest) -
         let outcome = guard::statement(
             &state,
             guard::StatementRequest { connection_id: &connection_id, sql: &step.sql, confirm_destructive: true },
-            |ctx| async move { services::query::execute(&ctx, &sql, 1_000).await },
+            |ctx| async move { services::query::execute(&ctx, &sql, 1_000, None).await },
         )
         .await;
         match outcome {
