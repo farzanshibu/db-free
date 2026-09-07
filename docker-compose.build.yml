@@ -1,0 +1,62 @@
+# SOT: linux-bundle-runner, docker-compose-build
+#
+# WHAT:  Builds the Linux installers (.deb, .AppImage, .rpm) in a container that
+#        matches the release workflow's ubuntu-22.04 runner.
+# WHY:   `pnpm tauri build` needs webkit2gtk, libclang and cmake — root-only
+#        installs a developer box may not have. The container owns them, so the
+#        host needs nothing but a container engine.
+# HOW:   docker compose -f docker-compose.build.yml run --rm linux-bundle
+#        Artifacts land in ./release/linux on the host (already gitignored).
+# WHERE: docker/build.Dockerfile, .github/workflows/release.yml
+#
+# Only Linux. macOS and Windows bundles cannot be cross-built — they need Apple's
+# SDK and MSVC/WebView2 respectively, which is why release.yml uses a matrix of
+# native runners. This is for local verification, not for cutting a release.
+#
+# The build is UNSIGNED: createUpdaterArtifacts is turned off here because the
+# signing key lives in CI (TAURI_SIGNING_PRIVATE_KEY), and Tauri fails the build
+# rather than emit an updater artifact it cannot sign. The in-app updater will
+# not accept anything built here.
+
+name: dbfree-build
+
+services:
+  linux-bundle:
+    build:
+      context: .
+      dockerfile: docker/build.Dockerfile
+    working_dir: /work
+    environment:
+      CARGO_TERM_COLOR: always
+      # Keep the frontend build from trying to open a browser or watch files.
+      CI: "true"
+      # A release build of 45 adapters plus rocksdb and aws-lc runs one rustc per
+      # core, each holding a GB or more. Capped so the build survives a laptop
+      # that is doing something else — raise it on a dedicated machine.
+      CARGO_BUILD_JOBS: "4"
+    volumes:
+      - .:/work
+      # node_modules and target are container-owned: the host copies are built
+      # for a different toolchain and live on a slow Windows mount.
+      - node-modules:/work/node_modules
+      - rust-target:/work/src-tauri/target
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+    command:
+      - bash
+      - -euo
+      - pipefail
+      - -c
+      - |
+        pnpm install --frozen-lockfile
+        pnpm tauri build --config '{"bundle":{"createUpdaterArtifacts":false}}'
+        mkdir -p /work/release/linux
+        find src-tauri/target -type d -name bundle -prune -exec cp -rv {}/. /work/release/linux/ \;
+        echo "--- artifacts ---"
+        find /work/release/linux -type f \( -name '*.deb' -o -name '*.AppImage' -o -name '*.rpm' \) -printf '%p  %s bytes\n'
+
+volumes:
+  node-modules:
+  rust-target:
+  cargo-registry:
+  cargo-git:
