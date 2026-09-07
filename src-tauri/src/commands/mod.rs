@@ -42,6 +42,8 @@ pub enum CommandName {
     ListBuffers,
     SaveBuffer,
     DeleteBuffer,
+    SplitScript,
+    SaveSqlFile,
     ClearHistory,
     LoadForeignKeys,
     LoadDdl,
@@ -73,7 +75,7 @@ pub enum CommandName {
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 44] = [
+    pub const ALL: [CommandName; 46] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -90,6 +92,8 @@ impl CommandName {
         CommandName::ListBuffers,
         CommandName::SaveBuffer,
         CommandName::DeleteBuffer,
+        CommandName::SplitScript,
+        CommandName::SaveSqlFile,
         CommandName::ClearHistory,
         CommandName::LoadForeignKeys,
         CommandName::LoadDdl,
@@ -138,6 +142,8 @@ impl CommandName {
             CommandName::ListBuffers => "list_buffers",
             CommandName::SaveBuffer => "save_buffer",
             CommandName::DeleteBuffer => "delete_buffer",
+            CommandName::SplitScript => "split_script",
+            CommandName::SaveSqlFile => "save_sql_file",
             CommandName::ClearHistory => "clear_history",
             CommandName::LoadForeignKeys => "load_foreign_keys",
             CommandName::LoadDdl => "load_ddl",
@@ -208,7 +214,9 @@ mod tests {
             | CommandName::ClearHistory
             | CommandName::ListBuffers
             | CommandName::SaveBuffer
-            | CommandName::DeleteBuffer => "query",
+            | CommandName::DeleteBuffer
+            | CommandName::SplitScript
+            | CommandName::SaveSqlFile => "query",
             CommandName::GetSettings | CommandName::SaveSettings => "settings",
             CommandName::ListSavedQueries
             | CommandName::SaveSavedQuery

@@ -142,7 +142,7 @@ export function App() {
                 ) : tab.kind === "table" ? (
                   isKeyValueEngine(connection.engine) ? <KeyTab key={tab.id} connectionId={tab.connectionId} table={tab.table} /> : <TableTab key={`${tab.id}:${tab.filterKey}`} connectionId={tab.connectionId} table={tab.table} initialFilters={tab.initialFilters} />
                 ) : tab.kind === "query" ? (
-                  <QueryPane key={tab.id} tabId={tab.id} connection={connection} seedSql={tab.seedSql} />
+                  <QueryPane key={tab.id} tabId={tab.id} title={tab.title} connection={connection} seedSql={tab.seedSql} />
                 ) : tab.kind === "history" ? (
                   <HistoryTab key={tab.id} connectionId={tab.connectionId} />
                 ) : tab.kind === "transfer" ? (

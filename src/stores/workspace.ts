@@ -1,4 +1,4 @@
-// SOT: workspace-store, pages, tabs, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
+// SOT: workspace-store, pages, tabs, restored-query-tabs, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
 import { create } from "zustand";
 import { toast } from "@heroui/react";
 import type {
@@ -168,6 +168,19 @@ function addTab(tabs: Tab[], tab: Tab): Tab[] {
   return tabs.some((t) => t.id === tab.id) ? tabs : [...tabs, tab];
 }
 
+// WHAT:  Drops the stored buffer behind every query tab in `closed`.
+// WHY:   A query tab is restored from its buffer at startup, so a tab the user
+//        closed has to take its buffer with it or it comes back tomorrow.
+// WHERE: src-tauri/src/store/buffers.rs
+function forgetBuffers(closed: readonly Tab[]): void {
+  for (const tab of closed) {
+    if (tab.kind !== "query") continue;
+    void ipc("delete_buffer", { id: tab.id }).catch(() => {
+      // The tab is gone from the UI either way; a failed cleanup is not worth a toast.
+    });
+  }
+}
+
 export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   ready: false,
   page: { kind: "connections" },
@@ -192,15 +205,29 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   pendingChanges: {},
   changesPanelOpen: false,
 
+  // WHAT:  Loads the app's own state, and puts back the query tabs that were open.
+  // WHY:   PRD §4.3 — an editor that loses the script you were writing when the app
+  //        restarts is an editor you cannot trust. The buffers were already saved
+  //        per tab; without this they were saved and never read again, because a
+  //        fresh tab id never matched one.
+  // WHERE: src-tauri/src/store/buffers.rs, src/features/editor/QueryPane.tsx
   bootstrap: async () => {
     try {
-      const [connections, sessions, settings, savedQueries] = await Promise.all([
+      const [connections, sessions, settings, savedQueries, buffers] = await Promise.all([
         ipc("list_connections"),
         ipc("active_sessions"),
         ipc("get_settings"),
         ipc("list_saved_queries"),
+        ipc("list_buffers"),
       ]);
-      set({ connections, sessions, settings, savedQueries, ready: true });
+      const known = new Set(connections.map((c) => c.id));
+      const restored: Tab[] = buffers.flatMap((b) => {
+        const connectionId = b.connectionId;
+        if (connectionId === null || !known.has(connectionId) || b.content.trim().length === 0) return [];
+        return [{ id: b.id, kind: "query" as const, connectionId, title: b.title.length > 0 ? b.title : "Query" }];
+      });
+      queryCounter = restored.length;
+      set({ connections, sessions, settings, savedQueries, ready: true, tabs: restored, activeTabId: restored[restored.length - 1]?.id ?? null });
       const live = sessions[0];
       if (live !== undefined) {
         set({ activeConnectionId: live, page: { kind: "workspace" } });
@@ -424,25 +451,37 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
     set((s) => ({ tabs: addTab(s.tabs, { id, kind: "document", connectionId, documentKind: kind, documentId }), activeTabId: id, page: { kind: "workspace" } }));
   },
 
-  closeTab: (id) =>
+  closeTab: (id) => {
+    forgetBuffers(get().tabs.filter((t) => t.id === id));
     set((s) => {
       const index = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       const fallback = tabs[Math.max(0, index - 1)] ?? tabs[0];
       return { tabs, activeTabId: s.activeTabId === id ? (fallback?.id ?? null) : s.activeTabId };
-    }),
+    });
+  },
 
-  closeOtherTabs: (id) => set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: s.tabs.some((t) => t.id === id) ? id : null })),
+  closeOtherTabs: (id) => {
+    forgetBuffers(get().tabs.filter((t) => t.id !== id));
+    set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: s.tabs.some((t) => t.id === id) ? id : null }));
+  },
 
-  closeTabsToRight: (id) =>
+  closeTabsToRight: (id) => {
+    const at = get().tabs.findIndex((t) => t.id === id);
+    if (at < 0) return;
+    forgetBuffers(get().tabs.slice(at + 1));
     set((s) => {
       const index = s.tabs.findIndex((t) => t.id === id);
       if (index < 0) return {};
       const tabs = s.tabs.slice(0, index + 1);
       return { tabs, activeTabId: tabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : id };
-    }),
+    });
+  },
 
-  closeAllTabs: () => set({ tabs: [], activeTabId: null }),
+  closeAllTabs: () => {
+    forgetBuffers(get().tabs);
+    set({ tabs: [], activeTabId: null });
+  },
 
   activateTab: (id) => set({ activeTabId: id, page: { kind: "workspace" } }),
 

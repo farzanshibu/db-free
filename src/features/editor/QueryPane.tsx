@@ -1,11 +1,12 @@
-// SOT: query-pane, run-query-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, ai-assist-flow, explain-flow, format-sql
+// SOT: query-pane, run-query-flow, run-at-cursor-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, save-sql-file-flow, ai-assist-flow, explain-flow, format-sql
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Button, CloseButton, Modal, Popover, ScrollShadow, Spinner, TextArea, TextField } from "@heroui/react";
 import { format as formatSql } from "sql-formatter";
-import type { AppError, ConnectionSummary, PlanReport, QueryOutcome } from "@/lib/bindings";
+import type { AppError, ConnectionSummary, PlanReport, QueryOutcome, StatementSpan } from "@/lib/bindings";
 import type { SQLNamespace } from "@codemirror/lang-sql";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { engineMeta } from "@/lib/engines";
+import { pickSqlSavePath } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
 import { AppSelect, Field } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
@@ -13,7 +14,7 @@ import { Resizer } from "@/components/global/Resizer";
 import { RunShortcut } from "@/components/global/Kbd";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
-import { SqlEditor } from "./SqlEditor";
+import { SqlEditor, type RunTarget } from "./SqlEditor";
 import { ResultsPane } from "./ResultsPane";
 import { HistoryPanel } from "./HistoryPanel";
 
@@ -39,6 +40,8 @@ function defaultRowCap(max: number | undefined): (typeof ROW_CAPS)[number]["valu
 interface QueryPaneProps {
   connection: ConnectionSummary;
   tabId: string;
+  /// The tab's name. Stored with the buffer, so a restored tab keeps it.
+  title: string;
   seedSql?: string | undefined;
 }
 
@@ -48,7 +51,7 @@ interface QueryPaneProps {
 //        outcome. Destructive statements bounce back as a typed error the user
 //        confirms explicitly.
 // WHERE: src-tauri/src/guard/mod.rs, src-tauri/src/services/ai.rs
-export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
+export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps) {
   const catalog = useWorkspace((s) => s.catalogs[connection.id]);
   const info = useWorkspace((s) => s.sessionInfos[connection.id]);
   const schemaFilter = useWorkspace((s) => s.schemaFilter[connection.id] ?? null);
@@ -68,7 +71,10 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<QueryOutcome | null>(null);
   const [rowCap, setRowCap] = useState<(typeof ROW_CAPS)[number]["value"]>(() => defaultRowCap(settings?.maxQueryRows));
-  const [confirm, setConfirm] = useState<{ statements: string[] } | null>(null);
+  const [confirm, setConfirm] = useState<{ statements: string[]; script: string } | null>(null);
+  const [spans, setSpans] = useState<readonly StatementSpan[]>([]);
+  const [target, setTarget] = useState<RunTarget | null>(null);
+  const [savingFile, setSavingFile] = useState(false);
   const [historyKey, setHistoryKey] = useState(0);
   const [showHistory, setShowHistory] = useState(false);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -145,6 +151,15 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
     };
   }, [bufferId, seedSql, showError]);
 
+  // A queued autosave has to die with the tab: closing one deletes its buffer, and
+  // a timer that fires afterwards would write the row straight back.
+  useEffect(
+    () => () => {
+      if (saveTimer.current !== null) window.clearTimeout(saveTimer.current);
+    },
+    [],
+  );
+
   const onChange = useCallback(
     (next: string) => {
       setSql(next);
@@ -152,25 +167,30 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
       saveTimer.current = window.setTimeout(() => {
         void (async () => {
           try {
-            await ipc("save_buffer", { buffer: { id: bufferId, connectionId: connection.id, title: "Query", content: next, updatedAt: "" } });
+            await ipc("save_buffer", { buffer: { id: bufferId, connectionId: connection.id, title, content: next, updatedAt: "" } });
           } catch (raw) {
             showError(normalizeError(raw));
           }
         })();
       }, 500);
     },
-    [bufferId, connection.id, showError],
+    [bufferId, connection.id, showError, title],
   );
 
+  // WHAT:  Sends one script — the whole buffer, the highlighted range, or the
+  //        single statement the caret is in.
+  // WHY:   PRD §4.3 — a tab holds a script, and the caller decides how much of it
+  //        to run. Whatever is sent is what history logs and what the destructive
+  //        gate quotes back, so the confirmation re-runs that exact text.
   const run = useCallback(
-    async (confirmDestructive: boolean) => {
-      if (running || sql.trim().length === 0) return;
+    async (script: string, confirmDestructive: boolean) => {
+      if (running || script.trim().length === 0) return;
       setRunning(true);
       setConfirm(null);
       try {
         const result = await ipc("execute_query", {
           connectionId: connection.id,
-          sql,
+          sql: script,
           confirmDestructive,
           maxRows: rowCap === "none" ? null : Number(rowCap),
           schema: schemaFilter,
@@ -180,15 +200,53 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
       } catch (raw) {
         const error: AppError = normalizeError(raw);
         setLastError(error.message);
-        if (error.kind === "destructive_confirmation_required") setConfirm({ statements: error.statements });
+        if (error.kind === "destructive_confirmation_required") setConfirm({ statements: error.statements, script });
         else showError(error);
       } finally {
         setRunning(false);
         setHistoryKey((k) => k + 1);
       }
     },
-    [connection.id, rowCap, running, schemaFilter, showError, sql],
+    [connection.id, rowCap, running, schemaFilter, showError],
   );
+
+  const runCurrent = useCallback(() => {
+    void run(target?.text ?? sql, false);
+  }, [run, sql, target]);
+
+  const runAll = useCallback(() => {
+    void run(sql, false);
+  }, [run, sql]);
+
+  // WHAT:  Where each statement in the buffer starts and ends.
+  // WHY:   The gutter ▶ and Run at cursor have to cut the script exactly where the
+  //        block will, comments, quotes and $$…$$ included — so the split comes
+  //        from the block's own tokenizer instead of a second one written here.
+  // HOW:   Debounced: it is pure local text work, but not worth a call per keypress.
+  // WHERE: src-tauri/src/guard/destructive.rs (spans)
+  useEffect(() => {
+    const token = { cancelled: false };
+    const timer = window.setTimeout(() => {
+      if (sql.trim().length === 0) {
+        setSpans([]);
+        return;
+      }
+      void (async () => {
+        try {
+          const found = await ipc("split_script", { sql });
+          if (!token.cancelled) setSpans(found);
+        } catch {
+          // A split that fails costs the gutter markers, not the query: Run then
+          // sends the whole buffer, which is what it did before this existed.
+          if (!token.cancelled) setSpans([]);
+        }
+      })();
+    }, 150);
+    return () => {
+      token.cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [sql]);
 
   const doFormat = useCallback(() => {
     if (!isSql) return;
@@ -223,6 +281,23 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
     }
   };
 
+  // WHAT:  Writes the buffer to a .sql file the user picks.
+  // WHY:   PRD §4.3 — a query outlives the tab it was written in: handed over,
+  //        committed, opened by another tool.
+  // WHERE: src/lib/native.ts (the dialog), src-tauri/src/services/scripts.rs
+  const saveToFile = async () => {
+    if (sql.trim().length === 0) return;
+    setSavingFile(true);
+    try {
+      const path = await pickSqlSavePath(title);
+      if (path !== null) showInfo(`Saved to ${await ipc("save_sql_file", { path, sql })}.`);
+    } catch (raw) {
+      showError(normalizeError(raw));
+    } finally {
+      setSavingFile(false);
+    }
+  };
+
   const askAi = async (overridePrompt?: string) => {
     const promptText = (overridePrompt ?? aiPrompt).trim();
     if (promptText.length === 0) return;
@@ -253,10 +328,12 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
   };
 
   const explain = async () => {
-    if (sql.trim().length === 0) return;
+    const script = target?.text ?? sql;
+    if (script.trim().length === 0) return;
     setPlanBusy(true);
     try {
-      setPlan(await ipc("explain_query", { connectionId: connection.id, sql }));
+      // The same statement Run would send: a plan for a whole script is not one.
+      setPlan(await ipc("explain_query", { connectionId: connection.id, sql: script }));
     } catch (raw) {
       showError(normalizeError(raw));
     } finally {
@@ -269,6 +346,13 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
   // Rust side resolves them there too (`Integration::use_namespace`).
   const defaultSchema = schemaFilter ?? (connection.engine === "postgres" ? "public" : undefined);
   const aiEnabled = settings !== null && settings.ai.provider !== "none";
+
+  // WHAT:  What the Run button will send, said out loud.
+  // WHY:   Run means three different things depending on where the caret is; the
+  //        button has to admit which one, or a script gets run by surprise.
+  const statement = target?.selected === false ? target.index : 0;
+  const runLabel = target?.selected === true ? "Run selection" : spans.length > 1 && statement > 0 ? `Run statement ${statement}` : "Run";
+  const empty = sql.trim().length === 0;
 
   // WHAT:  The database / schema this tab runs against, next to Run rather than
   //        only in the sidebar — a query is written against a namespace.
@@ -287,16 +371,27 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
         <Button
           size="sm"
           isPending={running}
-          onPress={() => void run(false)}
-          isDisabled={!loaded || sql.trim().length === 0}
+          onPress={runCurrent}
+          isDisabled={!loaded || empty}
           className="glass-pill bg-accent text-accent-foreground font-semibold shadow-sm shadow-accent/30 liquid-hover"
         >
           <Icon name="play" size={12} />
-          Run
+          {runLabel}
         </Button>
+        {spans.length > 1 ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
+            onPress={runAll}
+            isDisabled={!loaded || running || empty}
+          >
+            Run all {spans.length}
+          </Button>
+        ) : null}
         <RunShortcut />
         {isSql ? (
-          <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={doFormat} isDisabled={sql.trim().length === 0}>
+          <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={doFormat} isDisabled={empty}>
             Format
           </Button>
         ) : null}
@@ -307,13 +402,24 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
             className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
             isPending={planBusy}
             onPress={() => void explain()}
-            isDisabled={sql.trim().length === 0}
+            isDisabled={empty}
           >
             Explain
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={() => setSaveOpen(true)} isDisabled={sql.trim().length === 0}>
+        <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={() => setSaveOpen(true)} isDisabled={empty}>
           Save
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
+          isPending={savingFile}
+          onPress={() => void saveToFile()}
+          isDisabled={empty}
+        >
+          <Icon name="download" size={12} />
+          .sql
         </Button>
         <Popover isOpen={aiOpen} onOpenChange={setAiOpen}>
           <Button size="sm" variant={aiEnabled ? "secondary" : "ghost"} className={cn("rounded-lg liquid-hover", aiEnabled ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
@@ -506,7 +612,19 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
       <div className="flex min-h-0 flex-1">
         <div className="flex min-w-0 flex-1 flex-col">
           <div className="relative shrink-0 flex flex-col" style={{ height: editorHeight }}>
-            {loaded ? <SqlEditor value={sql} onChange={onChange} onRun={() => void run(false)} engine={connection.engine} schema={schema} defaultSchema={defaultSchema} /> : null}
+            {loaded ? (
+              <SqlEditor
+                value={sql}
+                spans={spans}
+                onChange={onChange}
+                onRun={(picked) => void run(picked.text, false)}
+                onRunAll={runAll}
+                onTargetChange={setTarget}
+                engine={connection.engine}
+                schema={schema}
+                defaultSchema={defaultSchema}
+              />
+            ) : null}
           </div>
           <Resizer direction="vertical" onResize={handleEditorResize} />
           <div className="min-h-0 flex-1">
@@ -590,7 +708,7 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
               </Modal.Body>
               <Modal.Footer>
                 <Button variant="tertiary" onPress={() => setConfirm(null)}>Cancel</Button>
-                <Button variant="danger" onPress={() => void run(true)}>Run anyway</Button>
+                <Button variant="danger" onPress={() => void run(confirm?.script ?? sql, true)}>Run anyway</Button>
               </Modal.Footer>
             </Modal.Dialog>
           </Modal.Container>

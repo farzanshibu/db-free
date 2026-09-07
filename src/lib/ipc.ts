@@ -46,6 +46,7 @@ import type {
   SaveDocumentRequest,
   SaveQueryRequest,
   SaveSettingsRequest,
+  SaveSqlFileRequest,
   SavedQuery,
   SchemaCatalog,
   SearchCommand,
@@ -53,6 +54,8 @@ import type {
   ServerStats,
   SessionInfo,
   SessionRequest,
+  SplitScriptRequest,
+  StatementSpan,
   TablePage,
   TablePageRequest,
   UpdateProgress,
@@ -88,6 +91,8 @@ interface CommandMap {
   list_buffers: { req: undefined; res: EditorBuffer[] };
   save_buffer: { req: SaveBufferRequest; res: EditorBuffer };
   delete_buffer: { req: BufferIdRequest; res: null };
+  split_script: { req: SplitScriptRequest; res: StatementSpan[] };
+  save_sql_file: { req: SaveSqlFileRequest; res: string };
   get_settings: { req: undefined; res: AppSettings };
   save_settings: { req: SaveSettingsRequest; res: AppSettings };
   list_saved_queries: { req: undefined; res: SavedQuery[] };

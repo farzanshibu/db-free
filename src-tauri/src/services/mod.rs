@@ -14,6 +14,7 @@ pub mod history;
 pub mod objects;
 pub mod query;
 pub mod saved_queries;
+pub mod scripts;
 pub mod schema;
 pub mod settings;
 pub mod transfer;
