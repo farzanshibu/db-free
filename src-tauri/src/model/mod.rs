@@ -28,7 +28,8 @@ pub use objects::{
 };
 pub use query::{
     ColumnMeta, EditorBuffer, FilterOp, FilterRule, HistoryEntry, HistoryOrigin, HistoryStatus,
-    PageQuery, QueryOutcome, ResultSet, SavedQuery, SortRule, StatementResult, TablePage,
+    PageQuery, QueryOutcome, ResultSet, SavedQuery, SortRule, StatementIntent, StatementResult,
+    StatementSpan, TablePage,
 };
 pub use settings::{AiProvider, AiSettings, AppSettings, ExecutionMode, RunScope};
 pub use transfer::{AiReply, ExportReport, ExportedFile, ImportReport, PlanReport, TransferFormat};

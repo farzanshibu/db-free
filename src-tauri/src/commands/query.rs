@@ -1,11 +1,12 @@
-// SOT: query-commands, ipc-execute, ipc-history, ipc-buffers
+// SOT: query-commands, ipc-execute, ipc-history, ipc-buffers, ipc-split-script, ipc-save-sql-file
 
 use crate::error::AppResult;
 use crate::guard;
-use crate::model::{EditorBuffer, HistoryEntry, HistoryOrigin, QueryOutcome};
+use crate::model::{EditorBuffer, HistoryEntry, HistoryOrigin, QueryOutcome, StatementSpan};
 use crate::services;
 use crate::state::AppState;
 use serde::Deserialize;
+use std::path::Path;
 use tauri::State;
 use ts_rs::TS;
 
@@ -43,6 +44,22 @@ pub struct SaveBufferRequest {
 #[ts(export)]
 pub struct BufferIdRequest {
     pub id: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SplitScriptRequest {
+    pub sql: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SaveSqlFileRequest {
+    /// Chosen in the OS save dialog; `.sql` is forced on if it is missing.
+    pub path: String,
+    pub sql: String,
 }
 
 #[tauri::command]
@@ -95,4 +112,20 @@ pub struct ClearHistoryRequest {
 #[tauri::command]
 pub async fn clear_history(state: State<'_, AppState>, req: ClearHistoryRequest) -> AppResult<u64> {
     guard::local("clear_history", async { services::history::clear(&state, req.connection_id.as_deref()) }).await
+}
+
+// WHAT:  Where every statement in the editor's script starts and ends.
+// WHY:   PRD §4.3 — the gutter ▶ and Run at cursor send one statement instead of
+//        the whole buffer, and they must cut it where the block would.
+// HOW:   Pure text work, so it takes the local lane: no session, no database.
+// WHERE: src-tauri/src/guard/destructive.rs (spans), src/features/editor/SqlEditor.tsx
+#[tauri::command]
+pub async fn split_script(req: SplitScriptRequest) -> AppResult<Vec<StatementSpan>> {
+    guard::local("split_script", async move { Ok(guard::destructive::spans(&req.sql)) }).await
+}
+
+// WHAT:  Writes the editor's script to the .sql file the user picked.
+#[tauri::command]
+pub async fn save_sql_file(req: SaveSqlFileRequest) -> AppResult<String> {
+    guard::local("save_sql_file", async move { services::scripts::save(Path::new(&req.path), &req.sql) }).await
 }

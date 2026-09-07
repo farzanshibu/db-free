@@ -1,4 +1,4 @@
-// SOT: result-set, statement-result, query-outcome, table-page, page-query, sort-rule, filter-rule, filter-op, history-entry, history-origin, saved-query, editor-buffer
+// SOT: result-set, statement-result, query-outcome, table-page, page-query, sort-rule, filter-rule, filter-op, history-entry, history-origin, saved-query, editor-buffer, statement-span, statement-intent
 
 use crate::model::schema::ColumnInfo;
 use crate::model::value::Value;
@@ -27,6 +27,34 @@ impl ResultSet {
     pub fn row_count(&self) -> u64 {
         self.rows.len() as u64
     }
+}
+
+// WHAT:  One statement's place inside the editor's text, and what running it does.
+// WHY:   PRD §4.3 — the gutter ▶ and Run at cursor execute one statement out of a
+//        script, so the UI has to be told where each one starts and ends. It reads
+//        the block's own tokenizer rather than shipping a second one.
+// HOW:   `start` / `end` are UTF-16 code-unit offsets: the units a JavaScript string
+//        and a CodeMirror position are counted in, so `sql.slice(start, end)` is the
+//        statement exactly.
+// WHERE: src-tauri/src/guard/destructive.rs (spans), src/features/editor/SqlEditor.tsx
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct StatementSpan {
+    pub start: u32,
+    pub end: u32,
+    pub intent: StatementIntent,
+}
+
+// WHAT:  What the block would do with a statement: run it, refuse it under a
+//        read-only lock, or ask the user to confirm it first.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum StatementIntent {
+    Read,
+    Write,
+    Destructive,
 }
 
 // WHAT:  Comparison operators the GUI filter builder offers (PRD §4.2).

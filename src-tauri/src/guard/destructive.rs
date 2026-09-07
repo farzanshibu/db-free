@@ -8,6 +8,8 @@
 //        Unknown leading keywords classify as Write — fail closed.
 // WHERE: src-tauri/src/guard/mod.rs (consumer)
 
+use crate::model::{StatementIntent, StatementSpan};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StatementKind {
     Read,
@@ -35,24 +37,77 @@ pub fn classify(sql: &str) -> Vec<ClassifiedStatement> {
 }
 
 pub fn split_statements(sql: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut current = String::new();
     let chars: Vec<char> = sql.chars().collect();
-    let mut i = 0;
+    scan(&chars).into_iter().map(|(from, to)| chars[from..to].iter().collect()).collect()
+}
+
+// WHAT:  Where each statement starts and ends in the caller's own text, with the
+//        intent running it would have.
+// WHY:   PRD §4.3 — the editor runs one statement out of a script (the gutter ▶,
+//        Run at cursor). It has to agree with the block about where a statement
+//        begins and ends, so both read this tokenizer rather than the UI growing a
+//        second one that drifts from it.
+// HOW:   Offsets count UTF-16 code units, because that is how JavaScript indexes a
+//        string and how CodeMirror numbers a position; char indices would slide as
+//        soon as a literal holds an astral character.
+// WHERE: src/features/editor/SqlEditor.tsx (gutter), src-tauri/src/commands/query.rs
+pub fn spans(sql: &str) -> Vec<StatementSpan> {
+    let chars: Vec<char> = sql.chars().collect();
+    let mut utf16: Vec<u32> = Vec::with_capacity(chars.len() + 1);
+    let mut total: u32 = 0;
+    utf16.push(0);
+    for c in &chars {
+        total = total.saturating_add(if c.len_utf16() == 2 { 2 } else { 1 });
+        utf16.push(total);
+    }
+    let at = |i: usize| utf16.get(i).copied().unwrap_or(total);
+    scan(&chars)
+        .into_iter()
+        .filter_map(|(mut from, mut to)| {
+            while from < to && chars[from].is_whitespace() {
+                from += 1;
+            }
+            while to > from && chars[to - 1].is_whitespace() {
+                to -= 1;
+            }
+            if from == to {
+                return None;
+            }
+            let text: String = chars[from..to].iter().collect();
+            let (kind, _) = classify_words(&top_level_words(&text));
+            Some(StatementSpan { start: at(from), end: at(to), intent: intent_of(kind) })
+        })
+        .collect()
+}
+
+fn intent_of(kind: StatementKind) -> StatementIntent {
+    match kind {
+        StatementKind::Read => StatementIntent::Read,
+        StatementKind::Write => StatementIntent::Write,
+        StatementKind::Destructive => StatementIntent::Destructive,
+    }
+}
+
+// WHAT:  Half-open char ranges of every `;`-separated chunk, the separator excluded.
+// HOW:   Strings, quoted identifiers, line and block comments and dollar-quotes are
+//        skipped whole, so a `;` inside one is never a boundary. A chunk is emitted
+//        at every separator (an empty one included, which `classify` then drops) and
+//        the tail only when it holds something other than whitespace.
+fn scan(chars: &[char]) -> Vec<(usize, usize)> {
+    let mut out = Vec::new();
     let len = chars.len();
+    let mut start = 0_usize;
+    let mut i = 0_usize;
     while i < len {
         let c = chars[i];
         let next = chars.get(i + 1).copied();
         match c {
             '\'' | '"' | '`' => {
                 let quote = c;
-                current.push(c);
                 i += 1;
                 while i < len {
-                    current.push(chars[i]);
                     if chars[i] == quote {
                         if chars.get(i + 1).copied() == Some(quote) {
-                            current.push(quote);
                             i += 2;
                             continue;
                         }
@@ -64,20 +119,16 @@ pub fn split_statements(sql: &str) -> Vec<String> {
             }
             '-' if next == Some('-') => {
                 while i < len && chars[i] != '\n' {
-                    current.push(chars[i]);
                     i += 1;
                 }
             }
             '/' if next == Some('*') => {
-                current.push_str("/*");
                 i += 2;
                 while i < len {
                     if chars[i] == '*' && chars.get(i + 1).copied() == Some('/') {
-                        current.push_str("*/");
                         i += 2;
                         break;
                     }
-                    current.push(chars[i]);
                     i += 1;
                 }
             }
@@ -88,37 +139,29 @@ pub fn split_statements(sql: &str) -> Vec<String> {
                     j += 1;
                 }
                 if chars.get(j).copied() == Some('$') {
-                    let tag: String = chars[i..=j].iter().collect();
-                    let tag_len = tag.chars().count();
-                    current.push_str(&tag);
+                    let tag = &chars[i..=j];
                     i = j + 1;
                     while i < len {
-                        let window: String = chars[i..len.min(i + tag_len)].iter().collect();
-                        if window == tag {
-                            current.push_str(&tag);
-                            i += tag_len;
+                        if chars[i..].starts_with(tag) {
+                            i += tag.len();
                             break;
                         }
-                        current.push(chars[i]);
                         i += 1;
                     }
                 } else {
-                    current.push(c);
                     i += 1;
                 }
             }
             ';' => {
-                out.push(std::mem::take(&mut current));
+                out.push((start, i));
                 i += 1;
+                start = i;
             }
-            _ => {
-                current.push(c);
-                i += 1;
-            }
+            _ => i += 1,
         }
     }
-    if !current.trim().is_empty() {
-        out.push(current);
+    if chars[start..].iter().any(|c| !c.is_whitespace()) {
+        out.push((start, len));
     }
     out
 }
@@ -288,5 +331,34 @@ mod tests {
         let parts = split_statements("select ';'; /* ; */ select 2; -- ;\nselect $$a;b$$; select 4");
         assert_eq!(parts.len(), 4);
         assert!(parts.get(2).is_some_and(|s| s.trim().ends_with("select $$a;b$$")), "comment stays attached: {parts:?}");
+    }
+
+    /// What the editor will do with a span: slice its own string by UTF-16 units.
+    fn sliced(script: &str, span: &StatementSpan) -> String {
+        let units: Vec<u16> = script.encode_utf16().collect();
+        units.get(span.start as usize..span.end as usize).map(String::from_utf16_lossy).unwrap_or_default()
+    }
+
+    // The editor slices its own text with these offsets, so a span has to cover the
+    // statement exactly — no leading blank line, no trailing semicolon.
+    #[test]
+    fn spans_point_at_each_statement() {
+        let script = "select 1;\n\ndelete from t;\n";
+        let found = spans(script);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found.first().map(|s| sliced(script, s)), Some("select 1".to_string()));
+        assert_eq!(found.first().map(|s| s.intent), Some(StatementIntent::Read));
+        assert_eq!(found.get(1).map(|s| sliced(script, s)), Some("delete from t".to_string()));
+        assert_eq!(found.get(1).map(|s| s.intent), Some(StatementIntent::Destructive));
+    }
+
+    // A `;` inside a literal is not a boundary, and an astral character counts as
+    // the two UTF-16 units JavaScript indexes it by.
+    #[test]
+    fn spans_count_utf16_units() {
+        let script = "select '\u{1F600};' as e; select 2";
+        let found = spans(script);
+        assert_eq!(found.len(), 2);
+        assert_eq!(found.get(1).map(|s| sliced(script, s)), Some("select 2".to_string()));
     }
 }
