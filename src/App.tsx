@@ -1,6 +1,6 @@
 // SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars
 import { useEffect } from "react";
-import { useActiveConnection, useActiveTab, useWorkspace } from "@/stores/workspace";
+import { useActiveConnection, useActiveTab, useTabConnection, useWorkspace } from "@/stores/workspace";
 import { ipc } from "@/lib/ipc";
 import { isKeyValueEngine } from "@/lib/engines";
 import { fontStack } from "@/lib/fonts";
@@ -53,6 +53,9 @@ export function App() {
   const connection = useActiveConnection();
   const connected = useWorkspace((s) => (connection ? s.sessions.includes(connection.id) : false));
   const tab = useActiveTab();
+  // The tab's own connection, not the selected one — see useTabConnection. It
+  // falls back to the active connection for a tab whose own has been deleted.
+  const tabConnection = useTabConnection(tab);
   const changesOpen = useWorkspace((s) => s.changesPanelOpen);
 
   useEffect(() => {
@@ -140,9 +143,9 @@ export function App() {
                 {tab === null ? (
                   <EmptyState icon="table" title="Pick a table" body="Select a table on the left to browse it, or open a query tab. Run with" action={<RunShortcut />} />
                 ) : tab.kind === "table" ? (
-                  isKeyValueEngine(connection.engine) ? <KeyTab key={tab.id} connectionId={tab.connectionId} table={tab.table} /> : <TableTab key={`${tab.id}:${tab.filterKey}`} connectionId={tab.connectionId} table={tab.table} initialFilters={tab.initialFilters} />
+                  isKeyValueEngine((tabConnection ?? connection).engine) ? <KeyTab key={tab.id} connectionId={tab.connectionId} table={tab.table} /> : <TableTab key={`${tab.id}:${tab.filterKey}`} connectionId={tab.connectionId} table={tab.table} initialFilters={tab.initialFilters} />
                 ) : tab.kind === "query" ? (
-                  <QueryPane key={tab.id} tabId={tab.id} title={tab.title} connection={connection} seedSql={tab.seedSql} />
+                  <QueryPane key={tab.id} tabId={tab.id} title={tab.title} connection={tabConnection ?? connection} seedSql={tab.seedSql} />
                 ) : tab.kind === "history" ? (
                   <HistoryTab key={tab.id} connectionId={tab.connectionId} />
                 ) : tab.kind === "transfer" ? (

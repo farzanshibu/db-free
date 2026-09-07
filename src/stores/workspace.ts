@@ -560,6 +560,16 @@ export function useActiveTab(): Tab | null {
   return useWorkspace((s) => s.tabs.find((t) => t.id === s.activeTabId) ?? null);
 }
 
+// WHAT:  The connection a tab belongs to, which is not always the active one.
+// WHY:   The tab bar holds every open tab, and restoring query tabs at startup
+//        puts back tabs from several connections at once. A tab has to run against
+//        the database it was written for, not against whichever one is selected.
+// WHERE: src/App.tsx (tab routing)
+export function useTabConnection(tab: Tab | null): ConnectionSummary | null {
+  const connectionId = tab === null ? null : tab.connectionId;
+  return useWorkspace((s) => s.connections.find((c) => c.id === connectionId) ?? null);
+}
+
 export function usePendingCount(connectionId: string | null): number {
   return useWorkspace((s) => (connectionId ? (s.pendingChanges[connectionId]?.length ?? 0) : 0));
 }

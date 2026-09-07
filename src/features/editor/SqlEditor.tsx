@@ -54,9 +54,13 @@ const NO_SPANS: readonly StatementSpan[] = [];
 const setSpans = StateEffect.define<readonly StatementSpan[]>();
 
 // WHAT:  The statement boundaries the gutter and Run at cursor read.
-// HOW:   Rust answers a beat behind the typing, so between answers the offsets are
-//        carried through each edit. Without that, a character typed into the first
-//        statement would leave every ▶ below it pointing one place too far left.
+// WHY:   Rust answers a beat behind the typing. Between answers the offsets are
+//        carried through each edit, or a character typed into the first statement
+//        leaves every ▶ below it pointing one place too far left — and for the
+//        ~150 ms until the next split lands, ⌘/Ctrl + Enter sends a statement cut
+//        one character short.
+// HOW:   The start associates backwards and the end forwards, so text typed at
+//        either edge of a statement lands inside it rather than outside.
 const spansField = StateField.define<readonly StatementSpan[]>({
   create: () => [],
   update(spans, tr) {
@@ -64,7 +68,7 @@ const spansField = StateField.define<readonly StatementSpan[]>({
       if (effect.is(setSpans)) return effect.value;
     }
     if (!tr.docChanged || spans.length === 0) return spans;
-    return spans.map((s) => ({ ...s, start: tr.changes.mapPos(s.start, 1), end: tr.changes.mapPos(s.end, -1) }));
+    return spans.map((s) => ({ ...s, start: tr.changes.mapPos(s.start, -1), end: tr.changes.mapPos(s.end, 1) }));
   },
 });
 
