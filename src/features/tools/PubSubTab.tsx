@@ -42,7 +42,7 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
     setRunning(true);
     setError(null);
     try {
-      const outcome = await ipc("execute_query", { connectionId, sql: `PUBLISH ${quote(channel.trim())} ${quote(message)}`, confirmDestructive: false, maxRows: 1 });
+      const outcome = await ipc("execute_query", { connectionId, sql: `PUBLISH ${quote(channel.trim())} ${quote(message)}`, confirmDestructive: false, maxRows: 1, schema: null });
       const first = outcome.statements[0];
       const cell = first?.kind === "rows" ? first.result.rows[0]?.[0] : undefined;
       const receivers = cell !== undefined ? formatCell(cell).text : first?.kind === "affected" ? String(first.rowsAffected) : "?";

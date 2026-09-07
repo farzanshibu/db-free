@@ -16,7 +16,10 @@ pub struct ExecuteQueryRequest {
     pub connection_id: String,
     pub sql: String,
     pub confirm_destructive: bool,
+    /// None = "No limit" in the editor; otherwise clamped by the block.
     pub max_rows: Option<u32>,
+    /// Schema / keyspace the editor's picker is on, applied for this run only.
+    pub schema: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -46,6 +49,7 @@ pub struct BufferIdRequest {
 pub async fn execute_query(state: State<'_, AppState>, req: ExecuteQueryRequest) -> AppResult<QueryOutcome> {
     let max_rows = guard::clamp_result_rows(req.max_rows);
     let sql = req.sql.clone();
+    let schema = req.schema.clone();
     guard::statement(
         &state,
         guard::StatementRequest {
@@ -53,7 +57,7 @@ pub async fn execute_query(state: State<'_, AppState>, req: ExecuteQueryRequest)
             sql: &req.sql,
             confirm_destructive: req.confirm_destructive,
         },
-        |ctx| async move { services::query::execute(&ctx, &sql, max_rows).await },
+        |ctx| async move { services::query::execute(&ctx, &sql, max_rows, schema.as_deref()).await },
     )
     .await
 }

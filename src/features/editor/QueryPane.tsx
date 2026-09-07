@@ -19,6 +19,7 @@ import { HistoryPanel } from "./HistoryPanel";
 
 /// Per-tab row cap. The default comes from Settings -> Max query rows, so the
 /// app-wide answer is set once and a single tab can still override it.
+/// "none" is the caller asking for every row; it reaches Rust as a null maxRows.
 const ROW_CAPS = [
   { value: "500", label: "500 rows" },
   { value: "1000", label: "1,000 rows" },
@@ -27,6 +28,7 @@ const ROW_CAPS = [
   { value: "20000", label: "20,000 rows" },
   { value: "50000", label: "50,000 rows" },
   { value: "100000", label: "100,000 rows" },
+  { value: "none", label: "No limit" },
 ] satisfies readonly { value: string; label: string }[];
 
 function defaultRowCap(max: number | undefined): (typeof ROW_CAPS)[number]["value"] {
@@ -48,6 +50,11 @@ interface QueryPaneProps {
 // WHERE: src-tauri/src/guard/mod.rs, src-tauri/src/services/ai.rs
 export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
   const catalog = useWorkspace((s) => s.catalogs[connection.id]);
+  const info = useWorkspace((s) => s.sessionInfos[connection.id]);
+  const schemaFilter = useWorkspace((s) => s.schemaFilter[connection.id] ?? null);
+  const setSchemaFilter = useWorkspace((s) => s.setSchemaFilter);
+  const switchDatabase = useWorkspace((s) => s.switchDatabase);
+  const connecting = useWorkspace((s) => s.connecting);
   const columnsCache = useWorkspace((s) => s.columnsCache);
   const settings = useWorkspace((s) => s.settings);
   const saveQuery = useWorkspace((s) => s.saveQuery);
@@ -161,7 +168,13 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
       setRunning(true);
       setConfirm(null);
       try {
-        const result = await ipc("execute_query", { connectionId: connection.id, sql, confirmDestructive, maxRows: Number(rowCap) });
+        const result = await ipc("execute_query", {
+          connectionId: connection.id,
+          sql,
+          confirmDestructive,
+          maxRows: rowCap === "none" ? null : Number(rowCap),
+          schema: schemaFilter,
+        });
         setOutcome(result);
         setLastError(null);
       } catch (raw) {
@@ -174,7 +187,7 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
         setHistoryKey((k) => k + 1);
       }
     },
-    [connection.id, rowCap, running, showError, sql],
+    [connection.id, rowCap, running, schemaFilter, showError, sql],
   );
 
   const doFormat = useCallback(() => {
@@ -252,8 +265,21 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
   };
 
   const schema = useMemo<SQLNamespace>(() => buildNamespace(connection.id, catalog, columnsCache), [connection.id, catalog, columnsCache]);
-  const defaultSchema = connection.engine === "postgres" ? "public" : undefined;
+  // Unqualified names complete against the schema the tab is pointed at; the
+  // Rust side resolves them there too (`Integration::use_namespace`).
+  const defaultSchema = schemaFilter ?? (connection.engine === "postgres" ? "public" : undefined);
   const aiEnabled = settings !== null && settings.ai.provider !== "none";
+
+  // WHAT:  The database / schema this tab runs against, next to Run rather than
+  //        only in the sidebar — a query is written against a namespace.
+  // WHY:   Both pickers are the connection's own state, so the tab, the sidebar
+  //        and the object explorer can never disagree about where a name lives.
+  const databases = info?.databases ?? [];
+  const currentDb = info?.database ?? "";
+  const dbOptions = (databases.length > 0 ? databases : currentDb.length > 0 ? [currentDb] : []).map((d) => ({ value: d, label: d }));
+  const schemas = catalog?.schemas ?? [];
+  const schemaOptions = [{ value: "*", label: "All schemas" }, ...schemas.map((x) => ({ value: x.name, label: x.name }))];
+  const showSchemas = (info?.capabilities.namespaces ?? false) && (schemas.length > 1 || (schemas[0] !== undefined && schemas[0].name !== "main"));
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -443,6 +469,36 @@ export function QueryPane({ connection, tabId, seedSql }: QueryPaneProps) {
           </Popover.Content>
         </Popover>
         <div className="ml-auto flex items-center gap-2">
+          {dbOptions.length > 0 || showSchemas ? (
+            <div className="flex items-center gap-1 text-xs text-muted">
+              {dbOptions.length > 0 ? (
+                <AppSelect
+                  ariaLabel="Database"
+                  value={currentDb}
+                  options={dbOptions}
+                  plain
+                  className="w-auto min-w-0"
+                  icon="database"
+                  isDisabled={connecting === connection.id}
+                  onChange={(db) => void switchDatabase(connection.id, db)}
+                />
+              ) : null}
+              {showSchemas ? (
+                <>
+                  {dbOptions.length > 0 ? <span className="px-0.5 text-muted/60">/</span> : null}
+                  <AppSelect
+                    ariaLabel="Schema"
+                    value={schemaFilter ?? "*"}
+                    options={schemaOptions}
+                    plain
+                    className="w-auto min-w-0"
+                    icon="folder"
+                    onChange={(v) => setSchemaFilter(connection.id, v === "*" ? null : v)}
+                  />
+                </>
+              ) : null}
+            </div>
+          ) : null}
           <AppSelect ariaLabel="Row cap" value={rowCap} options={ROW_CAPS} onChange={setRowCap} size="sm" className="w-32" />
           <IconButton icon="history" label="Query history" active={showHistory} onPress={() => setShowHistory((v) => !v)} />
         </div>

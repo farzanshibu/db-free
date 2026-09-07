@@ -128,7 +128,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
       if (!sessions.includes(connectionId) && !(await connect(connectionId))) return;
       setRunning((r) => new Set(r).add(w.id));
       try {
-        const outcome = await ipc("execute_query", { connectionId, sql: substituteVars(w.sql), confirmDestructive: false, maxRows: 2000 });
+        const outcome = await ipc("execute_query", { connectionId, sql: substituteVars(w.sql), confirmDestructive: false, maxRows: 2000, schema: null });
         setResults((r) => ({ ...r, [w.id]: outcome }));
       } catch (raw) {
         showError(normalizeError(raw));

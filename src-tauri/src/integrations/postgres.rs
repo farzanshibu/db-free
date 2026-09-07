@@ -352,6 +352,10 @@ impl Integration for PostgresIntegration {
         self.run(sql, max_rows).await
     }
 
+    fn use_namespace(&self, namespace: &str) -> Option<(String, usize)> {
+        Some((format!("SET search_path TO {}", quote_ident(namespace)), 1))
+    }
+
     async fn close(&self) {
         self.pool.close().await;
     }

@@ -1914,6 +1914,10 @@ impl Integration for OracleIntegration {
         self.blocking(move |conn| run_script(conn, &sql, max_rows)).await
     }
 
+    fn use_namespace(&self, namespace: &str) -> Option<(String, usize)> {
+        Some((format!("ALTER SESSION SET CURRENT_SCHEMA = {}", quote_ident_for(self.engine(), namespace)), 1))
+    }
+
     async fn close(&self) {
         let conn = Arc::clone(&self.conn);
         let _ = tokio::task::spawn_blocking(move || {

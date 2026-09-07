@@ -50,7 +50,7 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
     setError(null);
     try {
       const command = { topic: current, ...(partition !== null ? { partition } : {}), offset: start === "offset" ? (offset ?? 0) : start, limit: limit ?? 100 };
-      const outcome = await ipc("execute_query", { connectionId, sql: JSON.stringify(command), confirmDestructive: false, maxRows: limit ?? 100 });
+      const outcome = await ipc("execute_query", { connectionId, sql: JSON.stringify(command), confirmDestructive: false, maxRows: limit ?? 100, schema: null });
       setResult(firstRows(outcome));
     } catch (raw) {
       setError(normalizeError(raw).message);
@@ -73,7 +73,7 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
     setError(null);
     try {
       const command = { produce: { topic: current, value, ...(key.trim().length > 0 ? { key: key.trim() } : {}), ...(partition !== null ? { partition } : {}), ...(Object.keys(headerObject).length > 0 ? { headers: headerObject } : {}) } };
-      await ipc("execute_query", { connectionId, sql: JSON.stringify(command), confirmDestructive: false, maxRows: 1 });
+      await ipc("execute_query", { connectionId, sql: JSON.stringify(command), confirmDestructive: false, maxRows: 1, schema: null });
       showInfo(`Produced to ${current}.`);
       setValue("");
     } catch (raw) {
