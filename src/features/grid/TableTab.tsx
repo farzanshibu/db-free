@@ -1,9 +1,9 @@
-// SOT: table-tab, table-toolbar, page-based-browsing, sort-state, export-copy, row-inspector, inspector-collapse, insert-row-flow, delete-rows-flow, cell-edit-staging, foreign-key-traversal, staged-row-mapping
+// SOT: table-tab, table-toolbar, page-based-browsing, sort-state, export-copy, full-table-export, file-download, row-inspector, inspector-collapse, insert-row-flow, delete-rows-flow, cell-edit-staging, foreign-key-traversal, staged-row-mapping
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button, Chip, CloseButton, Dropdown, Label, Modal, Popover, ScrollShadow, SearchField, Separator, Tooltip } from "@heroui/react";
 import type { CellValue, ColumnInfo, FilterOp, FilterRule, ForeignKey, SortRule, StagedChange, TablePage, TableRef, Value } from "@/lib/bindings";
-import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { ipc, normalizeError } from "@/lib/ipc";
+import { downloadTextFile, exportFilename, plainValue, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
 import { DENSITIES, formatCell, formatCount } from "@/lib/format";
 import { engineMeta } from "@/lib/engines";
 import { tableKey, useWorkspace } from "@/stores/workspace";
@@ -59,6 +59,11 @@ const INSPECTOR_FOLD_AT = 200;
 /// row's own columns are shown beside the id.
 const LOOKUP_LIMIT = 50;
 const LOOKUP_DETAIL_COLUMNS = 3;
+
+/// Rows fetched per request when exporting the whole filtered table, and the
+/// most rows a browser-side export will hold before pointing at Transfer.
+const EXPORT_PAGE = 1000;
+const MAX_EXPORT_ROWS = 500_000;
 
 /// Separators for the stored table view state: group, entry, field.
 const GROUP_SEP = "\u0003";
@@ -423,7 +428,7 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
   const copyRowsFrom = async (rowIndex: number, format: "json" | "csv" | "sql") => {
     if (!page) return;
     const chosen = selectedRows.size > 0 ? rows.filter((_, i) => selectedRows.has(i)) : [rows[rowIndex]].filter((r): r is Value[] => r !== undefined);
-    const text = format === "json" ? toJson(page, chosen) : format === "csv" ? toCsv(page, chosen) : toInserts(table, page, chosen);
+    const text = format === "json" ? toJsonText(page.columns, chosen) : format === "csv" ? toCsvText(page.columns, chosen) : toInserts(table, page, chosen);
     await navigator.clipboard.writeText(text);
     showInfo(`Copied ${chosen.length} row(s) as ${format.toUpperCase()}.`);
   };
@@ -438,12 +443,69 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
     });
   };
 
-  const copyAs = async (format: "csv" | "json") => {
+  const copyAs = async (format: ExportFormat) => {
     if (!page) return;
     const chosen = selectedRows.size > 0 ? rows.filter((_, i) => selectedRows.has(i)) : rows;
-    const text = format === "json" ? toJson(page, chosen) : toCsv(page, chosen);
+    const text = format === "json" ? toJsonText(page.columns, chosen) : toCsvText(page.columns, chosen);
     await navigator.clipboard.writeText(text);
     showInfo(`Copied ${chosen.length} row(s) as ${format.toUpperCase()} to the clipboard.`);
+  };
+
+  const downloadPage = (format: ExportFormat) => {
+    if (!page) return;
+    const chosen = selectedRows.size > 0 ? rows.filter((_, i) => selectedRows.has(i)) : rows;
+    const text = format === "json" ? toJsonText(page.columns, chosen) : toCsvText(page.columns, chosen);
+    downloadTextFile(exportFilename(tableKey(table), format), text, format === "json" ? "application/json" : "text/csv");
+    showInfo(`Downloaded ${chosen.length} row(s) as ${format.toUpperCase()}.`);
+  };
+
+  // WHAT:  Full-table export: replays the current sort + filters page by page so
+  //        the file holds every matching row, not just the visible page.
+  // WHY:   Copy/export-page silently drops everything off-screen; the Transfer
+  //        tab already streams huge tables server-side, so this caps at
+  //        MAX_EXPORT_ROWS and points beyond that at Transfer.
+  // HOW:   Same fetch_table_page every engine honours, 1k rows at a time, stops
+  //        on a short page or an exact total. Serialized with the shared helper.
+  const [exporting, setExporting] = useState(false);
+  const downloadAll = async (format: ExportFormat) => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const all: Value[][] = [];
+      let fetchedColumns = columns;
+      let offset = 0;
+      let capped = false;
+      for (;;) {
+        const chunk = await ipc("fetch_table_page", { connectionId, table, query: { sort, filters, offset, limit: EXPORT_PAGE } });
+        if (offset === 0) fetchedColumns = chunk.columns;
+        for (const r of chunk.rows) {
+          if (all.length >= MAX_EXPORT_ROWS) {
+            capped = true;
+            break;
+          }
+          all.push(r);
+        }
+        offset += chunk.rows.length;
+        if (capped || chunk.rows.length < EXPORT_PAGE) break;
+        if (chunk.total !== null && chunk.totalExact && offset >= chunk.total) break;
+      }
+      const text = format === "json" ? toJsonText(fetchedColumns, all) : toCsvText(fetchedColumns, all);
+      downloadTextFile(exportFilename(`${tableKey(table)}-all`, format), text, format === "json" ? "application/json" : "text/csv");
+      showInfo(capped ? `Downloaded the first ${formatCount(all.length)} rows as ${format.toUpperCase()}. Use the Transfer tab for larger exports.` : `Downloaded ${formatCount(all.length)} row(s) as ${format.toUpperCase()}.`);
+    } catch (raw) {
+      showError(normalizeError(raw));
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  const onExportAction = (key: string) => {
+    if (key === "copy-csv") void copyAs("csv");
+    else if (key === "copy-json") void copyAs("json");
+    else if (key === "download-page-csv") downloadPage("csv");
+    else if (key === "download-page-json") downloadPage("json");
+    else if (key === "download-all-csv") void downloadAll("csv");
+    else if (key === "download-all-json") void downloadAll("json");
   };
 
   const selectedRow = cell ? allRows[cell.row] : undefined;
@@ -489,15 +551,19 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
           {sort.length > 0 ? `Sorted by ${sort.length} rule` : "Sort"}
         </Button>
         <Dropdown>
-          <Button size="sm" variant="ghost" className="text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover rounded-lg" isDisabled={rows.length === 0}>
+          <Button size="sm" variant="ghost" className="text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover rounded-lg" isDisabled={rows.length === 0 || exporting}>
             <Icon name="download" size={13} />
-            Export
+            {exporting ? "Exporting…" : "Export"}
             <Icon name="chevron-down" size={12} />
           </Button>
           <Dropdown.Popover className="glass-modal rounded-xl">
-            <Dropdown.Menu onAction={(key) => void copyAs(String(key) === "json" ? "json" : "csv")}>
-              <Dropdown.Item id="csv" textValue="Copy as CSV"><Label>Copy {selectedRows.size > 0 ? "selection" : "page"} as CSV</Label></Dropdown.Item>
-              <Dropdown.Item id="json" textValue="Copy as JSON"><Label>Copy {selectedRows.size > 0 ? "selection" : "page"} as JSON</Label></Dropdown.Item>
+            <Dropdown.Menu onAction={(key) => onExportAction(String(key))}>
+              <Dropdown.Item id="copy-csv" textValue="Copy as CSV"><Label>Copy {selectedRows.size > 0 ? "selection" : "page"} as CSV</Label></Dropdown.Item>
+              <Dropdown.Item id="copy-json" textValue="Copy as JSON"><Label>Copy {selectedRows.size > 0 ? "selection" : "page"} as JSON</Label></Dropdown.Item>
+              <Dropdown.Item id="download-page-csv" textValue="Download page as CSV"><Label>Download {selectedRows.size > 0 ? "selection" : "page"} as CSV</Label></Dropdown.Item>
+              <Dropdown.Item id="download-page-json" textValue="Download page as JSON"><Label>Download {selectedRows.size > 0 ? "selection" : "page"} as JSON</Label></Dropdown.Item>
+              <Dropdown.Item id="download-all-csv" textValue="Download all rows as CSV"><Label>Download all{total !== null ? ` ${formatCount(total)}` : ""} rows as CSV</Label></Dropdown.Item>
+              <Dropdown.Item id="download-all-json" textValue="Download all rows as JSON"><Label>Download all{total !== null ? ` ${formatCount(total)}` : ""} rows as JSON</Label></Dropdown.Item>
             </Dropdown.Menu>
           </Dropdown.Popover>
         </Dropdown>
@@ -846,13 +912,6 @@ function sqlLiteral(value: Value | undefined): string {
   }
 }
 
-function toCsv(page: TablePage, rows: readonly (readonly Value[])[]): string {
-  const escape = (s: string) => (/[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const header = page.columns.map((c) => escape(c.name)).join(",");
-  const body = rows.map((r) => r.map((v) => escape(v.t === "null" ? "" : cellText(v))).join(","));
-  return [header, ...body].join("\n");
-}
-
 // WHAT:  Rows as INSERT statements, ready to paste into a query tab.
 // WHY:   Copying a row to another environment is the usual reason to copy one;
 //        JSON and CSV both lose the types the target has to be told about.
@@ -860,28 +919,4 @@ function toInserts(table: TableRef, page: TablePage, rows: readonly (readonly Va
   const target = table.schema === null ? table.name : `${table.schema}.${table.name}`;
   const columns = page.columns.map((c) => c.name).join(", ");
   return rows.map((row) => `INSERT INTO ${target} (${columns}) VALUES (${row.map(sqlLiteral).join(", ")});`).join("\n");
-}
-
-function toJson(page: TablePage, rows: readonly (readonly Value[])[]): string {
-  const objects = rows.map((r) => Object.fromEntries(page.columns.map((c, i) => [c.name, plainValue(r[i])])));
-  return JSON.stringify(objects, null, 2);
-}
-
-function plainValue(value: Value | undefined): JsonValue {
-  if (value === undefined) return null;
-  switch (value.t) {
-    case "null":
-      return null;
-    case "bool":
-    case "int":
-    case "float":
-    case "json":
-      return value.v;
-    case "decimal":
-    case "text":
-    case "bytes":
-    case "date_time":
-    case "unsupported":
-      return value.v;
-  }
 }
