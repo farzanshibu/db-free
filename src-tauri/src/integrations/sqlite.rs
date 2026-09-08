@@ -971,17 +971,31 @@ impl Integration for SqliteIntegration {
     }
 
     async fn fetch_page(&self, table: &TableRef, query: &PageQuery) -> AppResult<ResultSet> {
-        let order = if query.sort.is_empty() { " ORDER BY rowid".to_string() } else { order_clause(Engine::Sqlite, &query.sort) };
-        let sql = format!(
-            "SELECT * FROM {}{}{} LIMIT {} OFFSET {}",
+        // WHAT:  Stable default order for rowid tables, plain SELECT for views /
+        //        WITHOUT ROWID tables that have no rowid column.
+        // WHY:   Views (e.g. film_list) and WITHOUT ROWID tables fail with
+        //        "no such column: rowid" when the grid opens them with no sort;
+        //        the grid must still show their data.
+        // HOW:   Try ORDER BY rowid first, then retry without it when SQLite
+        //        reports the column is missing. Explicit sorts never fall back.
+        // WHERE: src-tauri/src/services/data.rs (appends PKs when present)
+        let default_order = query.sort.is_empty();
+        let order = if default_order { " ORDER BY rowid".to_string() } else { order_clause(Engine::Sqlite, &query.sort) };
+        let from_where = format!(
+            "SELECT * FROM {}{}",
             quote_ident(&table.name),
             where_clause(Engine::Sqlite, &query.filters),
-            order,
-            query.limit,
-            query.offset
         );
+        let sql = format!("{}{} LIMIT {} OFFSET {}", from_where, order, query.limit, query.offset);
+        let fallback_sql = format!("{} LIMIT {} OFFSET {}", from_where, query.limit, query.offset);
         let max_rows = query.limit as usize;
-        let mut statements = self.blocking(move |conn| run_batch(conn, &sql, max_rows)).await?;
+        let mut statements = self
+            .blocking(move |conn| match run_batch(conn, &sql, max_rows) {
+                Ok(statements) => Ok(statements),
+                Err(err) if default_order && err.message().contains("no such column") => run_batch(conn, &fallback_sql, max_rows),
+                Err(err) => Err(err),
+            })
+            .await?;
         match statements.pop() {
             Some(StatementResult::Rows { result }) => Ok(result),
             _ => Ok(ResultSet { columns: Vec::new(), rows: Vec::new(), truncated: false }),
