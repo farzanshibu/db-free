@@ -1,11 +1,13 @@
-// SOT: results-pane, statement-tabs, query-result-grid, result-row-total
+// SOT: results-pane, statement-tabs, query-result-grid, result-row-total, result-export, file-download
 import { useState } from "react";
-import { Button, Chip } from "@heroui/react";
+import { Button, Chip, Dropdown, Label } from "@heroui/react";
 import type { QueryOutcome } from "@/lib/bindings";
 import { DENSITIES, formatCount, formatMs } from "@/lib/format";
+import { downloadTextFile, exportFilename, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
 import { useWorkspace } from "@/stores/workspace";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { EmptyState } from "@/components/global/EmptyState";
+import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 
 // WHAT:  Says how many rows the script really has, not just how many fit.
@@ -20,6 +22,7 @@ function rowSummary(shown: number, total: number | null, truncated: boolean): st
 
 export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
   const density = useWorkspace((s) => s.density);
+  const showInfo = useWorkspace((s) => s.showInfo);
   const [active, setActive] = useState(0);
 
   if (!outcome) {
@@ -30,6 +33,33 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
   const current = statements[index];
   const truncated = statements.some((s) => s.kind === "rows" && s.result.truncated);
   const shown = statements.reduce((sum, s) => sum + (s.kind === "rows" ? s.result.rows.length : 0), 0);
+  const rows = current?.kind === "rows" ? current.result.rows : [];
+  const exportable = current?.kind === "rows" && current.result.columns.length > 0 && rows.length > 0;
+
+  // WHAT:  Export for the visible result set: clipboard copy or a real file
+  //        download, in CSV or JSON. The outcome already holds every returned
+  //        row (up to the tab's row cap), so this is the complete result.
+  // HOW:   Serialized with the same shared helper the table grid uses, so
+  //        escaping and NULL handling cannot disagree between the two.
+  const exportResult = async (mode: "copy" | "download", format: ExportFormat) => {
+    if (current?.kind !== "rows") return;
+    const result = current.result;
+    const text = format === "json" ? toJsonText(result.columns, result.rows) : toCsvText(result.columns, result.rows);
+    if (mode === "copy") {
+      await navigator.clipboard.writeText(text);
+      showInfo(`Copied ${formatCount(result.rows.length)} row(s) as ${format.toUpperCase()} to the clipboard.`);
+    } else {
+      downloadTextFile(exportFilename(`result-${index + 1}`, format), text, format === "json" ? "application/json" : "text/csv");
+      showInfo(`Downloaded ${formatCount(result.rows.length)} row(s) as ${format.toUpperCase()}.`);
+    }
+  };
+
+  const onExportAction = (key: string) => {
+    if (key === "copy-csv") void exportResult("copy", "csv");
+    else if (key === "copy-json") void exportResult("copy", "json");
+    else if (key === "download-csv") void exportResult("download", "csv");
+    else if (key === "download-json") void exportResult("download", "json");
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -46,6 +76,23 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
           </Button>
         ))}
         <span className="ml-auto flex items-center gap-2">
+          {current?.kind === "rows" ? (
+            <Dropdown>
+              <Button size="sm" variant="ghost" className="h-6 rounded-md px-2 text-xs text-muted hover:text-foreground" isDisabled={!exportable}>
+                <Icon name="download" size={12} />
+                Export
+                <Icon name="chevron-down" size={11} />
+              </Button>
+              <Dropdown.Popover className="glass-modal rounded-xl">
+                <Dropdown.Menu onAction={(key) => onExportAction(String(key))}>
+                  <Dropdown.Item id="copy-csv" textValue="Copy as CSV"><Label>Copy as CSV</Label></Dropdown.Item>
+                  <Dropdown.Item id="copy-json" textValue="Copy as JSON"><Label>Copy as JSON</Label></Dropdown.Item>
+                  <Dropdown.Item id="download-csv" textValue="Download as CSV"><Label>Download as CSV</Label></Dropdown.Item>
+                  <Dropdown.Item id="download-json" textValue="Download as JSON"><Label>Download as JSON</Label></Dropdown.Item>
+                </Dropdown.Menu>
+              </Dropdown.Popover>
+            </Dropdown>
+          ) : null}
           {truncated ? (
             <Chip size="sm" color="warning" variant="soft">
               {rowSummary(shown, outcome.totalRows, truncated)}
