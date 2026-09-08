@@ -1,0 +1,76 @@
+name: Bug report
+description: Something is broken — tell us how to reproduce it.
+title: "fix: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please fill in everything you can. Redact passwords, tokens, and private data.
+  - type: input
+    id: version
+    attributes:
+      label: DB Free version
+      description: Release tag (e.g. v0.6.1) or commit SHA from main.
+      placeholder: v0.6.1
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: arch
+    attributes:
+      label: Architecture
+      description: e.g. arm64, x64.
+      placeholder: arm64
+    validations:
+      required: false
+  - type: input
+    id: engine
+    attributes:
+      label: Engine + server version
+      description: Which database were you connected to? e.g. PostgreSQL 16, Redis 7, SQLite (file).
+      placeholder: PostgreSQL 16
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal steps, queries, or config that trigger the bug.
+      placeholder: |
+        1. Connect to …
+        2. Open …
+        3. Run …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What should have happened?
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: What happened instead? Include error messages and screenshots if helpful.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant logs (run with RUST_LOG=debug where possible). Redact secrets.
+      render: text
+    validations:
+      required: false

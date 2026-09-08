@@ -1,0 +1,46 @@
+name: Feature request
+description: Propose a new feature or improvement.
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea! Please describe the problem first, then the proposal.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What pain point or workflow does this address?
+      placeholder: I often need to …
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposal
+      description: What should DB Free do? Include UI sketches or examples if you have them.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you have tried.
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - Table browser / grid
+        - Query editor
+        - Connections
+        - Export / import
+        - Diagrams / designer
+        - Dashboards / workflows
+        - Settings / AI
+        - Other
+    validations:
+      required: false

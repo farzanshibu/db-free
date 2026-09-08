@@ -1,0 +1,49 @@
+name: Engine request
+description: Request support for a new database engine.
+title: "feat(engines): support "
+labels: ["engine-request"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        DB Free speaks each engine's native language. Wire-compatible products
+        (Valkey, ScyllaDB, OpenSearch, Redpanda, Memgraph, …) are usually just a
+        new variant on an existing adapter family — mention that below if it applies.
+  - type: input
+    id: engine
+    attributes:
+      label: Engine
+      description: Product name and version.
+      placeholder: e.g. ClickHouse 24.x
+    validations:
+      required: true
+  - type: input
+    id: category
+    attributes:
+      label: Category
+      description: e.g. relational, document, key-value, graph, time-series, vector, search.
+      placeholder: e.g. vector
+    validations:
+      required: true
+  - type: textarea
+    id: protocol
+    attributes:
+      label: Protocol / client
+      description: How does software talk to it? (wire protocol, HTTP API, official driver/crate, docs link)
+    validations:
+      required: true
+  - type: textarea
+    id: language
+    attributes:
+      label: Query language + sample
+      description: What should the query tab accept? Paste a short example (connect, list collections, sample query).
+    validations:
+      required: false
+  - type: textarea
+    id: docker
+    attributes:
+      label: Docker image for testing
+      description: Image + minimal run command so we can add a live round-trip test.
+      placeholder: e.g. docker run -p 8123:8123 clickhouse/clickhouse-server
+    validations:
+      required: false

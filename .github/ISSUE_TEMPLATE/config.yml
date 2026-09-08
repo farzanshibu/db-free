@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/farzanshibu/db-free/blob/main/SECURITY.md
+    about: Do not open public issues for security problems — report them privately by email.
+  - name: Question / discussion
+    url: https://github.com/farzanshibu/db-free/discussions
+    about: Ask questions and discuss ideas with the community.

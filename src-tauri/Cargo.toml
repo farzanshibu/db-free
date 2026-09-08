@@ -2,6 +2,7 @@
 name = "db-free"
 version = "0.7.0"
 description = "Lightweight native database workbench"
+license = "MIT"
 authors = ["Farzan"]
 edition = "2021"
 rust-version = "1.85"
