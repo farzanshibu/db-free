@@ -8,10 +8,17 @@ import { Icon } from "@/lib/icons";
 export function EnvBadge({ environment, readOnly = false }: { environment: Environment; readOnly?: boolean }) {
   const meta = environmentMeta(environment);
   if (environment === "none" && !readOnly) return null;
+  // WHAT:  Read-only with no environment to name is just the lock.
+  // WHY:   A bordered pill wrapped around a single 11px glyph reads as an empty
+  //        box, especially next to an engine's brand tile in a narrow sidebar.
+  if (environment === "none") {
+    return <Icon name="lock" size={12} className="shrink-0 text-muted" aria-label="Read-only connection" />;
+  }
+  // Past the guard above, the environment always has a name to show.
   return (
     <Badge variant="soft" className={cn("gap-1.5 rounded-full border border-border/60 backdrop-blur-sm", meta.text)}>
-      {environment !== "none" ? <span className={cn("size-1.5 rounded-full shadow-xs", meta.dot)} /> : null}
-      {environment !== "none" ? meta.label : null}
+      <span className={cn("size-1.5 rounded-full", meta.dot)} />
+      {meta.label}
       {readOnly ? <Icon name="lock" size={11} /> : null}
     </Badge>
   );

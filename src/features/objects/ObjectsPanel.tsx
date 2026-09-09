@@ -6,7 +6,6 @@ import { Icon } from "@/lib/icons";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
 import { AppSelect } from "@/components/global/Field";
-import { EnvBadge } from "@/components/global/Badge";
 import { ConnectionSwitcher } from "@/features/shell/ConnectionSwitcher";
 import { KindNode } from "./ObjectList";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -53,7 +52,6 @@ export function ObjectsPanel() {
     <aside className="flex h-full w-full min-w-0 flex-col glass-sidebar select-none">
       <div className="@container drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40 " data-tauri-drag-region>
         <ConnectionSwitcher caption="Objects" />
-        {connection.readOnly ? <EnvBadge environment="none" readOnly /> : null}
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
         <span className="flex shrink-0 items-center gap-0.5">
           <IconButton icon="refresh" label="Reload objects" onClick={refresh} />

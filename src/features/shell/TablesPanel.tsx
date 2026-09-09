@@ -9,7 +9,6 @@ import { tableKey, useActiveConnection, useWorkspace } from "@/stores/workspace"
 import { IconButton } from "@/components/global/Button";
 import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
 import { useContextMenu, type ContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
-import { EnvBadge } from "@/components/global/Badge";
 import { ConnectionSwitcher } from "./ConnectionSwitcher";
 import { KeyTree } from "./KeyTree";
 import { cn } from "@/lib/cn";
@@ -71,7 +70,6 @@ export function TablesPanel() {
                  width. */}
       <div className="@container drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/40" data-tauri-drag-region>
         <ConnectionSwitcher caption={collectionNoun(connection.engine)} />
-        {connection.readOnly ? <EnvBadge environment="none" readOnly /> : null}
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
         <span className="flex shrink-0 items-center gap-0.5">
           <IconButton icon="refresh" label="Refresh schema" onClick={() => void loadCatalog(id)} />

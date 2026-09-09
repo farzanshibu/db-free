@@ -29,12 +29,16 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
           // `shrink` overrides the primitive's `shrink-0`: in a narrow sidebar
           // this is the element that must give way, so the icon buttons beside
           // it stay reachable instead of being pushed out of the panel.
-          className="h-8 min-w-0 shrink gap-2 rounded-lg px-2 text-sm font-semibold text-foreground glass-pill liquid-hover"
+          className="h-8 min-w-0 shrink gap-1.5 rounded-lg px-2 text-sm font-semibold text-foreground glass-pill liquid-hover"
           aria-label={`${caption} — switch connection`}
         >
           <EnvDot environment={connection.environment} live />
           <EngineIcon engine={connection.engine} size={16} className="shrink-0" />
           <span className="hidden min-w-0 truncate @[13rem]:inline">{connection.name}</span>
+          {/* Part of the trigger, not a chip beside it: the lock describes this
+              connection, and at narrow widths a separate badge was an unlabelled
+              box sitting next to the engine's brand tile. */}
+          {connection.readOnly ? <Icon name="lock" size={11} className="shrink-0 text-muted" /> : null}
           <Icon name="chevron-down" size={12} className="shrink-0 text-muted" />
         </Button>
       </DropdownMenuTrigger>
