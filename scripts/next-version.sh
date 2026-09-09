@@ -9,7 +9,7 @@
 # HOW:   Conventional Commit subjects (`feat:`, `fix(scope):`, `feat!:`) and a
 #        `BREAKING CHANGE:` trailer anywhere in a body.
 # WHERE: .github/workflows/release.yml (version job), scripts/set-version.sh
-set -euo pipefail
+set -eu
 
 last=$(git tag --list 'v*' --sort=-v:refname | head -n1)
 if [ -z "$last" ]; then
