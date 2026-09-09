@@ -1,6 +1,5 @@
 // SOT: value-editor, typed-cell-editor, insert-form-field, json-editor-modal
 import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Button, Input, Modal, ScrollShadow, SearchField, TextArea, ToggleButton } from "@heroui/react";
 import type { ColumnInfo, Value } from "@/lib/bindings";
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { parseJson } from "@/lib/json";
@@ -9,6 +8,12 @@ import { AppSelect, DateTimeField, Field, NumberInput } from "./Field";
 import { JsonViewer } from "./JsonViewer";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input, SearchInput } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
+import { Toggle as ToggleButton } from "@/components/ui/toggle";
 
 /// One candidate row from the table a foreign key points at.
 export interface LookupRow {
@@ -120,7 +125,7 @@ export function CellEditor({ typeName, value, onCommit, onCancel, lookup }: Cell
           initial={value.t === "json" ? value.v : null}
           onSave={(v) => onCommit({ t: "json", v })}
           onClose={onCancel}
-          secondaryAction={{ label: "Set NULL", onPress: () => onCommit({ t: "null" }) }}
+          secondaryAction={{ label: "Set NULL", onClick: () => onCommit({ t: "null" }) }}
         />
       );
     case "decimal":
@@ -192,73 +197,51 @@ function LookupPicker({ initial, load, onCommit, onNull, onCancel }: { initial: 
   const failed = result?.failed ?? false;
 
   return (
-    <Modal isOpen onOpenChange={(open) => !open && onCancel()}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog className="sm:max-w-[640px]">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Choose a referenced row</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <SearchField
-                value={search}
-                onChange={setSearch}
-                aria-label="Search or type a referenced value"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && search.trim().length > 0) {
-                    e.preventDefault();
-                    onCommit(search.trim());
-                  }
-                }}
-              >
-                <SearchField.Group className="glass-input h-8 rounded-lg px-2">
-                  <SearchField.SearchIcon />
-                  <SearchField.Input placeholder="Search or type a value…" className="w-full font-mono text-xs" />
-                  <SearchField.ClearButton />
-                </SearchField.Group>
-              </SearchField>
-              <ScrollShadow hideScrollBar className="mt-2 max-h-72">
-                {rows === null ? (
-                  <p className="px-1 py-2 text-xs text-muted">Loading…</p>
-                ) : rows.length === 0 ? (
-                  <p className="px-1 py-2 text-xs text-muted">
-                    {failed ? "Could not read the referenced table — the typed value is still usable." : "No matching rows. Press Enter to use what you typed."}
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-0.5">
-                    {rows.map((row) => (
-                      <li key={row.value}>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onPress={() => onCommit(row.value)}
-                          className={cn(
-                            "flex h-auto w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left",
-                            row.value === initial ? "glass-pill text-accent" : "text-foreground hover:bg-surface-secondary/60",
-                          )}
-                        >
-                          <span className="truncate font-mono text-[12px]">{row.value}</span>
-                          {row.detail.length > 0 ? <span className="truncate text-[11px] text-muted">{row.detail}</span> : null}
-                        </Button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </ScrollShadow>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button size="sm" variant="tertiary" onPress={onNull}>Set NULL</Button>
-              <Button size="sm" variant="tertiary" onPress={onCancel}>Cancel</Button>
-              <Button size="sm" isDisabled={search.trim().length === 0} onPress={() => onCommit(search.trim())}>
-                Use typed value
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>Choose a referenced row</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <SearchInput value={search} onChange={setSearch} aria-label="Search or type a referenced value" placeholder="Search or type a value…" autoFocus className="glass-input h-8 rounded-lg w-full font-mono text-xs" />
+          <ScrollArea hideScrollBar className="mt-2 max-h-72">
+            {rows === null ? (
+              <p className="px-1 py-2 text-xs text-muted">Loading…</p>
+            ) : rows.length === 0 ? (
+              <p className="px-1 py-2 text-xs text-muted">
+                {failed ? "Could not read the referenced table — the typed value is still usable." : "No matching rows. Press Enter to use what you typed."}
+              </p>
+            ) : (
+              <ul className="flex flex-col gap-0.5">
+                {rows.map((row) => (
+                  <li key={row.value}>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => onCommit(row.value)}
+                      className={cn(
+                        "flex h-auto w-full min-w-0 flex-col items-start gap-0.5 rounded-md px-2 py-1.5 text-left",
+                        row.value === initial ? "glass-pill text-accent" : "text-foreground hover:bg-surface-secondary/60",
+                      )}
+                    >
+                      <span className="truncate font-mono text-[12px]">{row.value}</span>
+                      {row.detail.length > 0 ? <span className="truncate text-[11px] text-muted">{row.detail}</span> : null}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </ScrollArea>
+        </DialogBody>
+        <DialogFooter>
+          <Button size="sm" variant="tertiary" onClick={onNull}>Set NULL</Button>
+          <Button size="sm" variant="tertiary" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" disabled={search.trim().length === 0} onClick={() => onCommit(search.trim())}>
+            Use typed value
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -273,43 +256,38 @@ const LONG_TEXT = 80;
 function TextAreaEditor({ title, initial, onCommit, onNull, onCancel }: { title: string; initial: string; onCommit: (next: string) => void; onNull: () => void; onCancel: () => void }) {
   const [text, setText] = useState(initial);
   return (
-    <Modal isOpen onOpenChange={(open) => !open && onCancel()}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog className="sm:max-w-[720px]">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>{title}</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body>
-              <TextArea
-                autoFocus
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                onKeyDown={(e) => {
-                  // Enter is a newline here; Cmd/Ctrl+Enter commits.
-                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-                    e.preventDefault();
-                    onCommit(text);
-                  } else if (e.key === "Escape") {
-                    e.preventDefault();
-                    onCancel();
-                  }
-                }}
-                className="selectable h-72 w-full resize-y rounded-lg border border-border/40 bg-background p-2 font-mono text-[12px] whitespace-pre-wrap text-foreground"
-                aria-label={title}
-              />
-              <p className="mt-1 text-[11px] text-muted">{text.length.toLocaleString()} characters · \u2318\u21b5 to save</p>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button size="sm" variant="tertiary" onPress={onNull}>Set NULL</Button>
-              <Button size="sm" variant="tertiary" onPress={onCancel}>Cancel</Button>
-              <Button size="sm" onPress={() => onCommit(text)}>Save</Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-[720px]">
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <DialogBody>
+          <Textarea
+            autoFocus
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              // Enter is a newline here; Cmd/Ctrl+Enter commits.
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                onCommit(text);
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                onCancel();
+              }
+            }}
+            className="selectable h-72 w-full resize-y rounded-lg border border-border/40 bg-background p-2 font-mono text-[12px] whitespace-pre-wrap text-foreground"
+            aria-label={title}
+          />
+          <p className="mt-1 text-[11px] text-muted">{text.length.toLocaleString()} characters · \u2318\u21b5 to save</p>
+        </DialogBody>
+        <DialogFooter>
+          <Button size="sm" variant="tertiary" onClick={onNull}>Set NULL</Button>
+          <Button size="sm" variant="tertiary" onClick={onCancel}>Cancel</Button>
+          <Button size="sm" onClick={() => onCommit(text)}>Save</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -333,7 +311,7 @@ export function FormValueField({ column, value, onChange }: FormValueFieldProps)
         <FormControl kind={kind} column={column} label={label} value={value} isNull={isNull} onChange={onChange} />
       </div>
       {column.nullable ? (
-        <ToggleButton size="sm" isSelected={isNull} onChange={(selected) => onChange(selected ? { t: "null" } : undefined)} aria-label={`Set ${column.name} to NULL`} className="mb-px h-9 min-w-0 shrink-0 px-2 font-mono text-[10px]">
+        <ToggleButton pressed={isNull} onPressedChange={(selected) => onChange(selected ? { t: "null" } : undefined)} aria-label={`Set ${column.name} to NULL`} className="mb-px h-9 min-w-0 shrink-0 px-2 font-mono text-[10px]">
           NULL
         </ToggleButton>
       ) : null}
@@ -346,12 +324,12 @@ function FormControl({ kind, column, label, value, isNull, onChange }: { kind: F
   switch (kind) {
     case "int":
     case "float":
-      return <NumberInput label={label} integer={kind === "int"} isDisabled={isNull} value={value?.t === "int" || value?.t === "float" ? value.v : null} onChange={(n) => onChange(n === null ? undefined : { t: kind === "int" ? "int" : "float", v: n })} />;
+      return <NumberInput label={label} integer={kind === "int"} disabled={isNull} value={value?.t === "int" || value?.t === "float" ? value.v : null} onChange={(n) => onChange(n === null ? undefined : { t: kind === "int" ? "int" : "float", v: n })} />;
     case "bool":
       return (
         <AppSelect
           label={label}
-          isDisabled={isNull}
+          disabled={isNull}
           value={value?.t === "bool" ? (value.v ? "true" : "false") : "default"}
           options={[
             { value: "default", label: column.nullable ? "default" : "—" },
@@ -364,13 +342,13 @@ function FormControl({ kind, column, label, value, isNull, onChange }: { kind: F
     case "date":
     case "time":
     case "datetime":
-      return <DateTimeField kind={kind} label={label} isDisabled={isNull} value={value?.t === "date_time" ? value.v : ""} onChange={(t) => onChange(t === "" ? undefined : { t: "date_time", v: t })} />;
+      return <DateTimeField kind={kind} label={label} disabled={isNull} value={value?.t === "date_time" ? value.v : ""} onChange={(t) => onChange(t === "" ? undefined : { t: "date_time", v: t })} />;
     case "json": {
       const summary = value?.t === "json" ? JSON.stringify(value.v) : "";
       return (
         <div className="flex w-full flex-col gap-1">
           <span className="text-sm font-medium text-foreground">{label}</span>
-          <Button variant="tertiary" isDisabled={isNull} onPress={() => setJsonOpen(true)} className="w-full justify-start truncate font-mono text-xs">
+          <Button variant="tertiary" disabled={isNull} onClick={() => setJsonOpen(true)} className="w-full justify-start truncate font-mono text-xs">
             <Icon name="braces" size={13} className="shrink-0 text-accent" />
             <span className={cn("truncate", summary ? "text-foreground" : "text-muted")}>{summary || "Edit JSON…"}</span>
           </Button>
@@ -385,7 +363,7 @@ function FormControl({ kind, column, label, value, isNull, onChange }: { kind: F
             onClose={() => setJsonOpen(false)}
             secondaryAction={{
               label: "Use default",
-              onPress: () => {
+              onClick: () => {
                 onChange(undefined);
                 setJsonOpen(false);
               },
@@ -401,7 +379,7 @@ function FormControl({ kind, column, label, value, isNull, onChange }: { kind: F
         <Field
           label={label}
           mono
-          isDisabled={isNull}
+          disabled={isNull}
           value={isNull || value === undefined ? "" : editText(value)}
           onChange={(t) => onChange(t.length === 0 ? undefined : parseEdited(t, column.dataType, undefined))}
           placeholder={column.nullable ? "default" : column.dataType}
@@ -416,29 +394,24 @@ interface JsonEditorModalProps {
   initial: JsonValue | null;
   onSave: (value: JsonValue) => void;
   onClose: () => void;
-  secondaryAction?: { label: string; onPress: () => void };
+  secondaryAction?: { label: string; onClick: () => void };
 }
 
 // WHAT:  JSON editor: raw text on the left (Format / Minify), live collapsible
 //        tree on the right; Save is disabled until the text parses.
 export function JsonEditorModal({ open, title, initial, onSave, onClose, secondaryAction }: JsonEditorModalProps) {
   return (
-    <Modal isOpen={open} onOpenChange={(o) => !o && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog className="sm:max-w-[940px]">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading className="flex items-center gap-2">
-                <Icon name="braces" size={15} className="text-accent" />
-                {title}
-              </Modal.Heading>
-            </Modal.Header>
-            {open ? <JsonEditorBody initial={initial} onSave={onSave} onClose={onClose} {...(secondaryAction ? { secondaryAction } : {})} /> : null}
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[940px]">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Icon name="braces" size={15} className="text-accent" />
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+        {open ? <JsonEditorBody initial={initial} onSave={onSave} onClose={onClose} {...(secondaryAction ? { secondaryAction } : {})} /> : null}
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -448,20 +421,20 @@ function JsonEditorBody({ initial, onSave, onClose, secondaryAction }: Omit<Json
   const valid = parsed !== undefined;
   return (
     <>
-      <Modal.Body className="max-h-[70vh] overflow-hidden">
+      <DialogBody className="max-h-[70vh] overflow-hidden">
         <div className="grid h-[52vh] min-h-[320px] grid-cols-1 gap-3 md:grid-cols-2">
           <div className="flex min-h-0 flex-col gap-1.5">
             <div className="flex h-6 items-center gap-1 text-xs text-muted">
               <span>Raw</span>
               <span className="ml-auto" />
-              <Button size="sm" variant="ghost" isDisabled={!valid} className="h-6 min-w-0 rounded-md px-1.5 text-[11px]" onPress={() => parsed !== undefined && setText(JSON.stringify(parsed, null, 2))}>
+              <Button size="sm" variant="ghost" disabled={!valid} className="h-6 min-w-0 rounded-md px-1.5 text-[11px]" onClick={() => parsed !== undefined && setText(JSON.stringify(parsed, null, 2))}>
                 Format
               </Button>
-              <Button size="sm" variant="ghost" isDisabled={!valid} className="h-6 min-w-0 rounded-md px-1.5 text-[11px]" onPress={() => parsed !== undefined && setText(JSON.stringify(parsed))}>
+              <Button size="sm" variant="ghost" disabled={!valid} className="h-6 min-w-0 rounded-md px-1.5 text-[11px]" onClick={() => parsed !== undefined && setText(JSON.stringify(parsed))}>
                 Minify
               </Button>
             </div>
-            <TextArea
+            <Textarea
               aria-label="JSON source"
               value={text}
               onChange={(e) => setText(e.target.value)}
@@ -473,25 +446,25 @@ function JsonEditorBody({ initial, onSave, onClose, secondaryAction }: Omit<Json
           </div>
           <div className="flex min-h-0 min-w-0 flex-col gap-1.5">
             <div className="flex h-6 items-center text-xs text-muted">Tree</div>
-            <ScrollShadow className="min-h-0 flex-1 overflow-x-auto rounded-lg border border-border/40 bg-background/60 p-2">
+            <ScrollArea className="min-h-0 flex-1 overflow-x-auto rounded-lg border border-border/40 bg-background/60 p-2">
               {parsed !== undefined ? <JsonViewer value={parsed} defaultDepth={3} /> : <span className="text-xs text-muted">Fix the JSON on the left to preview it here.</span>}
-            </ScrollShadow>
+            </ScrollArea>
           </div>
         </div>
-      </Modal.Body>
-      <Modal.Footer>
+      </DialogBody>
+      <DialogFooter>
         {secondaryAction ? (
-          <Button variant="ghost" className="mr-auto text-muted hover:text-foreground" onPress={secondaryAction.onPress}>
+          <Button variant="ghost" className="mr-auto text-muted hover:text-foreground" onClick={secondaryAction.onClick}>
             {secondaryAction.label}
           </Button>
         ) : null}
-        <Button variant="tertiary" onPress={onClose}>
+        <Button variant="tertiary" onClick={onClose}>
           Cancel
         </Button>
-        <Button isDisabled={!valid} onPress={() => parsed !== undefined && onSave(parsed)}>
+        <Button disabled={!valid} onClick={() => parsed !== undefined && onSave(parsed)}>
           Save
         </Button>
-      </Modal.Footer>
+      </DialogFooter>
     </>
   );
 }

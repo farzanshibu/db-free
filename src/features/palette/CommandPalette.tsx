@@ -1,11 +1,13 @@
 // SOT: command-palette, cmd-k, quick-actions
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Chip, Kbd, ListBox, Modal, ScrollShadow, SearchField } from "@heroui/react";
 import { tableKey, useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { Icon, type IconName } from "@/lib/icons";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { engineMeta } from "@/lib/engines";
 import { TOOL_ORDER, toolMeta, toolsOf } from "@/lib/objects";
+import { Badge } from "@/components/ui/badge";
+import { Kbd } from "@/components/ui/kbd";
+import { Command, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 
 const EMPTY_SECTIONS: string[] = [];
 
@@ -97,54 +99,50 @@ export function CommandPalette() {
   const visible = (needle.length === 0 ? actions : actions.filter((a) => a.label.toLowerCase().includes(needle) || (a.hint ?? "").toLowerCase().includes(needle))).slice(0, 60);
 
   return (
-    <Modal isOpen={open} onOpenChange={setOpen}>
-      <Modal.Backdrop className="backdrop-blur-md bg-backdrop/70">
-        <Modal.Container className="items-start pt-[14vh]">
-          <Modal.Dialog className="w-full sm:max-w-[620px] glass-modal rounded-2xl overflow-hidden shadow-2xl p-0 border border-border/60">
-            <Modal.Body className="p-3">
-              <SearchField value={query} onChange={setQuery} aria-label="Search or run commands" autoFocus className="w-full">
-                <SearchField.Group className="w-full glass-input rounded-xl bg-surface-secondary/40 h-11 border border-border/40">
-                  <SearchField.SearchIcon />
-                  <SearchField.Input placeholder="Search commands, tables, queries…" className="w-full text-sm font-sans" />
-                  <SearchField.ClearButton />
-                </SearchField.Group>
-              </SearchField>
-              <ScrollShadow className="mt-2 max-h-[50vh] p-1">
-                <ListBox
-                  aria-label="Commands"
-                  className="space-y-0.5"
-                  onAction={(key) => {
-                    const action = visible.find((a) => a.id === String(key));
-                    if (action) {
-                      setOpen(false);
-                      setQuery("");
-                      action.run();
-                    }
-                  }}
-                >
-                  {visible.map((a) => (
-                    <ListBox.Item key={a.id} id={a.id} textValue={a.label} className="flex items-center rounded-lg px-2.5 py-2 text-xs liquid-hover cursor-default">
-                      {a.leading ? <span className="mr-2.5 flex shrink-0 items-center">{a.leading}</span> : <Icon name={a.icon} size={15} className="mr-2.5 text-accent shrink-0" />}
-                      <span className="truncate font-medium text-foreground">{a.label}</span>
-                      {a.hint ? <span className="ml-2 truncate font-mono text-[10.5px] text-muted/80">{a.hint}</span> : null}
-                      <Chip size="sm" variant="soft" className="ml-auto text-[9.5px] uppercase tracking-wider font-medium">
-                        {a.section.replace("_", " ")}
-                      </Chip>
-                    </ListBox.Item>
-                  ))}
-                </ListBox>
-              </ScrollShadow>
-              <div className="mt-2.5 flex items-center justify-between border-t border-border/40 px-2 pt-2 text-[11px] text-muted">
-                <div className="flex items-center gap-3">
-                  <span className="flex items-center gap-1"><Kbd><Kbd.Abbr keyValue="enter" /></Kbd> select</span>
-                  <span className="flex items-center gap-1"><Kbd><Kbd.Abbr keyValue="escape" /></Kbd> close</span>
-                </div>
-                <span className="font-mono text-[10px] text-muted/60">{visible.length} results</span>
-              </div>
-            </Modal.Body>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <CommandDialog open={open} onOpenChange={setOpen} title="Command palette" description="Search commands, tables and saved queries">
+      {/* The palette does its own filtering and section ordering, so cmdk's is
+          off: it would re-rank the list by fuzzy score and lose the order the
+          user chose in Settings. cmdk still owns the roving selection. */}
+      <Command shouldFilter={false} className="p-3">
+        <CommandInput
+          value={query}
+          onValueChange={setQuery}
+          placeholder="Search commands, tables, queries…"
+          autoFocus
+        />
+        <CommandList className="mt-2">
+          <CommandEmpty>No matching command, table or saved query.</CommandEmpty>
+          {visible.map((a) => (
+            <CommandItem
+              key={a.id}
+              value={a.id}
+              onSelect={() => {
+                setOpen(false);
+                setQuery("");
+                a.run();
+              }}
+            >
+              {a.leading ? <span className="flex shrink-0 items-center">{a.leading}</span> : <Icon name={a.icon} size={15} className="shrink-0 text-accent" />}
+              <span className="truncate font-medium text-foreground">{a.label}</span>
+              {a.hint !== undefined ? <span className="truncate font-mono text-[10.5px] text-muted/80">{a.hint}</span> : null}
+              <Badge size="sm" variant="soft" className="ml-auto text-[9.5px] font-medium tracking-wider uppercase">
+                {a.section.replace("_", " ")}
+              </Badge>
+            </CommandItem>
+          ))}
+        </CommandList>
+        <div className="mt-2.5 flex items-center justify-between border-t border-border/40 px-2 pt-2 text-[11px] text-muted">
+          <div className="flex items-center gap-3">
+            <span className="flex items-center gap-1">
+              <Kbd>↵</Kbd> select
+            </span>
+            <span className="flex items-center gap-1">
+              <Kbd>Esc</Kbd> close
+            </span>
+          </div>
+          <span className="font-mono text-[10px] text-muted/60">{visible.length} results</span>
+        </div>
+      </Command>
+    </CommandDialog>
   );
 }

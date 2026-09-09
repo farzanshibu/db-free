@@ -1,6 +1,5 @@
 // SOT: message-viewer-tab, topic-browser, consume-form, produce-form
 import { useState } from "react";
-import { Button, Spinner, TextArea } from "@heroui/react";
 import type { QueryOutcome, ResultSet } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { parseJson } from "@/lib/json";
@@ -12,6 +11,9 @@ import { Segmented } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 type Mode = "consume" | "produce";
 type Start = "earliest" | "latest" | "offset";
@@ -99,7 +101,7 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
                 </div>
                 {start === "offset" ? <NumberInput label="Offset" integer value={offset} onChange={setOffset} /> : null}
                 <NumberInput label="Max messages" integer value={limit} onChange={setLimit} />
-                <Button onPress={() => void consume()} isDisabled={running || current.length === 0}>
+                <Button onClick={() => void consume()} disabled={running || current.length === 0}>
                   {running ? <Spinner size="sm" /> : <Icon name="download" size={13} />}
                   Consume
                 </Button>
@@ -109,13 +111,13 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
                 <Field label="Key" value={key} onChange={setKey} optional mono />
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-foreground">Value</span>
-                  <TextArea aria-label="Message value" value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} className="min-h-28 font-mono text-[12px]" placeholder='{"event": "signup", "user": 42}' />
+                  <Textarea aria-label="Message value" value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} className="min-h-28 font-mono text-[12px]" placeholder='{"event": "signup", "user": 42}' />
                 </div>
                 <div className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-foreground">Headers</span>
-                  <TextArea aria-label="Headers" value={headers} onChange={(e) => setHeaders(e.target.value)} spellCheck={false} className="min-h-16 font-mono text-[12px]" placeholder='{"source": "db-free"}' />
+                  <Textarea aria-label="Headers" value={headers} onChange={(e) => setHeaders(e.target.value)} spellCheck={false} className="min-h-16 font-mono text-[12px]" placeholder='{"source": "db-free"}' />
                 </div>
-                <Button onPress={() => void produce()} isDisabled={running || current.length === 0 || value.length === 0}>
+                <Button onClick={() => void produce()} disabled={running || current.length === 0 || value.length === 0}>
                   {running ? <Spinner size="sm" /> : <Icon name="send" size={13} />}
                   Produce
                 </Button>

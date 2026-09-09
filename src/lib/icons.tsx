@@ -33,6 +33,7 @@ import {
   LayoutThreeColumnIcon,
   Link04Icon,
   MinusSignIcon,
+  MoreHorizontalIcon,
   PencilEdit02Icon,
   PlayIcon,
   PlugSocketIcon,
@@ -109,6 +110,7 @@ export type IconName =
   | "terminal"
   | "plus"
   | "minus"
+  | "more"
   | "refresh"
   | "search"
   | "filter"
@@ -208,6 +210,7 @@ const GLYPHS: Record<IconName, IconSvgElement> = {
   terminal: ComputerTerminal01Icon,
   plus: PlusSignIcon,
   minus: MinusSignIcon,
+  more: MoreHorizontalIcon,
   refresh: RefreshIcon,
   search: Search01Icon,
   filter: FilterIcon,

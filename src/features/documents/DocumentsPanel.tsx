@@ -1,6 +1,5 @@
 // SOT: documents-panel, dashboards-sidebar, workflows-sidebar, diagrams-sidebar
 import { useEffect } from "react";
-import { Button, Chip, ScrollShadow } from "@heroui/react";
 import type { Document, DocumentBody, DocumentKind } from "@/lib/bindings";
 import { normalizeError } from "@/lib/ipc";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
@@ -8,6 +7,9 @@ import { IconButton } from "@/components/global/Button";
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { ConnectionSwitcher } from "@/features/shell/ConnectionSwitcher";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const META: Record<DocumentKind, { title: string; icon: IconName; empty: string }> = {
   dashboard: { title: "Dashboards", icon: "columns", empty: "No dashboards yet. Create one to chart query results." },
@@ -61,21 +63,21 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col glass-sidebar select-none">
-      <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40" data-tauri-drag-region>
+      <div className="@container drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40" data-tauri-drag-region>
         <ConnectionSwitcher caption={meta.title} />
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
-        <span className="flex items-center gap-0.5">
-          <IconButton icon="refresh" label="Refresh" onPress={() => void loadDocuments(kind)} />
-          <IconButton icon="plus" label={`New ${kind}`} onPress={() => void create()} />
+        <span className="flex shrink-0 items-center gap-0.5">
+          <IconButton icon="refresh" label="Refresh" onClick={() => void loadDocuments(kind)} />
+          <IconButton icon="plus" label={`New ${kind}`} onClick={() => void create()} />
         </span>
       </div>
       <div className="flex items-center px-3.5 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted/80">
         <span>Untagged</span>
-        <Chip size="sm" variant="soft" className="ml-auto font-mono text-[9.5px]">
+        <Badge size="sm" variant="soft" className="ml-auto font-mono text-[9.5px]">
           {docs.length}
-        </Chip>
+        </Badge>
       </div>
-      <ScrollShadow className="min-h-0 flex-1 px-1.5 py-1">
+      <ScrollArea className="min-h-0 flex-1 px-1.5 py-1">
         {docs.length === 0 ? <p className="px-3 py-4 text-xs text-muted">{meta.empty}</p> : null}
         {docs.map((d) => {
           const active = activeTabId === `doc:${kind}:${d.id}`;
@@ -84,7 +86,7 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
               <Button
                 variant="ghost"
                 size="sm"
-                onPress={() => openDocument(kind, d.id, d.connectionId)}
+                onClick={() => openDocument(kind, d.id, d.connectionId)}
                 className="flex h-auto min-w-0 flex-1 items-center justify-start gap-2 p-0 text-left bg-transparent hover:bg-transparent"
               >
                 <Icon name={meta.icon} size={13} className={cn("shrink-0", active ? "text-accent" : "text-muted")} />
@@ -94,7 +96,7 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
                 <IconButton
                   icon="trash"
                   label="Delete"
-                  onPress={() => {
+                  onClick={() => {
                     void (async () => {
                       try {
                         await deleteDocument(kind, d.id);
@@ -108,7 +110,7 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
             </div>
           );
         })}
-      </ScrollShadow>
+      </ScrollArea>
     </aside>
   );
 }

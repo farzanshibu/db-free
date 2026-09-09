@@ -1,18 +1,23 @@
-/* SOT: design-tokens, black-theme, heroui-theme-override, typography, density, syntax-colours, liquid-glass */
+/* SOT: design-tokens, black-theme, shadcn-theme, typography, density, syntax-colours, liquid-glass */
 @import "tailwindcss";
-@import "@heroui/styles";
+@import "tw-animate-css";
 
 /*
- WHAT:  HeroUI v3 theme with native macOS Liquid Glass materials and dark aesthetics.
-        Components use HeroUI semantic utilities (bg-background, bg-surface,
-        text-foreground, text-muted, border-border, bg-accent…) plus the
-        app-specific tokens declared in @theme below.
- WHY:   One token system: HeroUI components and hand-built views (grid, editor)
-        read the same variables, creating consistent translucent refraction and depth.
- HOW:   HeroUI defines its variables in `layer(theme)`; the overrides below sit
-        in `layer(base)`, which wins by layer order.
- WHERE: scripts/guardrail.py bans raw palette classes (bg-zinc-900, #hex) in JSX.
+ WHAT:  The app's black Liquid-Glass theme, expressed as shadcn/ui design tokens.
+ WHY:   shadcn components are unstyled source in src/components/ui: they read
+        `bg-background`, `text-muted-foreground`, `border-input`, `ring-ring`…
+        Nothing ships a palette, so this file *is* the design system — it owns
+        every colour utility the UI is allowed to use.
+ HOW:   `:root` holds raw values; `@theme inline` publishes each one as a Tailwind
+        colour so `bg-surface` / `text-accent` become real utilities. Both the
+        shadcn names (primary, card, popover, destructive, input, ring) and this
+        app's own names (surface, overlay, accent, danger, field, separator) are
+        registered, aliased onto the same variables so the two vocabularies are
+        one palette rather than two.
+ WHERE: scripts/guardrail.py bans raw palette classes (bg-zinc-900, #hex) in JSX,
+        which is what forces every component through these tokens.
 */
+
 @theme static {
   /* The whole UI is JetBrains Mono; Inter stays loaded as the fallback face. */
   --font-sans: "JetBrains Mono Variable", "Inter Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -38,55 +43,163 @@
   --color-syntax-type: oklch(0.85 0.1 200);
 }
 
+/* WHAT:  Every palette variable, in one dark scheme.
+   WHY:   DB Free is a black-themed desktop app: there is no light mode to
+          fork. `[data-theme="dark"]` and `.dark` are accepted so a shadcn block
+          pasted in unmodified still resolves. */
+:root,
+.dark,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Hue of the selected accent, in oklch degrees. App.tsx rewrites it when the
+     accent setting changes; every tinted surface, the window gradient and the
+     glass panels read it, so the chrome follows the accent instead of staying
+     blue. */
+  --accent-hue: 258;
+
+  --radius: 0.625rem;
+  --field-radius: 0.5rem;
+
+  --background: oklch(0.12 0.006 var(--accent-hue) / 0.85);
+  --foreground: oklch(0.94 0 0);
+
+  /* Layered translucent surfaces: panels, cards, hovered rows. */
+  --surface: oklch(0.15 0.008 var(--accent-hue) / 0.7);
+  --surface-foreground: var(--foreground);
+  --surface-secondary: oklch(0.185 0.01 var(--accent-hue) / 0.55);
+  --surface-secondary-foreground: var(--foreground);
+  --surface-tertiary: oklch(0.23 0.012 var(--accent-hue) / 0.6);
+  --surface-tertiary-foreground: var(--foreground);
+
+  /* Floating layers: popovers, menus, dialogs. */
+  --overlay: oklch(0.16 0.008 var(--accent-hue) / 0.88);
+  --overlay-foreground: var(--foreground);
+  --backdrop: oklch(0 0 0 / 0.65);
+
+  /* `muted` is dim *text* in this app (text-muted), not a shadcn grey block. */
+  --muted: oklch(0.65 0 0);
+  --default: oklch(0.22 0.008 var(--accent-hue) / 0.6);
+  --default-foreground: var(--foreground);
+
+  --accent: oklch(0.6 0.2 var(--accent-hue));
+  --accent-foreground: oklch(0.99 0 0);
+
+  /* Form controls. */
+  --field: oklch(0.15 0.008 var(--accent-hue) / 0.45);
+  --field-foreground: var(--foreground);
+  --field-placeholder: oklch(0.5 0 0);
+  --field-border: oklch(1 0 0 / 0.1);
+  --field-border-width: 1px;
+  --segment: oklch(0.22 0.01 var(--accent-hue) / 0.45);
+  --segment-foreground: var(--foreground);
+
+  --border: oklch(1 0 0 / 0.08);
+  --separator: oklch(1 0 0 / 0.06);
+
+  --success: oklch(0.72 0.19 150);
+  --success-foreground: oklch(0.15 0 0);
+  --warning: oklch(0.8 0.15 75);
+  --warning-foreground: oklch(0.15 0 0);
+  --danger: oklch(0.63 0.21 25);
+  --danger-foreground: oklch(0.99 0 0);
+
+  --focus: var(--accent);
+  --link: var(--accent);
+  --tooltip-delay: 400ms;
+
+  /* shadcn vocabulary, aliased onto the palette above so a component written
+     against the upstream token names lands in this theme. */
+  --primary: var(--accent);
+  --primary-foreground: var(--accent-foreground);
+  --secondary: var(--surface-secondary);
+  --secondary-foreground: var(--foreground);
+  --card: var(--surface);
+  --card-foreground: var(--foreground);
+  --popover: var(--overlay);
+  --popover-foreground: var(--overlay-foreground);
+  --muted-foreground: var(--muted);
+  --destructive: var(--danger);
+  --destructive-foreground: var(--danger-foreground);
+  --input: var(--field-border);
+  --ring: var(--focus);
+
+  --surface-shadow: none;
+  --overlay-shadow: 0 8px 24px -8px oklch(0 0 0 / 0.5);
+  --field-shadow: none;
+}
+
+/* WHAT:  Publishes the variables above as Tailwind utilities.
+   WHY:   Without this, `bg-surface` and `border-input` are not classes at all —
+          Tailwind v4 only generates utilities for registered theme keys. */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface: var(--surface);
+  --color-surface-foreground: var(--surface-foreground);
+  --color-surface-secondary: var(--surface-secondary);
+  --color-surface-secondary-foreground: var(--surface-secondary-foreground);
+  --color-surface-tertiary: var(--surface-tertiary);
+  --color-surface-tertiary-foreground: var(--surface-tertiary-foreground);
+  --color-overlay: var(--overlay);
+  --color-overlay-foreground: var(--overlay-foreground);
+  --color-backdrop: var(--backdrop);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-default: var(--default);
+  --color-default-foreground: var(--default-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-field: var(--field);
+  --color-field-foreground: var(--field-foreground);
+  --color-field-placeholder: var(--field-placeholder);
+  --color-field-border: var(--field-border);
+  --color-segment: var(--segment);
+  --color-segment-foreground: var(--segment-foreground);
+  --color-border: var(--border);
+  --color-separator: var(--separator);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-danger: var(--danger);
+  --color-danger-foreground: var(--danger-foreground);
+  /* Tinted fills behind status text. `bg-success-soft` and friends were already
+     used in the grid, the pending-changes panel and the dashboard tiles, but no
+     token backed them, so Tailwind emitted nothing and the fill never rendered.
+     Derived from the semantic colour so the two always agree. */
+  --color-success-soft: color-mix(in oklch, var(--success) 18%, transparent);
+  --color-warning-soft: color-mix(in oklch, var(--warning) 18%, transparent);
+  --color-danger-soft: color-mix(in oklch, var(--danger) 18%, transparent);
+  --color-focus: var(--focus);
+  --color-link: var(--link);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
 @layer base {
-  :root,
-  [data-theme="dark"] {
-    color-scheme: dark;
-    --radius: 0.625rem;
-    --field-radius: 0.5rem;
-    --background: oklch(0.12 0.006 var(--accent-hue) / 0.85);
-    --foreground: oklch(0.94 0 0);
-    --surface: oklch(0.15 0.008 var(--accent-hue) / 0.7);
-    --surface-foreground: var(--foreground);
-    --surface-secondary: oklch(0.185 0.01 var(--accent-hue) / 0.55);
-    --surface-secondary-foreground: var(--foreground);
-    --surface-tertiary: oklch(0.23 0.012 var(--accent-hue) / 0.6);
-    --surface-tertiary-foreground: var(--foreground);
-    --overlay: oklch(0.16 0.008 var(--accent-hue) / 0.88);
-    --overlay-foreground: var(--foreground);
-    --muted: oklch(0.65 0 0);
-    --default: oklch(0.22 0.008 var(--accent-hue) / 0.6);
-    --default-foreground: var(--foreground);
-    /* Hue of the selected accent, in oklch degrees. App.tsx rewrites it when the
-       accent setting changes; every tinted surface, the window gradient and the
-       glass panels read it, so the chrome follows the accent instead of staying
-       blue. */
-    --accent-hue: 258;
-    --accent: oklch(0.6 0.2 var(--accent-hue));
-    --accent-foreground: oklch(0.99 0 0);
-    --field-background: oklch(0.15 0.008 var(--accent-hue) / 0.45);
-    --field-foreground: var(--foreground);
-    --field-placeholder: oklch(0.5 0 0);
-    --field-border: oklch(1 0 0 / 0.1);
-    --field-border-width: 1px;
-    --segment: oklch(0.22 0.01 var(--accent-hue) / 0.45);
-    --segment-foreground: var(--foreground);
-    --border: oklch(1 0 0 / 0.08);
-    --separator: oklch(1 0 0 / 0.06);
-    --success: oklch(0.72 0.19 150);
-    --success-foreground: oklch(0.15 0 0);
-    --warning: oklch(0.8 0.15 75);
-    --warning-foreground: oklch(0.15 0 0);
-    --danger: oklch(0.63 0.21 25);
-    --danger-foreground: oklch(0.99 0 0);
-    --focus: var(--accent);
-    --link: var(--accent);
-    --backdrop: rgba(0, 0, 0, 0.65);
-    --surface-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.08);
-    --overlay-shadow: 0 0 0 1px oklch(1 0 0 / 0.12), 0 24px 48px -12px rgba(0, 0, 0, 0.75);
-    --field-shadow: inset 0 1px 2px 0 rgba(0, 0, 0, 0.25);
-    --tooltip-delay: 400ms;
+  * {
+    border-color: var(--border);
   }
+  /* Focus is drawn by each primitive's own `focus-visible:ring-*`, which follows
+     the element's radius. A global outline here stacked a second, square box on
+     top of that ring — most visible on the settings nav. */
 
   /* Density: one setting, three sizes of chrome. The window drag strip stays
      44px at every density because the macOS traffic lights are positioned
@@ -139,6 +252,9 @@
   .selectable {
     user-select: text;
   }
+  ::selection {
+    background-color: var(--color-selection);
+  }
 }
 
 /* Zebra striping for grids. A tint of white, not a surface colour: the surfaces
@@ -190,7 +306,6 @@
   backdrop-filter: blur(28px) saturate(190%);
   -webkit-backdrop-filter: blur(28px) saturate(190%);
   border-right: 1px solid oklch(1 0 0 / 0.08);
-  box-shadow: inset -1px 0 0 0 oklch(1 0 0 / 0.02);
 }
 
 @utility glass-sidebar {
@@ -205,7 +320,6 @@
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   border-bottom: 1px solid oklch(1 0 0 / 0.08);
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.08);
 }
 
 @utility glass-card {
@@ -213,17 +327,17 @@
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid oklch(1 0 0 / 0.09);
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.1), 0 8px 32px -4px rgba(0, 0, 0, 0.45);
 }
 
 @utility glass-card-hover {
-  transition: all 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  /* Hover changes tone, not altitude: the card no longer lifts off the page. */
+  transition:
+    background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
 
   &:hover {
     background: oklch(0.175 0.01 var(--accent-hue) / 0.65);
     border-color: oklch(1 0 0 / 0.16);
-    box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.15), 0 12px 36px -6px rgba(0, 0, 0, 0.55);
-    transform: translateY(-1px);
   }
 }
 
@@ -232,7 +346,6 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid oklch(1 0 0 / 0.08);
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.1);
 }
 
 @utility glass-input {
@@ -240,7 +353,6 @@
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid oklch(1 0 0 / 0.1);
-  box-shadow: inset 0 1px 2px 0 rgba(0, 0, 0, 0.3);
 }
 
 @utility glass-modal {
@@ -248,25 +360,26 @@
   backdrop-filter: blur(32px) saturate(200%);
   -webkit-backdrop-filter: blur(32px) saturate(200%);
   border: 1px solid oklch(1 0 0 / 0.12);
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.15), 0 28px 64px -12px rgba(0, 0, 0, 0.85);
+  /* A floating layer still has to separate from what it covers; this is an
+     ambient shadow, not a raised edge. */
+  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.55);
 }
 
+/* Kept as no-ops: the specular edge highlight was the main thing that read as
+   a raised, older surface. Call sites stay valid; they simply draw nothing. */
 @utility specular-t {
-  box-shadow: inset 0 1px 0 0 oklch(1 0 0 / 0.1);
+  box-shadow: none;
 }
 
 @utility specular-b {
-  box-shadow: inset 0 -1px 0 0 oklch(1 0 0 / 0.08);
+  box-shadow: none;
 }
 
 @utility liquid-hover {
-  transition: all 160ms cubic-bezier(0.16, 1, 0.3, 1);
-
-  &:hover {
-    filter: brightness(1.08);
-  }
-
-  &:active {
-    transform: scale(0.98);
-  }
+  /* Colour and opacity only — no brightness pump, no press-shrink. */
+  transition:
+    background-color 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    color 140ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 140ms cubic-bezier(0.16, 1, 0.3, 1);
 }

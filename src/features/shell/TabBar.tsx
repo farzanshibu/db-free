@@ -1,11 +1,13 @@
 // SOT: tab-bar, workspace-tabs, window-drag-region
 import type { MouseEvent as ReactMouseEvent } from "react";
-import { Button, Chip, CloseButton, ScrollShadow } from "@heroui/react";
 import { usePendingCount, useWorkspace, type Tab } from "@/stores/workspace";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
 import { Icon, type IconName } from "@/lib/icons";
 import { OBJECT_KINDS, TOOLS } from "@/lib/objects";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  Open tabs above the main area (also a drag region) + the Changes button.
 export function TabBar() {
@@ -33,7 +35,7 @@ export function TabBar() {
 
   return (
     <div className="drag-region flex h-11 shrink-0 items-center border-b border-border/40 glass-header px-2" data-tauri-drag-region role="tablist" aria-label="Open tabs">
-      <ScrollShadow orientation="horizontal" hideScrollBar className="flex h-full items-center gap-1 py-1">
+      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-full items-center gap-1 py-1">
         {tabs.map((tab, index) => (
           <TabItem
             key={tab.id}
@@ -52,14 +54,13 @@ export function TabBar() {
             }
           />
         ))}
-      </ScrollShadow>
+      </ScrollArea>
       {activeId ? (
         <Button
-          isIconOnly
           variant="ghost"
           size="sm"
           aria-label="New query tab"
-          onPress={() => openQuery(activeId)}
+          onClick={() => openQuery(activeId)}
           className="ml-1 size-7 min-w-7 rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
         >
           <Icon name="plus" size={13} />
@@ -74,13 +75,13 @@ export function TabBar() {
             "mr-2 h-7.5 rounded-lg text-xs font-medium liquid-hover",
             pending > 0 ? "glass-pill text-foreground border-warning/50" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground",
           )}
-          onPress={() => setPanelOpen(!panelOpen)}
+          onClick={() => setPanelOpen(!panelOpen)}
         >
           Changes
           {pending > 0 ? (
-            <Chip size="sm" variant="primary" color="warning" className="ml-1.5 font-bold text-[10px] h-4 min-w-4 p-0">
+            <Badge size="sm" variant="warning" className="ml-1.5 font-bold text-[10px] h-4 min-w-4 p-0">
               {pending}
-            </Chip>
+            </Badge>
           ) : null}
         </Button>
       ) : null}
@@ -131,23 +132,39 @@ function TabItem({ tab, active, onActivate, onClose, onContextMenu }: { tab: Tab
         if (e.button === 1) onClose();
       }}
       onContextMenu={onContextMenu}
+      // WHAT:  A flat editor tab: tone carries the selection, an accent rule
+      //        underlines it, and the close affordance appears on approach.
+      // WHY:   Every tab drawing its own bordered pill and a permanent close
+      //        button made the strip read as a row of buttons rather than as
+      //        one control with a current item.
       className={cn(
-        "group relative flex h-7.5 max-w-[200px] min-w-[110px] cursor-default items-center gap-2 rounded-lg px-2.5 text-[12.5px] font-medium liquid-hover",
+        "group relative flex h-8 max-w-[200px] shrink-0 cursor-default items-center gap-2 rounded-t-md px-2.5",
+        "text-[12.5px] font-medium transition-colors duration-150",
+        "after:pointer-events-none after:absolute after:inset-x-1.5 after:bottom-0 after:h-0.5 after:rounded-full after:transition-colors",
         active
-          ? "glass-pill text-foreground shadow-xs"
-          : "text-muted hover:bg-surface-secondary/60 hover:text-foreground",
+          ? "bg-surface-secondary/70 text-foreground after:bg-accent"
+          : "text-muted after:bg-transparent hover:bg-surface-secondary/35 hover:text-foreground",
       )}
     >
       <Icon name={base.icon} size={12.5} className={cn("shrink-0", active ? "text-accent" : "text-muted")} />
       <span className="min-w-0 flex-1 truncate">{label}</span>
-      <CloseButton
+      <Button
+        variant="ghost"
+        size="icon-sm"
         aria-label={`Close ${label}`}
-        onPress={() => onClose()}
+        // The strip's own click handler activates a tab; without stopping here,
+        // closing one would select it on the way out.
+        onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }}
         className={cn(
-          "size-4 min-w-4 p-0 rounded-full text-muted hover:text-foreground transition-all",
-          active ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-100",
+          "size-4 rounded-sm p-0 transition-opacity",
+          active ? "opacity-70 hover:opacity-100" : "opacity-0 group-hover:opacity-70 group-hover:hover:opacity-100",
         )}
-      />
+      >
+        <Icon name="x" size={11} />
+      </Button>
     </div>
   );
 }

@@ -1,5 +1,4 @@
 // SOT: tool-tab, tool-dispatch, playground-routing
-import { Button } from "@heroui/react";
 import type { Tool } from "@/lib/bindings";
 import { useWorkspace } from "@/stores/workspace";
 import { EmptyState } from "@/components/global/EmptyState";
@@ -14,6 +13,7 @@ import { LedgerTab } from "./LedgerTab";
 import { GraphViewTab } from "./GraphViewTab";
 import { PubSubTab } from "./PubSubTab";
 import { XmlViewerTab } from "./XmlViewerTab";
+import { Button } from "@/components/ui/button";
 
 // WHAT:  Routes a `Tool` to its playground. Tools that already had a home
 //        (server overview, ER diagram, key browser) reuse it.
@@ -26,7 +26,7 @@ export function ToolTab({ connectionId, tool }: { connectionId: string; tool: To
     case "erd":
       return <ErdTab connectionId={connectionId} schema={null} />;
     case "key_browser":
-      return <EmptyState icon="hash" title="Key browser" body="Keys are listed in the Tables sidebar; open one to inspect and edit it by type." action={<Button size="sm" onPress={() => setSidebar("tables")}>Show keys</Button>} />;
+      return <EmptyState icon="hash" title="Key browser" body="Keys are listed in the Tables sidebar; open one to inspect and edit it by type." action={<Button size="sm" onClick={() => setSidebar("tables")}>Show keys</Button>} />;
     case "vector_search":
       return <VectorSearchTab connectionId={connectionId} />;
     case "search_playground":

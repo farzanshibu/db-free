@@ -1,6 +1,5 @@
 // SOT: results-pane, statement-tabs, query-result-grid, result-row-total, result-export, file-download
 import { useState } from "react";
-import { Button, Chip, Dropdown, Label } from "@heroui/react";
 import type { QueryOutcome } from "@/lib/bindings";
 import { DENSITIES, formatCount, formatMs } from "@/lib/format";
 import { downloadTextFile, exportFilename, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
@@ -9,6 +8,9 @@ import { DataGrid } from "@/features/grid/DataGrid";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 // WHAT:  Says how many rows the script really has, not just how many fit.
 // WHY:   A row cap that reads as the whole answer is worse than no cap: "1,000
@@ -69,7 +71,7 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
             key={i}
             size="sm"
             variant={i === index ? "secondary" : "ghost"}
-            onPress={() => setActive(i)}
+            onClick={() => setActive(i)}
             className={cn("h-6 rounded-md px-2 py-0.5 text-xs", i === index ? "text-foreground font-medium" : "text-muted hover:text-foreground")}
           >
             {s.kind === "rows" ? `Result ${i + 1} · ${formatCount(s.result.rows.length)} rows` : `Statement ${i + 1}`}
@@ -77,34 +79,36 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
         ))}
         <span className="ml-auto flex items-center gap-2">
           {current?.kind === "rows" ? (
-            <Dropdown>
-              <Button size="sm" variant="ghost" className="h-6 rounded-md px-2 text-xs text-muted hover:text-foreground" isDisabled={!exportable}>
-                <Icon name="download" size={12} />
-                Export
-                <Icon name="chevron-down" size={11} />
-              </Button>
-              <Dropdown.Popover className="glass-modal rounded-xl">
-                <Dropdown.Menu onAction={(key) => onExportAction(String(key))}>
-                  <Dropdown.Item id="copy-csv" textValue="Copy as CSV"><Label>Copy as CSV</Label></Dropdown.Item>
-                  <Dropdown.Item id="copy-json" textValue="Copy as JSON"><Label>Copy as JSON</Label></Dropdown.Item>
-                  <Dropdown.Item id="download-csv" textValue="Download as CSV"><Label>Download as CSV</Label></Dropdown.Item>
-                  <Dropdown.Item id="download-json" textValue="Download as JSON"><Label>Download as JSON</Label></Dropdown.Item>
-                </Dropdown.Menu>
-              </Dropdown.Popover>
-            </Dropdown>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="ghost" className="h-6 rounded-md px-2 text-xs text-muted hover:text-foreground" disabled={!exportable}>
+                  <Icon name="download" size={12} />
+                  Export
+                  <Icon name="chevron-down" size={11} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent className="glass-modal rounded-xl">
+                <DropdownMenuGroup>
+                  <DropdownMenuItem textValue="Copy as CSV" onSelect={() => { onExportAction("copy-csv"); }}><span>Copy as CSV</span></DropdownMenuItem>
+                  <DropdownMenuItem textValue="Copy as JSON" onSelect={() => { onExportAction("copy-json"); }}><span>Copy as JSON</span></DropdownMenuItem>
+                  <DropdownMenuItem textValue="Download as CSV" onSelect={() => { onExportAction("download-csv"); }}><span>Download as CSV</span></DropdownMenuItem>
+                  <DropdownMenuItem textValue="Download as JSON" onSelect={() => { onExportAction("download-json"); }}><span>Download as JSON</span></DropdownMenuItem>
+                </DropdownMenuGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : null}
           {truncated ? (
-            <Chip size="sm" color="warning" variant="soft">
+            <Badge size="sm" color="warning" variant="soft">
               {rowSummary(shown, outcome.totalRows, truncated)}
-            </Chip>
+            </Badge>
           ) : (
-            <Chip size="sm" variant="soft">
+            <Badge size="sm" variant="soft">
               {rowSummary(shown, outcome.totalRows, truncated)}
-            </Chip>
+            </Badge>
           )}
-          <Chip size="sm" color="success" variant="soft">
+          <Badge size="sm" color="success" variant="soft">
             {formatMs(outcome.elapsedMs)}
-          </Chip>
+          </Badge>
         </span>
       </div>
       <div className="min-h-0 flex-1">

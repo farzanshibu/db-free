@@ -1,6 +1,5 @@
 // SOT: capability-matrix, engine-feature-matrix, capabilities-page
 import { useMemo, useState } from "react";
-import { Button, Chip, ScrollShadow, SearchField } from "@heroui/react";
 import type { Capabilities, Engine, EngineKind } from "@/lib/bindings";
 import { CATEGORIES, ENGINE_ORDER, engineMeta } from "@/lib/engines";
 import { OBJECT_KINDS, SECTIONS, TOOL_ORDER, kindMeta, profileOf, toolMeta } from "@/lib/objects";
@@ -10,6 +9,10 @@ import { EngineIcon } from "@/components/global/EngineIcon";
 import { AppSelect, Check } from "@/components/global/Field";
 import { cn } from "@/lib/cn";
 import { keysOf } from "@/lib/records";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { SearchInput } from "@/components/ui/input";
 
 interface Row {
   id: string;
@@ -66,26 +69,20 @@ export function CapabilityMatrixPage() {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header " data-tauri-drag-region>
-        <Button isIconOnly size="sm" variant="ghost" aria-label="Back to connections" onPress={goConnections} className="size-7 min-w-7 rounded-lg text-muted">
+        <Button size="sm" variant="ghost" aria-label="Back to connections" onClick={goConnections} className="size-7 min-w-7 rounded-lg text-muted">
           <Icon name="arrow-left" size={14} />
         </Button>
         <Icon name="grid" size={15} className="text-accent" />
         <span className="text-sm font-semibold tracking-tight text-foreground">Engine capabilities</span>
-        <Chip size="sm" variant="soft" className="font-mono text-[10px]">
+        <Badge size="sm" variant="soft" className="font-mono text-[10px]">
           {engines.length} engines · {visibleRows.length} features
-        </Chip>
+        </Badge>
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
         <AppSelect ariaLabel="Category" value={category} options={categoryOptions} size="sm" className="w-52" onChange={setCategory} />
-        <SearchField value={search} onChange={setSearch} aria-label="Search engines" className="w-48">
-          <SearchField.Group className="glass-input h-8 rounded-lg px-2">
-            <SearchField.SearchIcon />
-            <SearchField.Input placeholder="Engine…" className="w-full text-xs" />
-            <SearchField.ClearButton />
-          </SearchField.Group>
-        </SearchField>
+        <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Engine…" className="h-8 w-48 rounded-lg text-xs glass-input" />
         <Check label="Hide empty rows" checked={hideEmpty} onChange={setHideEmpty} />
       </div>
-      <ScrollShadow className="min-h-0 flex-1 overflow-x-auto">
+      <ScrollArea className="min-h-0 flex-1 overflow-x-auto">
         <table className="min-w-max border-separate border-spacing-0 text-xs">
           <thead className="sticky top-0 z-20">
             <tr>
@@ -110,7 +107,7 @@ export function CapabilityMatrixPage() {
             })}
           </tbody>
         </table>
-      </ScrollShadow>
+      </ScrollArea>
     </div>
   );
 }

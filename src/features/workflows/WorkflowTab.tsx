@@ -1,6 +1,5 @@
 // SOT: workflow-tab, workflow-steps, workflow-runner-ui
 import { useState } from "react";
-import { Alert, Button, Card, Chip, Input, ScrollShadow } from "@heroui/react";
 import type { Document, WorkflowBody, WorkflowRunReport, WorkflowStep } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatMs } from "@/lib/format";
@@ -10,6 +9,12 @@ import { IconButton } from "@/components/global/Button";
 import { SqlEditor } from "@/features/editor/SqlEditor";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 let stepCounter = 0;
 
@@ -94,15 +99,15 @@ export function WorkflowTab({ document: doc }: { document: Document }) {
             aria-label="Workflow name"
           />
           <AppSelect ariaLabel="Default connection" value={connectionId} options={connOptions} onChange={(v) => { setConnectionId(v); setDirty(true); }} size="sm" className="w-56" icon="database" />
-          <Button size="sm" isPending={running} onPress={() => void run()} isDisabled={steps.length === 0}>
+          <Button size="sm" pending={running} onClick={() => void run()} disabled={steps.length === 0}>
             <Icon name="play" size={12} />
             Run
           </Button>
           <div className="ml-auto flex items-center gap-1">
-            <Button size="sm" onPress={() => void save()} isDisabled={!dirty}>Save{dirty ? " *" : ""}</Button>
+            <Button size="sm" onClick={() => void save()} disabled={!dirty}>Save{dirty ? " *" : ""}</Button>
           </div>
         </div>
-        <ScrollShadow className="min-h-0 flex-1 p-6">
+        <ScrollArea className="min-h-0 flex-1 p-6">
           <div className="mx-auto flex w-full max-w-[560px] flex-col items-center gap-0">
             {steps.map((step, i) => {
               const result = report?.steps.find((r) => r.stepId === step.id);
@@ -115,27 +120,27 @@ export function WorkflowTab({ document: doc }: { document: Document }) {
                     onKeyDown={(e) => { if (e.key === "Enter") setSelectedId(step.id); }}
                     className={cn("w-full cursor-pointer transition-all border glass-card", selectedId === step.id ? "border-accent ring-1 ring-accent/30" : "border-border/40 hover:border-border")}
                   >
-                    <Card.Content className="flex items-center gap-3 p-3 w-full">
+                    <CardContent className="flex items-center gap-3 p-3 w-full">
                       <span className="flex size-7 items-center justify-center rounded-full bg-surface-tertiary text-xs text-muted shrink-0">{i + 1}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium text-foreground">{step.name}</span>
                         <span className="block truncate font-mono text-[11px] text-muted">{step.sql.replace(/\s+/g, " ").slice(0, 80) || "no SQL yet"}</span>
                       </span>
                       {result ? (
-                        <Chip size="sm" color={result.ok ? "success" : "danger"} variant="soft">{result.ok ? `ok · ${formatMs(result.elapsedMs)}${result.rows !== null ? ` · ${result.rows} rows` : ""}` : "error"}</Chip>
+                        <Badge size="sm" color={result.ok ? "success" : "danger"} variant="soft">{result.ok ? `ok · ${formatMs(result.elapsedMs)}${result.rows !== null ? ` · ${result.rows} rows` : ""}` : "error"}</Badge>
                       ) : null}
                       <span className="flex flex-col">
-                        <IconButton icon="arrow-up" label="Move up" isDisabled={i === 0} onPress={() => move(i, -1)} size={12} />
-                        <IconButton icon="arrow-down" label="Move down" isDisabled={i === steps.length - 1} onPress={() => move(i, 1)} size={12} />
+                        <IconButton icon="arrow-up" label="Move up" disabled={i === 0} onClick={() => move(i, -1)} size={12} />
+                        <IconButton icon="arrow-down" label="Move down" disabled={i === steps.length - 1} onClick={() => move(i, 1)} size={12} />
                       </span>
-                    </Card.Content>
+                    </CardContent>
                   </Card>
                   {result && !result.ok && result.error ? (
-                    <Alert status="danger" className="mt-1 w-full rounded-xl text-xs">
-                      <Alert.Indicator />
-                      <Alert.Content>
-                        <Alert.Description className="selectable font-mono text-[11px]">{result.error}</Alert.Description>
-                      </Alert.Content>
+                    <Alert variant="danger" className="mt-1 w-full rounded-xl text-xs">
+                      <AlertIndicator />
+                      <AlertContent>
+                        <AlertDescription className="selectable font-mono text-[11px]">{result.error}</AlertDescription>
+                      </AlertContent>
                     </Alert>
                   ) : null}
                   <div className="h-6 w-px bg-border/40" />
@@ -143,15 +148,14 @@ export function WorkflowTab({ document: doc }: { document: Document }) {
               );
             })}
             <Button
-              isIconOnly
-              onPress={addStep}
+              onClick={addStep}
               className="flex size-14 min-w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-lg hover:brightness-110"
               aria-label="Add step"
             >
               <Icon name="plus" size={22} />
             </Button>
           </div>
-        </ScrollShadow>
+        </ScrollArea>
       </div>
       {selected ? (
         <aside className="flex w-[420px] shrink-0 flex-col border-l border-border bg-surface">
@@ -164,7 +168,7 @@ export function WorkflowTab({ document: doc }: { document: Document }) {
             <SqlEditor value={selected.sql} onChange={(sql) => patchStep(selected.id, { sql })} onRun={() => void run()} engine={engine} schema={{}} />
           </div>
           <div className="flex items-center border-t border-border px-3 py-2">
-            <Button size="sm" variant="danger-soft" className="ml-auto" onPress={() => { setSteps((s) => s.filter((x) => x.id !== selected.id)); setSelectedId(null); setDirty(true); }}>
+            <Button size="sm" variant="danger-soft" className="ml-auto" onClick={() => { setSteps((s) => s.filter((x) => x.id !== selected.id)); setSelectedId(null); setDirty(true); }}>
               <Icon name="trash" size={12} />
               Delete step
             </Button>

@@ -57,6 +57,11 @@ csv = "1"
 aes-gcm = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 ts-rs = { version = "12", features = ["serde-compat", "serde-json-impl"] }
+# Agent framework: one CompletionModel abstraction over Anthropic / OpenAI /
+# OpenRouter / Ollama, with unified message + tool-call types and streaming that
+# accumulates fragmented tool arguments. The run loop, tool dispatch and the
+# permission gate stay ours (src-tauri/src/services/agent/).
+rig-core = { version = "0.42", default-features = false, features = ["reqwest", "rustls", "derive"] }
 
 [profile.release]
 codegen-units = 1

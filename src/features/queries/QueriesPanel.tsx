@@ -1,6 +1,5 @@
 // SOT: queries-panel, saved-queries-sidebar, recent-queries
 import { useEffect, useMemo, useState } from "react";
-import { Button, Chip, ScrollShadow } from "@heroui/react";
 import type { HistoryEntry } from "@/lib/bindings";
 import { ipc } from "@/lib/ipc";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
@@ -9,6 +8,9 @@ import { useContextMenu } from "@/components/global/ContextMenu";
 import { Segmented } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { ConnectionSwitcher } from "@/features/shell/ConnectionSwitcher";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  Sidebar of saved queries (A-Z / Z-A) plus the most recent distinct
 //        statements from history. Click opens a new query tab seeded with the SQL.
@@ -61,17 +63,18 @@ export function QueriesPanel() {
 
   return (
     <aside className="flex h-full w-full flex-col glass-sidebar select-none">
-      <div className="flex app-toolbar shrink-0 items-center justify-between border-b border-border/40 glass-header ">
+      <div className="@container flex app-toolbar shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/40 glass-header">
         <ConnectionSwitcher caption="Saved queries" />
-        <span className="flex items-center gap-0.5">
-          <IconButton icon="refresh" label="Refresh" onPress={() => void loadSavedQueries()} />
-          <IconButton icon="plus" label="New query" onPress={() => openQuery(cid)} />
+        <div className="min-w-0 flex-1" />
+        <span className="flex shrink-0 items-center gap-0.5">
+          <IconButton icon="refresh" label="Refresh" onClick={() => void loadSavedQueries()} />
+          <IconButton icon="plus" label="New query" onClick={() => openQuery(cid)} />
         </span>
       </div>
       <div className="px-3 py-2">
         <Segmented label="Sort" value={order} onChange={setOrder} options={[{ value: "az", label: "A-Z" }, { value: "za", label: "Z-A" }]} />
       </div>
-      <ScrollShadow className="min-h-0 flex-1 px-1.5 py-1">
+      <ScrollArea className="min-h-0 flex-1 px-1.5 py-1">
         {sorted.length === 0 ? <p className="px-3 py-2 text-xs text-muted">No saved queries yet. Use Save in a query tab.</p> : null}
         {sorted.map((q) => (
           <div
@@ -99,22 +102,22 @@ export function QueriesPanel() {
             <Button
               variant="ghost"
               size="sm"
-              onPress={() => openQuery(cid, q.sql, q.name)}
+              onClick={() => openQuery(cid, q.sql, q.name)}
               className="flex h-auto min-w-0 flex-1 items-center justify-start gap-2 p-0 text-left bg-transparent hover:bg-transparent"
             >
               <Icon name="file" size={13} className="shrink-0 text-accent" />
               <span className="truncate">{q.name}</span>
               {q.tags.length > 0 ? (
-                <Chip size="sm" variant="soft" className="ml-auto text-[10px]">
+                <Badge size="sm" variant="soft" className="ml-auto text-[10px]">
                   {q.tags.join(", ")}
-                </Chip>
+                </Badge>
               ) : null}
             </Button>
             <span className="opacity-0 group-hover:opacity-100 transition-opacity">
               <IconButton
                 icon="trash"
                 label="Delete saved query"
-                onPress={() => void deleteSavedQuery(q.id)}
+                onClick={() => void deleteSavedQuery(q.id)}
               />
             </span>
           </div>
@@ -143,7 +146,7 @@ export function QueriesPanel() {
             <Button
               variant="ghost"
               size="sm"
-              onPress={() => openQuery(cid, r.sql)}
+              onClick={() => openQuery(cid, r.sql)}
               className="flex h-7.5 w-full items-center justify-start gap-2 rounded-lg px-2 text-left text-[11.5px] text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
             >
               <Icon name="file" size={12} className="shrink-0 opacity-60" />
@@ -151,7 +154,7 @@ export function QueriesPanel() {
             </Button>
           </div>
         ))}
-      </ScrollShadow>
+      </ScrollArea>
       {menu.node}
     </aside>
   );

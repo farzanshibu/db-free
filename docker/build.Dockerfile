@@ -48,8 +48,10 @@ RUN corepack enable && corepack prepare "pnpm@${PNPM_VERSION}" --activate
 
 ARG RUST_TOOLCHAIN=stable
 ENV CARGO_HOME=/usr/local/cargo RUSTUP_HOME=/usr/local/rustup PATH=/usr/local/cargo/bin:$PATH
+# clippy comes with the toolchain because `pnpm check` runs it; the minimal
+# profile omits it, and this image is meant to be able to run what CI runs.
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
-    | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" \
- && rustc --version && cargo --version
+    | sh -s -- -y --profile minimal --default-toolchain "$RUST_TOOLCHAIN" --component clippy \
+ && rustc --version && cargo --version && cargo clippy --version
 
 WORKDIR /work

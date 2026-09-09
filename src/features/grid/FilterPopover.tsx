@@ -1,11 +1,12 @@
 // SOT: filter-builder, filter-popover, filter-operators
 import { useState } from "react";
-import { Button, Popover } from "@heroui/react";
 import type { ColumnInfo, FilterOp, FilterRule } from "@/lib/bindings";
 import { AppSelect, Field } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
 import { Icon } from "@/lib/icons";
 import { keysOf } from "@/lib/records";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/components/ui/popover";
 
 // WHAT:  Operator registry for the GUI filter builder, keyed by the Rust enum.
 // WHERE: src-tauri/src/model/query.rs (FilterOp), src-tauri/src/integrations/sql.rs
@@ -50,38 +51,38 @@ export function FilterPopover({ columns, filters, onApply }: FilterPopoverProps)
   };
 
   return (
-    <Popover isOpen={open} onOpenChange={openWith}>
-      <Button size="sm" variant={filters.length > 0 ? "primary" : "ghost"} className={filters.length > 0 ? "" : "text-muted"}>
-        <Icon name="filter" size={13} />
-        {filters.length > 0 ? `Filter (${filters.length})` : "Filter"}
-      </Button>
-      <Popover.Content className="w-[440px] max-w-[92vw]">
-        <Popover.Dialog className="p-3">
-          <Popover.Heading className="text-[11px] font-semibold uppercase tracking-wider text-muted">Filters</Popover.Heading>
+    <Popover open={open} onOpenChange={openWith}>
+      <PopoverTrigger asChild>
+        <Button size="xs" variant={filters.length > 0 ? "soft" : "toolbar"}>
+          <Icon name="filter" size={12} />
+          {filters.length > 0 ? `Filter (${filters.length})` : "Filter"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[440px] max-w-[92vw] p-3">
+          <PopoverHeading className="text-[11px] font-semibold uppercase tracking-wider text-muted">Filters</PopoverHeading>
           <div className="mt-2 flex flex-col gap-1.5">
             {draft.map((rule, index) => (
               <div key={index} className="grid grid-cols-[minmax(0,1fr)_124px_minmax(0,1fr)_22px] items-center gap-1.5">
                 <AppSelect ariaLabel="Column" value={rule.column} options={columns.map((c) => ({ value: c.name, label: c.name }))} onChange={(column) => update(index, { column })} size="sm" />
                 <AppSelect ariaLabel="Operator" value={rule.op} options={OP_OPTIONS} onChange={(op) => update(index, { op })} size="sm" />
-                <Field label="" value={rule.value} onChange={(value) => update(index, { value })} isDisabled={!FILTER_OPS[rule.op].needsValue} placeholder="value" mono compact className="[&_label]:hidden" />
-                <IconButton icon="x" label="Remove filter" size={12} className="size-5.5 min-w-5.5" onPress={() => remove(index)} />
+                <Field label="" value={rule.value} onChange={(value) => update(index, { value })} disabled={!FILTER_OPS[rule.op].needsValue} placeholder="value" mono compact className="[&_label]:hidden" />
+                <IconButton icon="x" label="Remove filter" size={12} className="size-5.5 min-w-5.5" onClick={() => remove(index)} />
               </div>
             ))}
-            <Button size="sm" variant="ghost" className="h-6 min-h-6 self-start px-1.5 text-[11px] text-muted" onPress={() => setDraft((d) => [...d, { column: firstColumn, op: "eq", value: "" }])}>
+            <Button size="sm" variant="ghost" className="h-6 min-h-6 self-start px-1.5 text-[11px] text-muted" onClick={() => setDraft((d) => [...d, { column: firstColumn, op: "eq", value: "" }])}>
               <Icon name="plus" size={12} />
               Add filter
             </Button>
           </div>
           <div className="mt-3 flex justify-end gap-1.5">
-            <Button size="sm" variant="tertiary" className="h-7 min-h-7 px-2.5 text-xs" onPress={() => { onApply([]); setOpen(false); }}>
+            <Button size="sm" variant="tertiary" className="h-7 min-h-7 px-2.5 text-xs" onClick={() => { onApply([]); setOpen(false); }}>
               Clear
             </Button>
-            <Button size="sm" className="h-7 min-h-7 px-3 text-xs" onPress={apply}>
+            <Button size="sm" className="h-7 min-h-7 px-3 text-xs" onClick={apply}>
               Apply
             </Button>
           </div>
-        </Popover.Dialog>
-      </Popover.Content>
+      </PopoverContent>
     </Popover>
   );
 }

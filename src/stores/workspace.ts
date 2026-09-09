@@ -1,6 +1,5 @@
 // SOT: workspace-store, pages, tabs, restored-query-tabs, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
 import { create } from "zustand";
-import { toast } from "@heroui/react";
 import type {
   AppError,
   AppSettings,
@@ -24,6 +23,7 @@ import type {
 import { errorMessage, ipc, normalizeError } from "@/lib/ipc";
 import type { Density } from "@/lib/format";
 import type { EnginePreset } from "@/lib/engines";
+import { toast } from "@/components/ui/sonner";
 
 export type SidebarMode = "tables" | "objects" | "queries" | "dashboards" | "workflows" | "diagrams";
 
@@ -542,10 +542,10 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   clearChanges: (connectionId) => set((s) => ({ pendingChanges: withoutKey(s.pendingChanges, connectionId) })),
   setChangesPanelOpen: (open) => set({ changesPanelOpen: open }),
 
-  // WHAT:  Notifications are HeroUI toasts (stacked, bottom-right); errors stay
+  // WHAT:  Notifications are Sonner toasts (stacked, bottom-right); errors stay
   //        longer since they often carry a SQL message worth reading.
   showError: (error) => {
-    toast.danger(typeof error === "string" ? error : errorMessage(error), { timeout: 8000 });
+    toast.error(typeof error === "string" ? error : errorMessage(error), { duration: 8000 });
   },
   showInfo: (text) => {
     toast.success(text);

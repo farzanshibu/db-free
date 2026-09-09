@@ -1,6 +1,5 @@
 // SOT: ledger-tab, immutable-history-playground, ledger-history-view
 import { useState } from "react";
-import { Button, Spinner } from "@heroui/react";
 import type { ObjectKind, ResultSet } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { DENSITIES, formatCount } from "@/lib/format";
@@ -10,6 +9,8 @@ import { AppSelect, Field } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 type Subject = "table" | "document";
 const SUBJECTS: readonly { value: Subject; label: string }[] = [
@@ -59,7 +60,7 @@ export function LedgerTab({ connectionId }: { connectionId: string }) {
             <AppSelect label="Subject" value={subject} options={SUBJECTS} onChange={setSubject} />
             {options.length > 0 ? <AppSelect label={subject === "table" ? "Table" : "Table (optional)"} value={currentTable} options={options} onChange={setTable} /> : null}
             {subject === "document" ? <Field label="Key" value={key} onChange={setKey} placeholder="customer:42" mono /> : null}
-            <Button onPress={() => void run()} isDisabled={running}>
+            <Button onClick={() => void run()} disabled={running}>
               {running ? <Spinner size="sm" /> : <Icon name="history" size={13} />}
               Load history
             </Button>

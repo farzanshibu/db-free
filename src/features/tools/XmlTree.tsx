@@ -1,8 +1,8 @@
 // SOT: xml-tree, xml-viewer-component, collapsible-xml
 import { useMemo, useState } from "react";
-import { Button } from "@heroui/react";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
 
 interface XmlNode {
   path: string;
@@ -67,10 +67,10 @@ export function XmlTree({ source, defaultDepth = 2 }: { source: string; defaultD
   return (
     <div className="selectable font-mono text-[12px] leading-relaxed">
       <div className="mb-1 flex gap-1">
-        <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onPress={() => setCollapsed(new Set())}>
+        <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onClick={() => setCollapsed(new Set())}>
           Expand all
         </Button>
-        <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onPress={() => setCollapsed(new Set(containerPaths(parsed.root ?? { path: "$", name: "", attributes: [], text: null, children: [] }, 0, 0, [])))}>
+        <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onClick={() => setCollapsed(new Set(containerPaths(parsed.root ?? { path: "$", name: "", attributes: [], text: null, children: [] }, 0, 0, [])))}>
           Collapse all
         </Button>
       </div>
@@ -86,7 +86,7 @@ function XmlNodeView({ node, collapsed, onToggle, depth }: { node: XmlNode; coll
     <div style={{ paddingLeft: depth === 0 ? 0 : 14 }}>
       <div className="flex items-start gap-1">
         {hasChildren ? (
-          <Button isIconOnly size="sm" variant="ghost" aria-label={open ? "Collapse" : "Expand"} onPress={() => onToggle(node.path)} className="mt-0.5 size-4 min-w-4 rounded-sm text-muted">
+          <Button size="sm" variant="ghost" aria-label={open ? "Collapse" : "Expand"} onClick={() => onToggle(node.path)} className="mt-0.5 size-4 min-w-4 rounded-sm text-muted">
             <Icon name={open ? "chevron-down" : "chevron-right"} size={10} />
           </Button>
         ) : (

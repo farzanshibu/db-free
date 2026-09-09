@@ -3,6 +3,7 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+pub mod agent;
 pub mod ai;
 pub mod changes;
 pub mod connections;
@@ -70,12 +71,18 @@ pub enum CommandName {
     QueryRange,
     LoadHistory,
     CheckUpdate,
+    DownloadUpdate,
     InstallUpdate,
     CreateTemplate,
+    AgentChat,
+    AgentDecide,
+    AgentCancel,
+    AgentReset,
+    AgentSkills,
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 46] = [
+    pub const ALL: [CommandName; 52] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -120,8 +127,14 @@ impl CommandName {
         CommandName::QueryRange,
         CommandName::LoadHistory,
         CommandName::CheckUpdate,
+        CommandName::DownloadUpdate,
         CommandName::InstallUpdate,
         CommandName::CreateTemplate,
+        CommandName::AgentChat,
+        CommandName::AgentDecide,
+        CommandName::AgentCancel,
+        CommandName::AgentReset,
+        CommandName::AgentSkills,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -170,8 +183,14 @@ impl CommandName {
             CommandName::QueryRange => "query_range",
             CommandName::LoadHistory => "load_history",
             CommandName::CheckUpdate => "check_update",
+            CommandName::DownloadUpdate => "download_update",
             CommandName::InstallUpdate => "install_update",
             CommandName::CreateTemplate => "create_template",
+            CommandName::AgentChat => "agent_chat",
+            CommandName::AgentDecide => "agent_decide",
+            CommandName::AgentCancel => "agent_cancel",
+            CommandName::AgentReset => "agent_reset",
+            CommandName::AgentSkills => "agent_skills",
         }
     }
 }
@@ -209,6 +228,11 @@ mod tests {
             | CommandName::DescribeSession => "connections",
             CommandName::LoadCatalog | CommandName::LoadColumns | CommandName::LoadForeignKeys | CommandName::LoadDdl | CommandName::CreateTemplate => "schema",
             CommandName::FetchTablePage => "data",
+            CommandName::AgentChat
+            | CommandName::AgentDecide
+            | CommandName::AgentCancel
+            | CommandName::AgentReset
+            | CommandName::AgentSkills => "agent",
             CommandName::ExecuteQuery
             | CommandName::ListHistory
             | CommandName::ClearHistory
@@ -235,7 +259,7 @@ mod tests {
             | CommandName::SearchDocuments
             | CommandName::QueryRange
             | CommandName::LoadHistory => "objects",
-            CommandName::CheckUpdate | CommandName::InstallUpdate => "updates",
+            CommandName::CheckUpdate | CommandName::DownloadUpdate | CommandName::InstallUpdate => "updates",
         }
     }
 }

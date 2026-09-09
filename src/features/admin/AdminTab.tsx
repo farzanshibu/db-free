@@ -1,6 +1,5 @@
 // SOT: admin-tab, server-overview, server-stats-view, stat-sparkline, admin-object-lists, auto-refresh
 import { useEffect, useMemo, useState } from "react";
-import { Button, Chip, ScrollShadow, SearchField, Spinner } from "@heroui/react";
 import type { ObjectKind, ServerStats, Stat } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { ADMIN_KINDS, kindMeta, hasTool } from "@/lib/objects";
@@ -12,6 +11,11 @@ import { Segmented } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { ObjectRow, useObjects } from "@/features/objects/ObjectList";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { SearchInput } from "@/components/ui/input";
 
 type Interval = "off" | "5" | "15" | "60";
 type View = "overview" | ObjectKind;
@@ -44,15 +48,15 @@ export function AdminTab({ connectionId }: { connectionId: string }) {
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
         <Icon name="server" size={15} className="text-accent" />
         <span className="text-sm font-semibold tracking-tight text-foreground">Server</span>
-        <Chip size="sm" variant="soft" className="font-mono text-[10px]">
+        <Badge size="sm" variant="soft" className="font-mono text-[10px]">
           {engineMeta(engine).label}
-        </Chip>
+        </Badge>
         {info?.serverVersion ? <span className="truncate font-mono text-[10px] text-muted">{info.serverVersion}</span> : null}
       </div>
       {views.length > 1 ? (
-        <ScrollShadow orientation="horizontal" hideScrollBar className="shrink-0 px-3 py-2">
+        <ScrollArea orientation="horizontal" hideScrollBar className="shrink-0 px-3 py-2">
           <Segmented label="Admin view" value={current} onChange={setView} options={views} />
-        </ScrollShadow>
+        </ScrollArea>
       ) : null}
       <div className="min-h-0 flex-1">
         {views.length === 0 ? (
@@ -123,13 +127,13 @@ function Overview({ connectionId }: { connectionId: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 px-3 pb-1 text-xs text-muted">
         <Segmented label="Refresh interval" value={interval} onChange={setIntervalMode} options={INTERVALS} />
-        <IconButton icon="refresh" label="Refresh now" onPress={refresh} />
+        <IconButton icon="refresh" label="Refresh now" onClick={refresh} />
         {loading ? <Spinner size="sm" /> : null}
         {stats ? <span className="ml-auto font-mono text-[10px]">read {new Date(stats.collectedAt).toLocaleTimeString()}</span> : null}
       </div>
-      <ScrollShadow className="min-h-0 flex-1 p-3">
+      <ScrollArea className="min-h-0 flex-1 p-3">
         {error !== null ? (
-          <EmptyState icon="alert" title="Could not read server statistics" body={error} action={<Button size="sm" onPress={refresh}>Retry</Button>} />
+          <EmptyState icon="alert" title="Could not read server statistics" body={error} action={<Button size="sm" onClick={refresh}>Retry</Button>} />
         ) : stats === null ? null : stats.groups.length === 0 ? (
           <EmptyState icon="activity" title="No statistics" body="The adapter returned no figures for this server." />
         ) : (
@@ -146,7 +150,7 @@ function Overview({ connectionId }: { connectionId: string }) {
             ))}
           </div>
         )}
-      </ScrollShadow>
+      </ScrollArea>
     </div>
   );
 }
@@ -192,29 +196,23 @@ function KindList({ connectionId, kind }: { connectionId: string; kind: ObjectKi
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <SearchField value={search} onChange={setSearch} aria-label={`Filter ${meta.plural.toLowerCase()}`} className="max-w-xs">
-          <SearchField.Group className="glass-input h-8 rounded-lg px-2">
-            <SearchField.SearchIcon />
-            <SearchField.Input placeholder={`Filter ${meta.plural.toLowerCase()}…`} className="w-full text-xs" />
-            <SearchField.ClearButton />
-          </SearchField.Group>
-        </SearchField>
+        <SearchInput value={search} onChange={setSearch} aria-label={`Filter ${meta.plural.toLowerCase()}`} placeholder={`Filter ${meta.plural.toLowerCase()}…`} className="max-w-xs glass-input h-8 rounded-lg w-full text-xs" />
         <IconButton
           icon="refresh"
           label="Reload"
-          onPress={() => {
+          onClick={() => {
             invalidateObjects(connectionId);
             setRefreshKey((k) => k + 1);
           }}
         />
         {loading ? <Spinner size="sm" /> : null}
         {objects ? (
-          <Chip size="sm" variant="soft" className="ml-auto font-mono text-[10px]">
+          <Badge size="sm" variant="soft" className="ml-auto font-mono text-[10px]">
             {objects.length}
-          </Chip>
+          </Badge>
         ) : null}
       </div>
-      <ScrollShadow className={cn("min-h-0 flex-1 px-2 pb-2")}>
+      <ScrollArea className={cn("min-h-0 flex-1 px-2 pb-2")}>
         {error !== null ? (
           <EmptyState icon="alert" title={`Could not list ${meta.plural.toLowerCase()}`} body={error} />
         ) : objects !== null && visible.length === 0 ? (
@@ -222,7 +220,7 @@ function KindList({ connectionId, kind }: { connectionId: string; kind: ObjectKi
         ) : (
           visible.map((o) => <ObjectRow key={`${o.reference.parent ?? ""}:${o.reference.name}`} connectionId={connectionId} object={o} />)
         )}
-      </ScrollShadow>
+      </ScrollArea>
     </div>
   );
 }

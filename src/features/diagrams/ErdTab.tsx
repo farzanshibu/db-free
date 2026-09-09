@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Background, Controls, MiniMap, ReactFlow, type Edge, type Node, useEdgesState, useNodesState, MarkerType } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Button, Spinner } from "@heroui/react";
 import type { ColumnInfo, ForeignKey, TableRef } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { tableKey, useWorkspace } from "@/stores/workspace";
@@ -10,6 +9,8 @@ import { IconButton } from "@/components/global/Button";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon, typeIcon } from "@/lib/icons";
 import { TableNode, VERTICAL_SOURCE_HANDLE, VERTICAL_TARGET_HANDLE, type TableNodeData } from "./TableNode";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 const NODE_TYPES = { table: TableNode };
 
@@ -93,9 +94,9 @@ export function ErdTab({ connectionId, schema }: { connectionId: string; schema:
         <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="rgba(0,0,0,0.6)" />
       </ReactFlow>
       <div className="absolute top-3 right-3 flex items-center gap-1 rounded-lg border border-border bg-surface/90 p-1 backdrop-blur">
-        <IconButton icon="refresh" label="Reload from database" onPress={() => setRefresh((r) => r + 1)} />
-        <IconButton icon="sort" label="Auto layout" onPress={relayout} />
-        <IconButton icon="download" label="Copy as SVG" onPress={() => void exportSvg()} />
+        <IconButton icon="refresh" label="Reload from database" onClick={() => setRefresh((r) => r + 1)} />
+        <IconButton icon="sort" label="Auto layout" onClick={relayout} />
+        <IconButton icon="download" label="Copy as SVG" onClick={() => void exportSvg()} />
       </div>
       <div className="absolute bottom-3 left-14 flex items-center gap-2 rounded-md border border-border bg-surface/90 px-2 py-1 text-[11px] text-muted backdrop-blur">
         {loading ? <Spinner size="sm" /> : <Icon name="view" size={12} />}
@@ -103,7 +104,7 @@ export function ErdTab({ connectionId, schema }: { connectionId: string; schema:
       </div>
       {tables.length > 0 && nodes.length === 0 && !loading ? (
         <div className="absolute inset-0 flex items-center justify-center">
-          <Button size="sm" variant="secondary" onPress={() => setRefresh((r) => r + 1)}>Reload</Button>
+          <Button size="sm" variant="secondary" onClick={() => setRefresh((r) => r + 1)}>Reload</Button>
         </div>
       ) : null}
     </div>

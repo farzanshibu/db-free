@@ -1,6 +1,5 @@
 // SOT: metrics-tab, range-query-playground, time-range-presets, series-chart
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, ScrollShadow, Spinner, TextArea } from "@heroui/react";
 import type { RangeResult, Series } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { engineMeta } from "@/lib/engines";
@@ -11,6 +10,10 @@ import { EmptyState } from "@/components/global/EmptyState";
 import { SERIES_COLORS } from "@/features/dashboards/charts";
 import { ToolBody, ToolShell } from "./ToolShell";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 type Preset = "10m" | "1h" | "6h" | "24h" | "7d" | "30d" | "custom";
 const PRESETS: readonly { value: Preset; label: string; seconds: number }[] = [
@@ -86,7 +89,7 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
           <>
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-foreground">{language} expression</span>
-              <TextArea
+              <Textarea
                 aria-label="Query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -110,7 +113,7 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
                 <DateTimeField kind="datetime" label="To (UTC)" value={end} onChange={setEnd} />
               </>
             ) : null}
-            <Button onPress={() => void run()} isDisabled={running || query.trim().length === 0}>
+            <Button onClick={() => void run()} disabled={running || query.trim().length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="play" size={13} />}
               Run
             </Button>
@@ -132,14 +135,14 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
             <div className="min-h-0 flex-1 p-3">
               <SeriesChart series={visible} />
             </div>
-            <ScrollShadow hideScrollBar className="max-h-40 shrink-0 border-t border-border/40 px-3 py-2">
+            <ScrollArea hideScrollBar className="max-h-40 shrink-0 border-t border-border/40 px-3 py-2">
             <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
               {result.series.map((s, i) => (
                 <li key={s.name}>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onPress={() =>
+                    onClick={() =>
                       setHidden((prev) => {
                         const next = new Set(prev);
                         if (next.has(s.name)) next.delete(s.name);
@@ -156,7 +159,7 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
                 </li>
               ))}
             </ul>
-            </ScrollShadow>
+            </ScrollArea>
           </div>
         )}
       </ToolBody>

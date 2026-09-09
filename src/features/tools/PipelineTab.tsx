@@ -1,6 +1,5 @@
 // SOT: pipeline-tab, aggregation-pipeline-builder, pipeline-stages
 import { useState } from "react";
-import { Button, Chip, ScrollShadow, Spinner, TextArea } from "@heroui/react";
 import type { ResultSet } from "@/lib/bindings";
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -15,6 +14,11 @@ import { DataGrid } from "@/features/grid/DataGrid";
 import { isRows } from "@/features/dashboards/charts";
 import { ToolShell, useCollectionOptions } from "./ToolShell";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 interface Stage {
   id: number;
@@ -129,7 +133,7 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
           <IconButton
             icon="terminal"
             label="Open as command"
-            onPress={() => {
+            onClick={() => {
               const command = commandText();
               if (command !== null) openQuery(connectionId, command, `${current} pipeline`);
             }}
@@ -147,34 +151,34 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
               <NumberInput label="Batch" integer value={batch} onChange={setBatch} />
             </div>
           </div>
-          <ScrollShadow className="min-h-0 flex-1 px-3">
+          <ScrollArea className="min-h-0 flex-1 px-3">
             <ol className="flex flex-col gap-2 pb-2">
               {stages.map((stage, i) => (
                 <li key={stage.id} className={cn("rounded-xl glass-card border-border/40 p-2", stage.enabled ? "" : "opacity-50")}>
                   <div className="mb-1.5 flex items-center gap-1">
-                    <Chip size="sm" variant="soft" className="h-5 min-w-5 px-1 font-mono text-[10px]">
+                    <Badge size="sm" variant="soft" className="h-5 min-w-5 px-1 font-mono text-[10px]">
                       {i + 1}
-                    </Chip>
+                    </Badge>
                     <div className="w-36">
                       <AppSelect ariaLabel="Stage operator" size="sm" value={stage.op} options={OPERATORS.map((o) => ({ value: o.value, label: o.label }))} onChange={(op) => update(stage.id, { op, body: stage.body.trim().length === 0 ? (OPERATORS.find((o) => o.value === op)?.template ?? "{}") : stage.body })} />
                     </div>
                     <span className="ml-auto flex items-center">
-                      <IconButton icon="arrow-up" label="Move up" isDisabled={i === 0} onPress={() => move(i, -1)} size={12} className="size-6 min-w-6" />
-                      <IconButton icon="arrow-down" label="Move down" isDisabled={i === stages.length - 1} onPress={() => move(i, 1)} size={12} className="size-6 min-w-6" />
-                      <IconButton icon={stage.enabled ? "eye" : "eye-off"} label={stage.enabled ? "Disable stage" : "Enable stage"} onPress={() => update(stage.id, { enabled: !stage.enabled })} size={12} className="size-6 min-w-6" />
-                      <IconButton icon="trash" label="Remove stage" onPress={() => setStages((s) => s.filter((st) => st.id !== stage.id))} size={12} className="size-6 min-w-6" />
+                      <IconButton icon="arrow-up" label="Move up" disabled={i === 0} onClick={() => move(i, -1)} size={12} className="size-6 min-w-6" />
+                      <IconButton icon="arrow-down" label="Move down" disabled={i === stages.length - 1} onClick={() => move(i, 1)} size={12} className="size-6 min-w-6" />
+                      <IconButton icon={stage.enabled ? "eye" : "eye-off"} label={stage.enabled ? "Disable stage" : "Enable stage"} onClick={() => update(stage.id, { enabled: !stage.enabled })} size={12} className="size-6 min-w-6" />
+                      <IconButton icon="trash" label="Remove stage" onClick={() => setStages((s) => s.filter((st) => st.id !== stage.id))} size={12} className="size-6 min-w-6" />
                     </span>
                   </div>
-                  <TextArea aria-label={`${stage.op} body`} value={stage.body} onChange={(e) => update(stage.id, { body: e.target.value })} spellCheck={false} className={cn("min-h-16 font-mono text-[12px]", parseJson(stage.body) === undefined ? "border-danger" : "")} />
+                  <Textarea aria-label={`${stage.op} body`} value={stage.body} onChange={(e) => update(stage.id, { body: e.target.value })} spellCheck={false} className={cn("min-h-16 font-mono text-[12px]", parseJson(stage.body) === undefined ? "border-danger" : "")} />
                 </li>
               ))}
             </ol>
-          </ScrollShadow>
+          </ScrollArea>
           <div className="flex items-center gap-2 border-t border-border/40 p-3">
             <div className="w-40">
               <AppSelect ariaLabel="Add stage" size="sm" value="$match" options={OPERATORS.map((o) => ({ value: o.value, label: `+ ${o.label}` }))} onChange={(op) => setStages((s) => [...s, newStage(op)])} />
             </div>
-            <Button className="ml-auto" onPress={() => void run()} isDisabled={running || current.length === 0}>
+            <Button className="ml-auto" onClick={() => void run()} disabled={running || current.length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="play" size={13} />}
               Run
             </Button>

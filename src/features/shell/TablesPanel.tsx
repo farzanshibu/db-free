@@ -1,6 +1,5 @@
 // SOT: tables-panel, sidebar-tables, database-switcher, schema-switcher, table-tree
 import { useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Button, Chip, Modal, ScrollShadow, SearchField, Separator, Skeleton, Spinner } from "@heroui/react";
 import type { ColumnInfo, Engine, TableInfo, TableRef } from "@/lib/bindings";
 import { formatCount } from "@/lib/format";
 import { collectionNoun, engineMeta, isKeyValueEngine, supportsErd } from "@/lib/engines";
@@ -14,6 +13,15 @@ import { EnvBadge } from "@/components/global/Badge";
 import { ConnectionSwitcher } from "./ConnectionSwitcher";
 import { KeyTree } from "./KeyTree";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
+import { SearchInput } from "@/components/ui/input";
 
 // WHAT:  Sidebar listing the active connection's tables, with database and
 //        schema switchers on top (the "saas_db / public" breadcrumb).
@@ -52,16 +60,50 @@ export function TablesPanel() {
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col glass-sidebar select-none">
-      <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40" data-tauri-drag-region>
+      {/* WHAT:  Header that survives the sidebar's full 180-520px range.
+          WHY:   Five actions plus a connection name need ~320px. Below that the
+                 row used to overflow and simply cut the last buttons off, which
+                 is the one outcome a toolbar must never have.
+          HOW:   Container queries, so the breakpoints follow the sidebar's own
+                 width rather than the window's: the connection name drops first,
+                 then its engine logo, and the three occasional actions fold into
+                 an overflow menu — Refresh and Search stay reachable at every
+                 width. */}
+      <div className="@container drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/40" data-tauri-drag-region>
         <ConnectionSwitcher caption={collectionNoun(connection.engine)} />
         {connection.readOnly ? <EnvBadge environment="none" readOnly /> : null}
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
-        <span className="flex items-center gap-0.5">
-          <IconButton icon="refresh" label="Refresh schema" onPress={() => void loadCatalog(id)} />
-          <IconButton icon="plus" label="New query" onPress={() => openQuery(id)} />
-          <IconButton icon="view" label="ER diagram" isDisabled={!supportsErd(connection.engine)} onPress={() => openErd(id, schemaFilter)} />
-          <IconButton icon="plus" label={`New ${collectionNoun(connection.engine).replace(/s$/, "").toLowerCase()}`} onPress={() => setCreating(true)} />
-          <IconButton icon="search" label="Search tables" active={searchOpen} onPress={() => setSearchOpen((v) => !v)} />
+        <span className="flex shrink-0 items-center gap-0.5">
+          <IconButton icon="refresh" label="Refresh schema" onClick={() => void loadCatalog(id)} />
+          <span className="hidden items-center gap-0.5 @[24rem]:flex">
+            <IconButton icon="plus" label="New query" onClick={() => openQuery(id)} />
+            <IconButton icon="view" label="ER diagram" disabled={!supportsErd(connection.engine)} onClick={() => openErd(id, schemaFilter)} />
+            <IconButton icon="plus" label={`New ${collectionNoun(connection.engine).replace(/s$/, "").toLowerCase()}`} onClick={() => setCreating(true)} />
+          </span>
+          <span className="flex @[24rem]:hidden">
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon-sm" aria-label="More actions" className="rounded-lg">
+                  <Icon name="more" size={15} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem onSelect={() => { openQuery(id); }}>
+                  <Icon name="plus" size={13} className="text-muted" />
+                  New query
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled={!supportsErd(connection.engine)} onSelect={() => { openErd(id, schemaFilter); }}>
+                  <Icon name="view" size={13} className="text-muted" />
+                  ER diagram
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={() => { setCreating(true); }}>
+                  <Icon name="plus" size={13} className="text-muted" />
+                  New {collectionNoun(connection.engine).replace(/s$/, "").toLowerCase()}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </span>
+          <IconButton icon="search" label="Search tables" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} />
         </span>
       </div>
 
@@ -81,19 +123,13 @@ export function TablesPanel() {
 
       {searchOpen ? (
         <div className="px-3 pb-2">
-          <SearchField value={search} onChange={setSearch} aria-label="Search tables" autoFocus>
-            <SearchField.Group className="glass-input rounded-lg h-8 px-2">
-              <SearchField.SearchIcon />
-              <SearchField.Input placeholder="Search tables…" className="w-full text-xs" />
-              <SearchField.ClearButton />
-            </SearchField.Group>
-          </SearchField>
+          <SearchInput value={search} onChange={setSearch} aria-label="Search tables" placeholder="Search tables…" autoFocus className="glass-input rounded-lg h-8 w-full text-xs" />
         </div>
       ) : null}
 
       <Separator className="opacity-50" />
 
-      <ScrollShadow className="min-h-0 flex-1 px-1.5 py-1.5">
+      <ScrollArea className="min-h-0 flex-1 px-1.5 py-1.5">
         {connecting === id || !catalog ? (
           <div className="space-y-2.5 p-3">
             <Skeleton className="h-4 w-3/4 rounded-md" />
@@ -133,9 +169,9 @@ export function TablesPanel() {
                 >
                   <Icon name="folder" size={11} />
                   {schema.name}
-                  <Chip size="sm" variant="soft" className="ml-auto font-mono text-[9px]">
+                  <Badge size="sm" variant="soft" className="ml-auto font-mono text-[9px]">
                     {schema.tables.length}
-                  </Chip>
+                  </Badge>
                 </div>
               ) : null}
               {schema.tables.map((t) => (
@@ -144,7 +180,7 @@ export function TablesPanel() {
             </div>
           ))
         )}
-      </ScrollShadow>
+      </ScrollArea>
 
       {info?.serverVersion ? <div className="truncate border-t border-border/40 px-3 py-1.5 text-[10px] font-mono text-muted/70">{info.serverVersion}</div> : null}
       {menu.node}
@@ -193,42 +229,37 @@ function CreateTableModal({ connectionId, schema, noun, onClose }: { connectionI
   };
 
   return (
-    <Modal isOpen onOpenChange={(open) => !open && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog className="sm:max-w-[640px]">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>New {singular}</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body className="flex flex-col gap-3">
-              <Field label="Name" value={name} onChange={setName} mono autoFocus placeholder={`my_${singular}`} />
-              <div className="flex flex-col gap-1.5">
-                {columns.map((c, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto_28px] items-end gap-2">
-                    <Field label={i === 0 ? "Column" : ""} value={c.name} onChange={(v) => patch(i, { name: v })} mono compact className={i === 0 ? "" : "[&_label]:hidden"} />
-                    <Field label={i === 0 ? "Type" : ""} value={c.dataType} onChange={(v) => patch(i, { dataType: v })} mono compact className={i === 0 ? "" : "[&_label]:hidden"} />
-                    <Toggle checked={c.primaryKey} onChange={(v) => patch(i, { primaryKey: v, nullable: v ? false : c.nullable })} label="PK" />
-                    <Toggle checked={c.nullable} onChange={(v) => patch(i, { nullable: v })} label="Null" />
-                    <IconButton icon="x" label="Remove column" isDisabled={columns.length === 1} onPress={() => setColumns((cs) => cs.filter((_, j) => j !== i))} />
-                  </div>
-                ))}
-                <Button size="sm" variant="ghost" className="h-6 min-h-6 self-start px-1.5 text-[11px] text-muted" onPress={() => setColumns((cs) => [...cs, { name: `column_${cs.length + 1}`, dataType: "text", nullable: true, primaryKey: false, ordinal: cs.length }])}>
-                  <Icon name="plus" size={12} />
-                  Add column
-                </Button>
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>New {singular}</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="flex flex-col gap-3">
+          <Field label="Name" value={name} onChange={setName} mono autoFocus placeholder={`my_${singular}`} />
+          <div className="flex flex-col gap-1.5">
+            {columns.map((c, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto_28px] items-end gap-2">
+                <Field label={i === 0 ? "Column" : ""} value={c.name} onChange={(v) => patch(i, { name: v })} mono compact className={i === 0 ? "" : "[&_label]:hidden"} />
+                <Field label={i === 0 ? "Type" : ""} value={c.dataType} onChange={(v) => patch(i, { dataType: v })} mono compact className={i === 0 ? "" : "[&_label]:hidden"} />
+                <Toggle checked={c.primaryKey} onChange={(v) => patch(i, { primaryKey: v, nullable: v ? false : c.nullable })} label="PK" />
+                <Toggle checked={c.nullable} onChange={(v) => patch(i, { nullable: v })} label="Null" />
+                <IconButton icon="x" label="Remove column" disabled={columns.length === 1} onClick={() => setColumns((cs) => cs.filter((_, j) => j !== i))} />
               </div>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button size="sm" variant="tertiary" onPress={onClose}>Cancel</Button>
-              <Button size="sm" isPending={busy} isDisabled={name.trim().length === 0} onPress={() => void submit()}>
-                Open statement
-              </Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+            ))}
+            <Button size="sm" variant="ghost" className="h-6 min-h-6 self-start px-1.5 text-[11px] text-muted" onClick={() => setColumns((cs) => [...cs, { name: `column_${cs.length + 1}`, dataType: "text", nullable: true, primaryKey: false, ordinal: cs.length }])}>
+              <Icon name="plus" size={12} />
+              Add column
+            </Button>
+          </div>
+        </DialogBody>
+        <DialogFooter>
+          <Button size="sm" variant="tertiary" onClick={onClose}>Cancel</Button>
+          <Button size="sm" pending={busy} disabled={name.trim().length === 0} onClick={() => void submit()}>
+            Open statement
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -328,14 +359,14 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
         onContextMenu={onMenu}
       >
         {columnPreview ? (
-          <Button isIconOnly variant="ghost" size="sm" aria-label={expanded ? "Collapse columns" : "Expand columns"} onPress={toggle} className="size-4.5 min-w-4.5 rounded-sm text-muted">
+          <Button variant="ghost" size="sm" aria-label={expanded ? "Collapse columns" : "Expand columns"} onClick={toggle} className="size-4.5 min-w-4.5 rounded-sm text-muted">
             <Icon name={expanded ? "chevron-down" : "chevron-right"} size={11} />
           </Button>
         ) : null}
         <Button
           variant="ghost"
           size="sm"
-          onPress={() => openTable(connectionId, ref)}
+          onClick={() => openTable(connectionId, ref)}
           className="flex h-auto min-w-0 flex-1 items-center justify-start gap-2 p-0 text-left bg-transparent hover:bg-transparent"
         >
           <Icon name={table.kind === "view" ? "view" : "table"} size={13} className="shrink-0 opacity-70" />

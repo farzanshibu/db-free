@@ -1,6 +1,5 @@
 // SOT: history-tab, query-history-grid, history-filters
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button } from "@heroui/react";
 import type { HistoryEntry, HistoryOrigin, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { DENSITIES, formatCount } from "@/lib/format";
@@ -10,6 +9,7 @@ import { Segmented } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon } from "@/lib/icons";
+import { Button } from "@/components/ui/button";
 
 type Filter = "all" | "user" | "system";
 
@@ -79,13 +79,13 @@ export function HistoryTab({ connectionId }: { connectionId: string }) {
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface ">
         <Segmented label="History filter" value={filter} onChange={setFilter} options={[{ value: "all", label: "All" }, { value: "system", label: "System" }, { value: "user", label: "User" }]} />
-        <IconButton icon="trash" label="Clear history" onPress={() => void clear()} />
-        <IconButton icon="refresh" label="Refresh" onPress={() => setRefresh((r) => r + 1)} />
+        <IconButton icon="trash" label="Clear history" onClick={() => void clear()} />
+        <IconButton icon="refresh" label="Refresh" onClick={() => setRefresh((r) => r + 1)} />
         <span className="ml-auto text-xs text-muted">{formatCount(entries.length)} rows</span>
       </div>
       <div className="min-h-0 flex-1">
         {entries.length === 0 ? (
-          <EmptyState icon="history" title="No history yet" body="Statements you run (and the queries the app runs for table pages) appear here." action={<Button size="sm" variant="secondary" onPress={() => openQuery(connectionId)}><Icon name="terminal" size={13} />New query</Button>} />
+          <EmptyState icon="history" title="No history yet" body="Statements you run (and the queries the app runs for table pages) appear here." action={<Button size="sm" variant="secondary" onClick={() => openQuery(connectionId)}><Icon name="terminal" size={13} />New query</Button>} />
         ) : (
           <DataGrid
             columns={COLUMNS}

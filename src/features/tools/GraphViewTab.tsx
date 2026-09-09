@@ -1,6 +1,5 @@
 // SOT: graph-view-tab, graph-result-extraction, force-layout, graph-canvas
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button, Chip, ScrollShadow, Spinner, TextArea } from "@heroui/react";
 import type { QueryOutcome, Value } from "@/lib/bindings";
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -12,6 +11,11 @@ import { JsonViewer } from "@/components/global/JsonViewer";
 import { SERIES_COLORS } from "@/features/dashboards/charts";
 import { ToolShell } from "./ToolShell";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 export interface GraphNode {
   id: string;
@@ -374,7 +378,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
     >
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 items-start gap-2 border-b border-border/40 p-3">
-          <TextArea
+          <Textarea
             aria-label={`${language} query`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -388,11 +392,11 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
             }}
           />
           <div className="flex flex-col gap-1.5">
-            <Button onPress={() => void run()} isDisabled={running || query.trim().length === 0}>
+            <Button onClick={() => void run()} disabled={running || query.trim().length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="play" size={13} />}
               Run
             </Button>
-            <Button variant="tertiary" size="sm" isDisabled={graph === null} onPress={() => setLayoutKey((k) => k + 1)}>
+            <Button variant="tertiary" size="sm" disabled={graph === null} onClick={() => setLayoutKey((k) => k + 1)}>
               <Icon name="refresh" size={12} />
               Re-layout
             </Button>
@@ -416,15 +420,15 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
                 onToggleLabel={(l) => setHiddenLabels((set) => toggle(set, l))}
                 onToggleType={(t) => setHiddenTypes((set) => toggle(set, t))}
               />
-              <ScrollShadow className="min-h-0 flex-1 border-t border-border/40 p-3">
+              <ScrollArea className="min-h-0 flex-1 border-t border-border/40 p-3">
                 {selected === null ? (
                   <p className="text-xs text-muted">Select a node or a relationship.</p>
                 ) : (
                   <>
                     <div className="mb-2 flex items-center gap-2">
-                      <Chip size="sm" variant="soft" className="font-mono text-[10px]">
+                      <Badge size="sm" variant="soft" className="font-mono text-[10px]">
                         {selected.kind === "node" ? selected.node.label : selected.edge.type}
-                      </Chip>
+                      </Badge>
                       <span className="truncate font-mono text-[11px] text-muted">{selected.kind === "node" ? selected.node.id : selected.edge.id}</span>
                     </div>
                     {selected.kind === "edge" ? (
@@ -435,7 +439,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
                     <JsonViewer bare value={selected.kind === "node" ? selected.node.properties : selected.edge.properties} defaultDepth={2} />
                   </>
                 )}
-              </ScrollShadow>
+              </ScrollArea>
             </aside>
           ) : null}
         </div>
@@ -444,7 +448,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
   );
 }
 
-function labelColors(graph: Graph): Map<string, string> {
+export function labelColors(graph: Graph): Map<string, string> {
   const map = new Map<string, string>();
   for (const node of graph.nodes) {
     if (!map.has(node.label)) map.set(node.label, SERIES_COLORS[map.size % SERIES_COLORS.length] ?? SERIES_COLORS[0]);
@@ -471,7 +475,7 @@ function Legend({
   const typeCounts = new Map<string, number>();
   for (const e of graph.edges) typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1);
   return (
-    <ScrollShadow hideScrollBar className="max-h-56 p-3 text-[11px]">
+    <ScrollArea hideScrollBar className="max-h-56 p-3 text-[11px]">
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Labels</div>
       <ul className="mb-2 flex flex-wrap gap-1">
         {[...labelCounts.entries()].map(([label, count]) => {
@@ -513,7 +517,7 @@ function Legend({
           );
         })}
       </ul>
-    </ScrollShadow>
+    </ScrollArea>
   );
 }
 

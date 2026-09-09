@@ -1,10 +1,11 @@
 // SOT: key-tree, redis-key-grouping, key-namespace-folders
 import { useMemo, useState } from "react";
-import { Button, Chip } from "@heroui/react";
 import type { TableInfo, TableRef } from "@/lib/bindings";
 import { useWorkspace } from "@/stores/workspace";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 interface KeyNode {
   name: string;
@@ -69,10 +70,9 @@ function KeyRow({ connectionId, node, depth }: { connectionId: string; node: Key
       >
         {hasChildren ? (
           <Button
-            isIconOnly
             variant="ghost"
             size="sm"
-            onPress={() => setOpen((v) => !v)}
+            onClick={() => setOpen((v) => !v)}
             aria-label={open ? "Collapse" : "Expand"}
             className="flex size-5 min-w-5 p-0 items-center justify-center rounded-sm text-muted hover:text-foreground"
           >
@@ -84,7 +84,7 @@ function KeyRow({ connectionId, node, depth }: { connectionId: string; node: Key
         <Button
           variant="ghost"
           size="sm"
-          onPress={() => {
+          onClick={() => {
             if (ref) openTable(connectionId, ref);
             else setOpen((v) => !v);
           }}
@@ -93,9 +93,9 @@ function KeyRow({ connectionId, node, depth }: { connectionId: string; node: Key
           <Icon name={hasChildren && !isKey ? "folder" : isKey && hasChildren ? "folder" : "hash"} size={13} className={cn("shrink-0", isKey ? "text-accent" : "")} />
           <span className="truncate">{node.name.length > 0 ? node.name : "(empty)"}</span>
           {hasChildren ? (
-            <Chip size="sm" variant="soft" className="ml-auto font-mono text-[9px]">
+            <Badge size="sm" variant="soft" className="ml-auto font-mono text-[9px]">
               {node.count}
-            </Chip>
+            </Badge>
           ) : null}
         </Button>
       </div>

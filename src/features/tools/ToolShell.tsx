@@ -1,10 +1,11 @@
 // SOT: tool-shell, playground-header, playground-layout, collection-options
 import { useMemo, type ReactNode } from "react";
-import { Chip, ScrollShadow } from "@heroui/react";
 import type { Tool } from "@/lib/bindings";
 import { toolMeta } from "@/lib/objects";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  Common frame for the playground tabs: header (icon, name, hint,
 //        optional right-hand controls) above the tool body.
@@ -16,9 +17,9 @@ export function ToolShell({ tool, right, children }: { tool: Tool; right?: React
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
         <Icon name={meta.icon} size={15} className="text-accent" />
         <span className="text-sm font-semibold tracking-tight text-foreground">{meta.label}</span>
-        <Chip size="sm" variant="soft" className="hidden text-[10px] text-muted md:inline-flex">
+        <Badge size="sm" variant="soft" className="hidden text-[10px] text-muted md:inline-flex">
           {meta.hint}
-        </Chip>
+        </Badge>
         <span className="ml-auto flex items-center gap-1.5">{right}</span>
       </div>
       <div className="min-h-0 flex-1">{children}</div>
@@ -42,7 +43,7 @@ export function ToolBody({ form, children }: { form: ReactNode; children: ReactN
   return (
     <div className="flex h-full min-h-0">
       <aside className="flex w-80 shrink-0 border-r border-border/40">
-        <ScrollShadow hideScrollBar className="flex min-w-0 flex-1 flex-col gap-3 p-3">{form}</ScrollShadow>
+        <ScrollArea hideScrollBar className="flex min-w-0 flex-1 flex-col gap-3 p-3">{form}</ScrollArea>
       </aside>
       <div className="min-h-0 min-w-0 flex-1">{children}</div>
     </div>

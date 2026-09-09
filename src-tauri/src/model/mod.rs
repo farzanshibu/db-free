@@ -1,5 +1,6 @@
 // SOT: model-index, shared-shapes
 
+pub mod agent;
 pub mod changes;
 pub mod connection;
 pub mod documents;
@@ -11,6 +12,11 @@ pub mod transfer;
 pub mod update;
 pub mod value;
 
+pub use agent::{
+    AgentArtifact, AgentAutonomy, AgentEvent, AgentSkill, AgentStop, AgentTurn, AgentUsage,
+    PermissionDecision, PermissionRequest, ToolCallRecord, ToolStatus, UiBlock, UiGraphEdge,
+    UiGraphNode, UiStat, UiTone,
+};
 pub use connection::{
     ConnectionInput, ConnectionRecord, ConnectionSummary, Engine, EngineFacts, EngineKind, Environment, Family,
     FormKind, ResolvedConnection, SslMode,

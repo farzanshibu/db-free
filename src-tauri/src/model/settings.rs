@@ -50,11 +50,21 @@ pub struct AiSettings {
     /// Never contains the key itself; the key is sealed separately in the store.
     #[serde(default)]
     pub has_api_key: bool,
+    /// How far the assistant may act on its own before asking. Defaulted so
+    /// settings written before the agent existed still load.
+    #[serde(default)]
+    pub autonomy: crate::model::AgentAutonomy,
 }
 
 impl Default for AiSettings {
     fn default() -> Self {
-        AiSettings { provider: AiProvider::None, model: "claude-opus-5".to_string(), base_url: None, has_api_key: false }
+        AiSettings {
+            provider: AiProvider::None,
+            model: "claude-opus-5".to_string(),
+            base_url: None,
+            has_api_key: false,
+            autonomy: crate::model::AgentAutonomy::AskOnWrite,
+        }
     }
 }
 

@@ -1,6 +1,5 @@
 // SOT: search-tab, full-text-search-playground, facet-panel
 import { useState } from "react";
-import { Button, Chip, ScrollShadow, Spinner } from "@heroui/react";
 import type { SearchResult } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { DENSITIES, formatCount } from "@/lib/format";
@@ -10,6 +9,10 @@ import { AppSelect, Check, Field, NumberInput } from "@/components/global/Field"
 import { EmptyState } from "@/components/global/EmptyState";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 
 const splitList = (text: string): string[] =>
   text
@@ -65,11 +68,11 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
           <span className="flex items-center gap-2 font-mono text-[10px] text-muted">
             {total !== null ? `${formatCount(total)} total` : `${formatCount(result.hits.rows.length)} hits`}
             {result.tookMs !== null ? ` · ${result.tookMs} ms` : ""}
-            <Button size="sm" variant="ghost" isDisabled={offset === 0 || running} onPress={() => void run(Math.max(0, offset - pageSize))} className="h-6 min-w-0 px-1.5">
+            <Button size="sm" variant="ghost" disabled={offset === 0 || running} onClick={() => void run(Math.max(0, offset - pageSize))} className="h-6 min-w-0 px-1.5">
               <Icon name="chevron-left" size={12} />
             </Button>
             <span>{offset + 1}–{offset + (result.hits.rows.length || 0)}</span>
-            <Button size="sm" variant="ghost" isDisabled={!hasNext || running} onPress={() => void run(offset + pageSize)} className="h-6 min-w-0 px-1.5">
+            <Button size="sm" variant="ghost" disabled={!hasNext || running} onClick={() => void run(offset + pageSize)} className="h-6 min-w-0 px-1.5">
               <Icon name="chevron-right" size={12} />
             </Button>
           </span>
@@ -86,7 +89,7 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
             <Field label="Sort" value={sort} onChange={setSort} optional placeholder="price:asc, name:desc" mono />
             <NumberInput label="Page size" integer value={limit} onChange={setLimit} />
             <Check label="Highlight matches" checked={highlight} onChange={setHighlight} />
-            <Button onPress={() => void run(0)} isDisabled={running || current.length === 0}>
+            <Button onClick={() => void run(0)} disabled={running || current.length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="search" size={13} />}
               Search
             </Button>
@@ -106,7 +109,7 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
               )}
             </div>
             {result.facets.length > 0 ? (
-              <ScrollShadow className="w-60 shrink-0 border-l border-border/40 p-3">
+              <ScrollArea className="w-60 shrink-0 border-l border-border/40 p-3">
                 {result.facets.map((facet) => (
                   <div key={facet.field} className="mb-3">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">{facet.field}</div>
@@ -114,15 +117,15 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
                       {facet.values.map((v) => (
                         <li key={v.value} className="flex items-center gap-2 text-xs">
                           <span className="truncate text-foreground">{v.value}</span>
-                          <Chip size="sm" variant="soft" className="ml-auto h-4 px-1 font-mono text-[9px]">
+                          <Badge size="sm" variant="soft" className="ml-auto h-4 px-1 font-mono text-[9px]">
                             {formatCount(v.count)}
-                          </Chip>
+                          </Badge>
                         </li>
                       ))}
                     </ul>
                   </div>
                 ))}
-              </ScrollShadow>
+              </ScrollArea>
             ) : null}
           </div>
         )}

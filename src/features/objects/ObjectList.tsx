@@ -1,6 +1,5 @@
 // SOT: object-list, object-row, object-kind-node, lazy-object-loading
 import { useEffect, useState } from "react";
-import { Button, Chip, Spinner } from "@heroui/react";
 import type { ObjectKind, ObjectRef, ObjectSummary } from "@/lib/bindings";
 import { kindMeta } from "@/lib/objects";
 import { Icon } from "@/lib/icons";
@@ -8,6 +7,9 @@ import { normalizeError } from "@/lib/ipc";
 import { objectKey, useWorkspace } from "@/stores/workspace";
 import { useContextMenu } from "@/components/global/ContextMenu";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 // WHAT:  One object row: kind icon, name, muted detail, optional badge chip.
 //        Click opens (or focuses) the object tab.
@@ -25,7 +27,7 @@ export function ObjectRow({ connectionId, object, dense = false, onSelect }: { c
     <Button
       variant="ghost"
       size="sm"
-      onPress={() => (onSelect ? onSelect(object.reference) : openObject(connectionId, object.reference))}
+      onClick={() => (onSelect ? onSelect(object.reference) : openObject(connectionId, object.reference))}
       onContextMenu={(e) =>
         menu.open(
           e,
@@ -50,9 +52,9 @@ export function ObjectRow({ connectionId, object, dense = false, onSelect }: { c
       <Icon name={meta.icon} size={13} className="shrink-0 opacity-70" />
       <span className="truncate">{object.reference.name}</span>
       {object.badge ? (
-        <Chip size="sm" variant="soft" className="ml-1 h-4 shrink-0 px-1 font-mono text-[9px]">
+        <Badge size="sm" variant="soft" className="ml-1 h-4 shrink-0 px-1 font-mono text-[9px]">
           {object.badge}
-        </Chip>
+        </Badge>
       ) : null}
       {object.detail ? <span className="ml-auto truncate pl-2 font-mono text-[10px] text-muted/70">{object.detail}</span> : null}
       {menu.node}
@@ -98,16 +100,16 @@ export function KindNode({ connectionId, kind, parent, needle, refreshKey, defau
       <Button
         variant="ghost"
         size="sm"
-        onPress={() => setOpen((v) => !v)}
+        onClick={() => setOpen((v) => !v)}
         className="flex h-7 min-h-7 w-full min-w-0 items-center justify-start gap-1.5 rounded-lg px-1.5 text-left text-[12px] text-muted hover:bg-surface-secondary/60 hover:text-foreground"
       >
         <Icon name={open ? "chevron-down" : "chevron-right"} size={11} className="shrink-0" />
         <Icon name={meta.icon} size={13} className="shrink-0 opacity-70" />
         <span className="truncate">{meta.plural}</span>
         {objects !== null ? (
-          <Chip size="sm" variant="soft" className="ml-auto h-4 min-w-0 px-1 font-mono text-[9px]">
+          <Badge size="sm" variant="soft" className="ml-auto h-4 min-w-0 px-1 font-mono text-[9px]">
             {objects.length}
-          </Chip>
+          </Badge>
         ) : null}
       </Button>
       {open ? (

@@ -1,6 +1,5 @@
 // SOT: objects-panel, object-explorer-sidebar, object-sections, scoped-kind-parent
 import { useState } from "react";
-import { ScrollShadow, SearchField, Separator, Skeleton } from "@heroui/react";
 import type { ObjectKind } from "@/lib/bindings";
 import { SECTIONS, isAdminKind, isScopedKind, kindMeta, objectKindsOf } from "@/lib/objects";
 import { Icon } from "@/lib/icons";
@@ -10,6 +9,10 @@ import { AppSelect } from "@/components/global/Field";
 import { EnvBadge } from "@/components/global/Badge";
 import { ConnectionSwitcher } from "@/features/shell/ConnectionSwitcher";
 import { KindNode } from "./ObjectList";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Skeleton } from "@/components/ui/skeleton";
+import { SearchInput } from "@/components/ui/input";
 
 // WHAT:  Sidebar listing every object kind the engine's family declares
 //        (views, functions, triggers, indexes, streams, labels, buckets…),
@@ -48,14 +51,14 @@ export function ObjectsPanel() {
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col glass-sidebar select-none">
-      <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40 " data-tauri-drag-region>
+      <div className="@container drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40 " data-tauri-drag-region>
         <ConnectionSwitcher caption="Objects" />
         {connection.readOnly ? <EnvBadge environment="none" readOnly /> : null}
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
-        <span className="flex items-center gap-0.5">
-          <IconButton icon="refresh" label="Reload objects" onPress={refresh} />
-          <IconButton icon="server" label="Server admin" onPress={() => openAdmin(id)} />
-          <IconButton icon="search" label="Search objects" active={searchOpen} onPress={() => setSearchOpen((v) => !v)} />
+        <span className="flex shrink-0 items-center gap-0.5">
+          <IconButton icon="refresh" label="Reload objects" onClick={refresh} />
+          <IconButton icon="server" label="Server admin" onClick={() => openAdmin(id)} />
+          <IconButton icon="search" label="Search objects" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} />
         </span>
       </div>
 
@@ -67,19 +70,13 @@ export function ObjectsPanel() {
 
       {searchOpen ? (
         <div className="px-3 pb-2 pt-1">
-          <SearchField value={search} onChange={setSearch} aria-label="Search objects" autoFocus>
-            <SearchField.Group className="glass-input h-8 rounded-lg px-2">
-              <SearchField.SearchIcon />
-              <SearchField.Input placeholder="Filter loaded objects…" className="w-full text-xs" />
-              <SearchField.ClearButton />
-            </SearchField.Group>
-          </SearchField>
+          <SearchInput value={search} onChange={setSearch} aria-label="Search objects" placeholder="Filter loaded objects…" autoFocus className="glass-input h-8 rounded-lg w-full text-xs" />
         </div>
       ) : null}
 
       <Separator className="opacity-50" />
 
-      <ScrollShadow className="min-h-0 flex-1 px-1.5 py-1.5">
+      <ScrollArea className="min-h-0 flex-1 px-1.5 py-1.5">
         {connecting === id ? (
           <div className="space-y-2.5 p-3">
             <Skeleton className="h-4 w-3/4 rounded-md" />
@@ -101,7 +98,7 @@ export function ObjectsPanel() {
             </div>
           ))
         )}
-      </ScrollShadow>
+      </ScrollArea>
 
       {info?.serverVersion ? <div className="truncate border-t border-border/40 px-3 py-1.5 font-mono text-[10px] text-muted/70">{info.serverVersion}</div> : null}
     </aside>

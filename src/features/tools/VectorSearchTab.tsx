@@ -1,6 +1,5 @@
 // SOT: vector-search-tab, similarity-search-playground, query-vector-parsing
 import { useState } from "react";
-import { Button, Spinner, TextArea } from "@heroui/react";
 import type { ResultSet } from "@/lib/bindings";
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -12,6 +11,9 @@ import { AppSelect, Check, Field, NumberInput } from "@/components/global/Field"
 import { EmptyState } from "@/components/global/EmptyState";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 // WHAT:  `[0.1, 0.2, …]`, `0.1, 0.2` or whitespace-separated numbers → vector.
 export function parseVector(text: string): number[] | null {
@@ -82,18 +84,18 @@ export function VectorSearchTab({ connectionId }: { connectionId: string }) {
             <AppSelect label="Collection" value={current} options={options} onChange={setCollection} />
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-foreground">Query vector</span>
-              <TextArea aria-label="Query vector" value={vectorText} onChange={(e) => setVectorText(e.target.value)} placeholder="[0.12, -0.4, 0.88, …]" spellCheck={false} className="min-h-28 font-mono text-[12px]" />
+              <Textarea aria-label="Query vector" value={vectorText} onChange={(e) => setVectorText(e.target.value)} placeholder="[0.12, -0.4, 0.88, …]" spellCheck={false} className="min-h-28 font-mono text-[12px]" />
               <span className="text-[11px] text-muted">{parseVector(vectorText)?.length ?? 0} dimensions</span>
             </div>
             <Field label="Vector name" value={vectorName} onChange={setVectorName} optional placeholder="named vector / field" mono />
             <NumberInput label="Top K" integer value={topK} onChange={setTopK} />
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-foreground">Payload filter</span>
-              <TextArea aria-label="Payload filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder='{ "must": [ { "key": "city", "match": { "value": "Berlin" } } ] }' spellCheck={false} className="min-h-24 font-mono text-[12px]" />
+              <Textarea aria-label="Payload filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder='{ "must": [ { "key": "city", "match": { "value": "Berlin" } } ] }' spellCheck={false} className="min-h-24 font-mono text-[12px]" />
               <span className="text-[11px] text-muted">Engine-native filter JSON, optional.</span>
             </div>
             <Check label="Include vectors in results" checked={includeVectors} onChange={setIncludeVectors} />
-            <Button onPress={() => void run()} isDisabled={running || current.length === 0}>
+            <Button onClick={() => void run()} disabled={running || current.length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="radar" size={13} />}
               Search
             </Button>

@@ -1,9 +1,9 @@
 // SOT: dashboard-charts, chart-data-extraction, line-chart, area-chart, bar-chart, pie-chart, sankey, map-chart, progress-meter, stat-tile, text-widget, image-widget, widget-conditions, chart-tooltip, chart-legend
 import { useMemo, useState } from "react";
-import { ScrollShadow } from "@heroui/react";
 import type { QueryOutcome, StatementResult, Value, Widget, WidgetCondition } from "@/lib/bindings";
 import { formatCell, formatCount } from "@/lib/format";
 import { cn } from "@/lib/cn";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  Inline-SVG charts for dashboard widgets, following the dataviz method:
 //        2px lines, <=24px bars with 4px rounded data-ends and 2px surface gaps,
@@ -564,9 +564,9 @@ export function TextWidget({ widget, outcome }: { widget: Widget; outcome: Query
   const text = matchedContent(widget, outcome, widget.text ?? "");
   if (text.trim().length === 0) return <Empty hint="Add content in the options. Use {{column}} to insert query values." />;
   return (
-    <ScrollShadow className="h-full p-3">
+    <ScrollArea className="h-full p-3">
       <div className="selectable text-sm whitespace-pre-wrap text-foreground">{text}</div>
-    </ScrollShadow>
+    </ScrollArea>
   );
 }
 

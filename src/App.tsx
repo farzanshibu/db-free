@@ -1,7 +1,7 @@
 // SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars
 import { useEffect } from "react";
 import { useActiveConnection, useActiveTab, useTabConnection, useWorkspace } from "@/stores/workspace";
-import { ipc } from "@/lib/ipc";
+import { ipc, normalizeError } from "@/lib/ipc";
 import { isKeyValueEngine } from "@/lib/engines";
 import { fontStack } from "@/lib/fonts";
 import { IconRail } from "@/features/shell/IconRail";
@@ -26,6 +26,8 @@ import { ToolTab } from "@/features/tools/ToolTab";
 import { PendingChangesPanel } from "@/features/changes/PendingChangesPanel";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { Toaster } from "@/components/global/Toaster";
+import { toast } from "@/components/ui/sonner";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/global/EmptyState";
 import { RunShortcut } from "@/components/global/Kbd";
 
@@ -35,6 +37,12 @@ const EDITOR_FONT_FALLBACK = UI_FONT_FALLBACK;
 
 /// Accent colour plus its oklch hue: the hue also drives every tinted surface
 /// (window gradient, glass panels, selection) through the --accent-hue variable.
+/// Guards the startup update check against running twice. StrictMode invokes
+/// every effect a second time in development, and a second run would download
+/// the same release again and stack a duplicate toast; a module-level flag
+/// survives that remount where component state does not.
+let updateChecked = false;
+
 const ACCENTS: Record<string, { color: string; hue: number }> = {
   blue: { color: "oklch(0.6 0.2 258)", hue: 258 },
   violet: { color: "oklch(0.62 0.2 295)", hue: 295 },
@@ -49,7 +57,7 @@ export function App() {
   const page = useWorkspace((s) => s.page);
   const settings = useWorkspace((s) => s.settings);
   const density = useWorkspace((s) => s.density);
-  const showInfo = useWorkspace((s) => s.showInfo);
+  const showError = useWorkspace((s) => s.showError);
   const connection = useActiveConnection();
   const connected = useWorkspace((s) => (connection ? s.sessions.includes(connection.id) : false));
   const tab = useActiveTab();
@@ -68,20 +76,49 @@ export function App() {
   //        honour and hides the app's own context menus behind a second click.
   // HOW:   Capture phase, preventDefault only — propagation continues, so the
   //        React handlers that open the app's menus still run.
-  // WHAT:  One update check at startup, announced quietly.
-  // WHY:   Nobody opens Settings to look for updates; the app should say when
-  //        one exists. It only tells — installing stays a decision in
-  //        Settings -> Updates, because it restarts the app.
+  // WHAT:  One update check at startup. If there is a new version the bytes are
+  //        fetched in the background, and the toast that announces it carries
+  //        the Restart button that installs them.
+  // WHY:   Telling someone to open Settings, find Updates and then wait out a
+  //        multi-megabyte download is three steps too many. Downloading first
+  //        means the only thing left to ask is when to restart — and restarting
+  //        stays their decision, because it closes whatever they are doing.
+  // HOW:   `download_update` stages the bytes in the Rust side; `install_update`
+  //        applies the staged copy and relaunches. The toast never expires on
+  //        its own: it is dismissed by acting on it, or by ignoring it.
+  // WHERE: src-tauri/src/commands/updates.rs
   useEffect(() => {
+    if (updateChecked) return;
+    updateChecked = true;
     void (async () => {
       try {
-        const status = await ipc("check_update");
-        if (status.available !== null) showInfo(`DB Free ${status.available} is available — install it in Settings → Updates.`);
+        const status = await ipc("download_update");
+        if (status.available === null) return;
+        toast.success(`DB Free ${status.available} is ready to install`, {
+          // A fixed id makes this toast a singleton: re-announcing an update
+          // replaces the notice instead of stacking another copy of it.
+          id: "update-ready",
+          description: "The download has finished. Restarting takes a moment.",
+          duration: Number.POSITIVE_INFINITY,
+          action: {
+            label: "Restart",
+            onClick: () => {
+              void (async () => {
+                try {
+                  // The app relaunches inside this call, so nothing follows it.
+                  await ipc("install_update");
+                } catch (raw) {
+                  showError(normalizeError(raw));
+                }
+              })();
+            },
+          },
+        });
       } catch {
         // Offline, or no release feed: an update check is not worth an error toast.
       }
     })();
-  }, [showInfo]);
+  }, [showError]);
 
   // Density drives the chrome's spacing tokens (globals.css), not just row height.
   useEffect(() => {
@@ -111,7 +148,8 @@ export function App() {
   }, [settings]);
 
   return (
-    <div className="grid-bg flex h-full text-foreground">
+    <TooltipProvider>
+      <div className="grid-bg flex h-full text-foreground">
       <IconRail />
       {!ready ? null : page.kind === "settings" ? (
         <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
@@ -169,8 +207,9 @@ export function App() {
           </main>
         </>
       )}
-      <CommandPalette />
-      <Toaster />
-    </div>
+        <CommandPalette />
+        <Toaster />
+      </div>
+    </TooltipProvider>
   );
 }

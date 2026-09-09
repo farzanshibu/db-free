@@ -1,13 +1,25 @@
 // SOT: settings-page, preferences-ui, ai-settings-ui, shortcuts-list
 import { useEffect, useState } from "react";
-import { Button, Card, ScrollShadow, Separator } from "@heroui/react";
-import type { AiProvider, AppSettings, ExecutionMode, RunScope, UpdateProgress, UpdateStatus } from "@/lib/bindings";
+import type {
+  AgentAutonomy,
+  AgentSkill,
+  AiProvider,
+  AppSettings,
+  ExecutionMode,
+  RunScope,
+  UpdateProgress,
+  UpdateStatus,
+} from "@/lib/bindings";
 import { ipc, normalizeError, onUpdateProgress } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 type Section = "general" | "themes" | "fonts" | "grid" | "editor" | "shortcuts" | "ai" | "security" | "updates" | "advanced";
 
@@ -40,6 +52,15 @@ const PROVIDERS: readonly { value: AiProvider; label: string }[] = [
   { value: "ollama", label: "Ollama (local)" },
 ];
 
+// WHAT:  How far the assistant may act before it stops and asks.
+// WHY:   The agent runs statements against a live database. This is the one
+//        setting that decides what it may do without a human reading it first.
+const AUTONOMY: readonly { value: AgentAutonomy; label: string }[] = [
+  { value: "read_only", label: "Read only" },
+  { value: "ask_on_write", label: "Ask before writing" },
+  { value: "full", label: "Write without asking" },
+];
+
 const SHORTCUTS: readonly { keys: string; action: string }[] = [
   { keys: "⌘/Ctrl + K", action: "Command palette" },
   { keys: "⌘/Ctrl + Enter", action: "Run query" },
@@ -69,6 +90,19 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
   const [apiKey, setApiKey] = useState("");
   const [clearKey, setClearKey] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [skills, setSkills] = useState<AgentSkill[]>([]);
+
+  // Compiled into the binary, so this is a cheap read and never fails in a way
+  // worth surfacing — an empty list just hides the row's detail.
+  useEffect(() => {
+    void (async () => {
+      try {
+        setSkills(await ipc("agent_skills"));
+      } catch {
+        setSkills([]);
+      }
+    })();
+  }, []);
 
   if (!draft) return null;
   const dirty = !sameSettings(draft, initial) || apiKey.trim().length > 0 || clearKey;
@@ -97,7 +131,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
   return (
     <div className="grid-bg relative flex h-full min-h-0 flex-1 flex-col">
       <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onPress={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
+        <Button variant="ghost" size="sm" onClick={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
           <Icon name="chevron-left" size={14} />
           Back
         </Button>
@@ -107,16 +141,16 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
         <div className="drag-region h-full flex-1" data-tauri-drag-region />
       </div>
       <div className="flex min-h-0 flex-1">
-        <nav className="w-48 shrink-0 py-4 px-2.5 glass-sidebar space-y-0.5" aria-label="Settings sections">
+        <nav className="w-56 shrink-0 space-y-0.5 px-2.5 py-4 glass-sidebar" aria-label="Settings sections">
           {SECTIONS.map((s) => (
             <Button
               key={s.id}
               variant="ghost"
               size="sm"
-              onPress={() => setSection(s.id)}
+              onClick={() => setSection(s.id)}
               className={cn(
                 "flex h-8 w-full items-center justify-start gap-2.5 rounded-lg px-2.5 text-left text-[12.5px] font-medium liquid-hover",
-                section === s.id ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/60 hover:text-foreground",
+                section === s.id ? "bg-accent/12 text-accent" : "text-muted hover:bg-surface-secondary/60 hover:text-foreground",
               )}
             >
               <Icon name={s.icon} size={14} />
@@ -124,7 +158,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             </Button>
           ))}
         </nav>
-        <ScrollShadow className="min-h-0 flex-1">
+        <ScrollArea className="min-h-0 flex-1">
           <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-8 py-6">
             {section === "general" ? (
               <>
@@ -219,8 +253,8 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px]">
                       <span className="capitalize">{name.replace("_", " ")}</span>
                       <span className="ml-auto flex gap-1">
-                        <Button isIconOnly size="sm" variant="ghost" aria-label="Move up" isDisabled={i === 0} onPress={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
-                        <Button isIconOnly size="sm" variant="ghost" aria-label="Move down" isDisabled={i === draft.commandMenuSections.length - 1} onPress={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
+                        <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
+                        <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.commandMenuSections.length - 1} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
                       </span>
                     </li>
                   ))}
@@ -232,8 +266,8 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px]">
                       <span className="uppercase">{name}</span>
                       <span className="ml-auto flex gap-1">
-                        <Button isIconOnly size="sm" variant="ghost" aria-label="Move up" isDisabled={i === 0} onPress={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
-                        <Button isIconOnly size="sm" variant="ghost" aria-label="Move down" isDisabled={i === draft.inspectorTabs.length - 1} onPress={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
+                        <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
+                        <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.inspectorTabs.length - 1} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
                       </span>
                     </li>
                   ))}
@@ -256,7 +290,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             {section === "ai" ? (
               <>
                 <h2 className="text-sm font-semibold text-foreground">AI (bring your own key)</h2>
-                <p className="text-xs text-muted">Natural-language to SQL and plan explanations. Only the schema (table and column names) and your prompt are sent to the provider. The key is encrypted at rest.</p>
+                <p className="text-xs text-muted">A database assistant that reads your schema, samples rows and runs queries to answer questions. Your prompt, the schema it looks up, and the rows its queries return are sent to the provider. The key is encrypted at rest.</p>
                 <Row title="Provider" body="Off keeps the app fully offline.">
                   <AppSelect<AiProvider> ariaLabel="Provider" value={draft.ai.provider} options={PROVIDERS} onChange={(v) => patchAi({ provider: v })} className="w-48" />
                 </Row>
@@ -271,6 +305,28 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     <Field label="" type="password" value={apiKey} onChange={setApiKey} className="w-72 [&_label]:hidden" mono />
                     {draft.ai.hasApiKey ? <Toggle checked={clearKey} onChange={setClearKey} label="Remove stored key on save" /> : null}
                   </div>
+                </Row>
+                <Row
+                  title="What it may do on its own"
+                  body="Reads always run unattended. A statement that writes or deletes is shown to you for approval first — unless you turn that off here. A read-only connection refuses writes whatever this says."
+                >
+                  <AppSelect<AgentAutonomy>
+                    ariaLabel="Autonomy"
+                    value={draft.ai.autonomy}
+                    options={AUTONOMY}
+                    onChange={(v) => patchAi({ autonomy: v })}
+                    className="w-52"
+                  />
+                </Row>
+                <Row
+                  title="Task guides"
+                  body={
+                    skills.length > 0
+                      ? `Loaded on demand rather than sent with every message: ${skills.map((skill) => skill.name).join(", ")}.`
+                      : "Short playbooks the assistant loads when a task calls for one."
+                  }
+                >
+                  <span className="text-xs text-muted tabular-nums">{skills.length}</span>
                 </Row>
               </>
             ) : null}
@@ -293,24 +349,24 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
               <>
                 <h2 className="text-sm font-semibold text-foreground">Advanced</h2>
                 <Row title="Reset preferences" body="Restores every setting to its default (connections and saved queries are kept).">
-                  <Button size="sm" variant="danger-soft" onPress={() => setDraft((d) => (d ? { ...defaultSettings(), ai: d.ai } : d))}>
+                  <Button size="sm" variant="danger-soft" onClick={() => setDraft((d) => (d ? { ...defaultSettings(), ai: d.ai } : d))}>
                     Reset
                   </Button>
                 </Row>
               </>
             ) : null}
           </div>
-        </ScrollShadow>
+        </ScrollArea>
       </div>
       {dirty ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
           <div role="status" className="pointer-events-auto flex items-center gap-3 rounded-2xl glass-modal py-2 pr-2 pl-4 shadow-2xl">
             <Icon name="info" size={15} className="text-accent" />
             <span className="mr-3 text-[13px] font-medium text-foreground">Unsaved changes</span>
-            <Button size="sm" variant="danger-soft" onPress={reset} isDisabled={saving} className="rounded-lg liquid-hover">
+            <Button size="sm" variant="danger-soft" onClick={reset} disabled={saving} className="rounded-lg liquid-hover">
               Reset
             </Button>
-            <Button size="sm" isPending={saving} onPress={() => void save()} className="glass-pill bg-accent text-accent-foreground font-semibold shadow-xs liquid-hover">
+            <Button size="sm" pending={saving} onClick={() => void save()} className="font-semibold liquid-hover">
               Save
             </Button>
           </div>
@@ -330,13 +386,13 @@ function sameSettings(a: AppSettings, b: AppSettings): boolean {
 function Row({ title, body, children }: { title: string; body: string; children: React.ReactNode }) {
   return (
     <Card className="rounded-xl glass-card border-border/40 px-4 py-3.5 shadow-xs">
-      <Card.Content className="flex flex-row items-center gap-6 p-0 w-full">
+      <CardContent className="flex flex-row items-center gap-6 p-0 w-full">
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-foreground tracking-tight">{title}</p>
           <p className="text-xs text-muted mt-0.5">{body}</p>
         </div>
         <div className="shrink-0">{children}</div>
-      </Card.Content>
+      </CardContent>
     </Card>
   );
 }
@@ -398,14 +454,14 @@ function UpdatesSection() {
       <h2 className="text-sm font-semibold text-foreground">Updates</h2>
       <p className="text-xs text-muted">Signed builds are published for every commit on main; the app verifies the signature before installing.</p>
       <Row title="Version" body={status ? `Running ${status.current}` : "Check to compare this build against the latest release."}>
-        <Button size="sm" variant="secondary" isPending={busy === "check"} onPress={() => void check()}>
+        <Button size="sm" variant="secondary" pending={busy === "check"} onClick={() => void check()}>
           <Icon name="refresh" size={13} />
           Check for updates
         </Button>
       </Row>
       {status?.available ? (
         <Row title={`Version ${status.available} is available`} body={progress ? downloadLabel(progress) : (status.notes ?? status.published ?? "Installs and restarts the app.")}>
-          <Button size="sm" isPending={busy === "install"} onPress={() => void install()}>
+          <Button size="sm" pending={busy === "install"} onClick={() => void install()}>
             <Icon name="download" size={13} />
             Install and restart
           </Button>
@@ -455,6 +511,6 @@ function defaultSettings(): AppSettings {
     inspectorTabs: ["fields", "json", "sql"],
     confirmDestructive: true,
     crashReportsOptIn: false,
-    ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false },
+    ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false, autonomy: "ask_on_write" },
   };
 }

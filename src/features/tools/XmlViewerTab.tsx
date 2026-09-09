@@ -1,6 +1,5 @@
 // SOT: xml-viewer-tab, xml-document-browser
 import { useState } from "react";
-import { ScrollShadow, Spinner } from "@heroui/react";
 import type { ObjectDetail, ObjectRef } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
@@ -10,6 +9,8 @@ import { IconButton } from "@/components/global/Button";
 import { ObjectRow, useObjects } from "@/features/objects/ObjectList";
 import { ToolShell, useCollectionOptions } from "./ToolShell";
 import { XmlTree } from "./XmlTree";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 
 // WHAT:  XML document browser: the documents of one database / collection
 //        on the left, the selected one as a collapsible tree on the right.
@@ -57,7 +58,7 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
         <IconButton
           icon="refresh"
           label="Reload documents"
-          onPress={() => {
+          onClick={() => {
             invalidateObjects(connectionId);
             setRefreshKey((k) => k + 1);
           }}
@@ -70,7 +71,7 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
             {options.length > 0 ? <AppSelect label="Collection" value={collection} options={options} onChange={setCollection} /> : null}
             <Field label="Path" value={customCollection} onChange={setCustomCollection} optional placeholder={parent || "/db/apps"} mono description="Overrides the selection above." />
           </div>
-          <ScrollShadow className="min-h-0 flex-1 px-2 pb-2">
+          <ScrollArea className="min-h-0 flex-1 px-2 pb-2">
             {loading && objects === null ? (
               <div className="flex items-center gap-2 p-2 text-[11px] text-muted">
                 <Spinner size="sm" /> loading…
@@ -82,7 +83,7 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
             ) : (
               objects.map((o) => <ObjectRow key={o.reference.name} connectionId={connectionId} object={o} dense onSelect={select} />)
             )}
-          </ScrollShadow>
+          </ScrollArea>
         </aside>
         <div className="min-h-0 min-w-0 flex-1">
           {selected === null ? (
@@ -96,9 +97,9 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
           ) : detail.definition === null ? (
             <EmptyState title={selected.name} body="The adapter returned no content for this document." />
           ) : (
-            <ScrollShadow className="h-full p-4">
+            <ScrollArea className="h-full p-4">
               <XmlTree source={detail.definition} />
-            </ScrollShadow>
+            </ScrollArea>
           )}
         </div>
       </div>

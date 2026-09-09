@@ -1,6 +1,5 @@
 // SOT: dashboard-tab, widget-grid, widget-editor, widget-options, widget-conditions-editor, dashboard-variables, dashboard-refresh
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Button, CloseButton, Input, ScrollShadow, Spinner } from "@heroui/react";
 import type { ConditionOp, DashboardBody, Document, QueryOutcome, Widget, WidgetCondition, WidgetKind } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { DENSITIES, formatCount, formatMs } from "@/lib/format";
@@ -14,6 +13,10 @@ import { SqlEditor } from "@/features/editor/SqlEditor";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { BarChart, ImageWidget, LineChart, MapChart, PieChart, ProgressMeter, SERIES_COLORS, SankeyChart, SparklineWidget, StatTile, TextWidget, chartData, conditionMatches, isRows } from "./charts";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 
 const KINDS: readonly { value: WidgetKind; label: string }[] = [
   { value: "area", label: "Area Chart" },
@@ -206,7 +209,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
   return (
     <div className="flex h-full min-h-0">
       <div className="flex min-w-0 flex-1 flex-col">
-        <ScrollShadow orientation="horizontal" hideScrollBar className="flex app-toolbar shrink-0 items-center gap-1 border-b border-border bg-surface whitespace-nowrap">
+        <ScrollArea orientation="horizontal" hideScrollBar className="flex app-toolbar shrink-0 items-center gap-1 border-b border-border bg-surface whitespace-nowrap">
           <Input
             value={name}
             onChange={(e) => {
@@ -217,46 +220,46 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
             aria-label="Dashboard name"
           />
           <AppSelect ariaLabel="Connection" value={connectionId ?? ""} options={[{ value: "", label: "— connection —" }, ...connections.map((c) => ({ value: c.id, label: c.name }))]} onChange={(v) => { setChosenConnectionId(v.length > 0 ? v : null); setDirty(true); }} size="sm" className="w-44 shrink-0" icon="database" />
-          <Button size="sm" variant="ghost" className="text-muted" onPress={runAll} isDisabled={!connectionId}>
+          <Button size="sm" variant="ghost" className="text-muted" onClick={runAll} disabled={!connectionId}>
             <Icon name="refresh" size={13} />
             Refresh
           </Button>
           <AppSelect ariaLabel="Auto refresh" value={String(body.refreshSeconds)} options={[{ value: "0", label: "Manual" }, { value: "30", label: "Every 30 s" }, { value: "60", label: "Every minute" }, { value: "300", label: "Every 5 min" }]} onChange={(v) => patchBody({ refreshSeconds: Number(v) })} size="sm" className="w-36 shrink-0" />
-          <Button size="sm" variant="ghost" className="text-muted" onPress={() => setShowVariables((v) => !v)}>
+          <Button size="sm" variant="ghost" className="text-muted" onClick={() => setShowVariables((v) => !v)}>
             <Icon name="braces" size={13} />
             Variables ({body.variables.length})
           </Button>
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
-            <Button size="sm" variant="ghost" className="text-muted" onPress={addWidget}>
+            <Button size="sm" variant="ghost" className="text-muted" onClick={addWidget}>
               <Icon name="plus" size={13} />
               Widget
             </Button>
-            <Button size="sm" onPress={() => void save()} isDisabled={!dirty}>
+            <Button size="sm" onClick={() => void save()} disabled={!dirty}>
               Save{dirty ? " *" : ""}
             </Button>
           </div>
-        </ScrollShadow>
+        </ScrollArea>
         {showVariables ? (
           <div className="flex flex-wrap items-end gap-2 border-b border-border bg-surface px-3 py-2">
             {body.variables.map((v, i) => (
               <div key={i} className="flex items-end gap-1">
                 <Field label="Name" value={v.name} onChange={(name2) => patchBody({ variables: body.variables.map((x, j) => (j === i ? { ...x, name: name2 } : x)) })} className="w-32" mono />
                 <Field label="Value" value={v.value} onChange={(value) => patchBody({ variables: body.variables.map((x, j) => (j === i ? { ...x, value } : x)) })} className="w-40" mono />
-                <IconButton icon="x" label="Remove variable" onPress={() => patchBody({ variables: body.variables.filter((_, j) => j !== i) })} />
+                <IconButton icon="x" label="Remove variable" onClick={() => patchBody({ variables: body.variables.filter((_, j) => j !== i) })} />
               </div>
             ))}
-            <Button size="sm" variant="ghost" className="text-muted" onPress={() => patchBody({ variables: [...body.variables, { name: `var${body.variables.length + 1}`, value: "" }] })}>
+            <Button size="sm" variant="ghost" className="text-muted" onClick={() => patchBody({ variables: [...body.variables, { name: `var${body.variables.length + 1}`, value: "" }] })}>
               <Icon name="plus" size={13} />
               Add variable
             </Button>
             <span className="text-[11px] text-muted">Use as {"{{name}}"} inside widget SQL.</span>
           </div>
         ) : null}
-        <ScrollShadow className="min-h-0 flex-1 p-4">
+        <ScrollArea className="min-h-0 flex-1 p-4">
           {!connectionId ? (
             <EmptyState icon="columns" title="Pick a connection" body="Choose the connection widgets should query in the toolbar above." />
           ) : body.widgets.length === 0 ? (
-            <EmptyState icon="columns" title="Empty dashboard" body="Add a widget, give it a SQL query, and pick a chart type." action={<Button size="sm" onPress={addWidget}>Add widget</Button>} />
+            <EmptyState icon="columns" title="Empty dashboard" body="Add a widget, give it a SQL query, and pick a chart type." action={<Button size="sm" onClick={addWidget}>Add widget</Button>} />
           ) : (
             <div className="grid auto-rows-[120px] grid-cols-12 gap-3">
               {body.widgets.map((w) => (
@@ -280,7 +283,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
               ))}
             </div>
           )}
-        </ScrollShadow>
+        </ScrollArea>
       </div>
 
       {selected ? (
@@ -290,7 +293,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
             <Field label="" value={selected.title} onChange={(title) => patchWidget(selected.id, { title })} placeholder="Widget title" className="[&_label]:hidden" />
             <AppSelect ariaLabel="Widget type" value={selected.kind} options={KINDS} onChange={(kind) => patchWidget(selected.id, { kind })} className="w-40 shrink-0" />
           </div>
-          <ScrollShadow className="flex min-h-0 flex-1 flex-col">
+          <ScrollArea className="flex min-h-0 flex-1 flex-col">
           <div className="h-48 shrink-0 border-b border-border p-2" style={{ borderTopWidth: 2, borderTopColor: tintCss(selected.tint) }}>
             <div className="px-1 pb-1 text-xs text-muted">{selected.title.length > 0 ? selected.title : "Preview"}</div>
             <div className="h-[calc(100%-20px)]">
@@ -341,7 +344,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
                 <SqlEditor value={selected.sql} onChange={(sql) => patchWidget(selected.id, { sql })} onRun={() => void runWidget(selected)} engine={engine} schema={schema} />
               </div>
               <div className="flex items-center gap-2 border-t border-border px-2 py-1.5">
-                <Button size="sm" onPress={() => void runWidget(selected)} isDisabled={!connectionId || selected.sql.trim().length === 0} isPending={running.has(selected.id)}>
+                <Button size="sm" onClick={() => void runWidget(selected)} disabled={!connectionId || selected.sql.trim().length === 0} pending={running.has(selected.id)}>
                   <Icon name="play" size={12} />
                   Run Query
                 </Button>
@@ -359,9 +362,9 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
             <ConditionsEditor widget={selected} onChange={(conditions) => patchWidget(selected.id, { conditions })} />
           ) : null}
 
-          </ScrollShadow>
+          </ScrollArea>
           <div className="flex shrink-0 items-center border-t border-border px-3 py-2">
-            <Button size="sm" variant="danger-soft" className="ml-auto" onPress={() => { patchBody({ widgets: body.widgets.filter((w) => w.id !== selected.id) }); setSelectedId(null); }}>
+            <Button size="sm" variant="danger-soft" className="ml-auto" onClick={() => { patchBody({ widgets: body.widgets.filter((w) => w.id !== selected.id) }); setSelectedId(null); }}>
               <Icon name="trash" size={12} />
               Delete widget
             </Button>
@@ -385,7 +388,7 @@ function ConditionsEditor({ widget, onChange }: { widget: Widget; onChange: (c: 
             <Icon name="sort" size={12} className="text-muted" />
             <span className="text-[10px] font-medium tracking-wide text-muted uppercase">Condition {i + 1}</span>
             <span className="ml-auto">
-              <CloseButton onPress={() => onChange(widget.conditions.filter((_, j) => j !== i))} aria-label="Remove condition" />
+              <Button variant="ghost" size="icon-sm" aria-label="Remove condition" onClick={() => onChange(widget.conditions.filter((_, j) => j !== i))}><Icon name="x" /></Button>
             </span>
           </div>
           <div className="flex items-center gap-2">
@@ -399,7 +402,7 @@ function ConditionsEditor({ widget, onChange }: { widget: Widget; onChange: (c: 
           )}
         </div>
       ))}
-      <Button size="sm" variant="secondary" className="self-start" onPress={() => onChange([...widget.conditions, { op: "equals", value: "", content: widget.kind === "metric" ? "series-6" : "" }])}>
+      <Button size="sm" variant="secondary" className="self-start" onClick={() => onChange([...widget.conditions, { op: "equals", value: "", content: widget.kind === "metric" ? "series-6" : "" }])}>
         <Icon name="plus" size={12} />
         Add Condition
       </Button>

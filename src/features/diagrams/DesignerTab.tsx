@@ -2,7 +2,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Background, Controls, MiniMap, ReactFlow, addEdge, type Connection, type Edge, type Node, useEdgesState, useNodesState, MarkerType } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { Button, Input, Modal, ScrollShadow } from "@heroui/react";
 import type { DiagramBody, DiagramColumn, DiagramTable, Document } from "@/lib/bindings";
 import { normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
@@ -10,6 +9,10 @@ import { IconButton } from "@/components/global/Button";
 import { Field, Toggle } from "@/components/global/Field";
 import { Icon, typeIcon } from "@/lib/icons";
 import { TableNode, type TableNodeData } from "./TableNode";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const NODE_TYPES = { table: TableNode };
 
@@ -101,17 +104,17 @@ export function DesignerTab({ document: doc }: { document: Document }) {
           className="h-7 w-48 rounded-md bg-transparent text-sm text-foreground"
           aria-label="Diagram name"
         />
-        <IconButton icon="plus" label="Add table" onPress={addTable} />
-        <IconButton icon="trash" label="Remove selected tables" onPress={removeSelected} />
-        <IconButton icon="pencil" label="Edit selected table" onPress={() => { const sel = nodes.find((n) => n.selected); const t = sel ? tables.find((x) => x.id === sel.id) : undefined; if (t) setEditing(t); }} />
+        <IconButton icon="plus" label="Add table" onClick={addTable} />
+        <IconButton icon="trash" label="Remove selected tables" onClick={removeSelected} />
+        <IconButton icon="pencil" label="Edit selected table" onClick={() => { const sel = nodes.find((n) => n.selected); const t = sel ? tables.find((x) => x.id === sel.id) : undefined; if (t) setEditing(t); }} />
         <span className="mx-1 h-5 w-px bg-separator" />
         <span className="text-xs text-muted">{tables.length} tables · {relations.length} relations</span>
         <div className="ml-auto flex items-center gap-1">
-          <Button size="sm" variant="ghost" className="text-muted" onPress={() => setDdlOpen(true)}>
+          <Button size="sm" variant="ghost" className="text-muted" onClick={() => setDdlOpen(true)}>
             <Icon name="terminal" size={13} />
             DDL
           </Button>
-          <Button size="sm" onPress={() => void save()} isDisabled={!dirty}>
+          <Button size="sm" onClick={() => void save()} disabled={!dirty}>
             Save{dirty ? " *" : ""}
           </Button>
         </div>
@@ -151,27 +154,22 @@ export function DesignerTab({ document: doc }: { document: Document }) {
         }}
       />
 
-      <Modal isOpen={ddlOpen} onOpenChange={setDdlOpen}>
-        <Modal.Backdrop>
-          <Modal.Container>
-            <Modal.Dialog className="sm:max-w-[720px]">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>Generated DDL</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body>
-                <ScrollShadow className="max-h-[60vh] overflow-x-auto rounded-md bg-background p-3">
-                  <pre className="selectable font-mono text-[11px] whitespace-pre text-foreground">{ddl}</pre>
-                </ScrollShadow>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button variant="secondary" onPress={() => { void navigator.clipboard.writeText(ddl); showInfo("DDL copied."); }}>Copy</Button>
-                <Button onPress={() => setDdlOpen(false)}>Close</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog open={ddlOpen} onOpenChange={setDdlOpen}>
+        <DialogContent className="sm:max-w-[720px]">
+          <DialogHeader>
+            <DialogTitle>Generated DDL</DialogTitle>
+          </DialogHeader>
+          <DialogBody>
+            <ScrollArea className="max-h-[60vh] overflow-x-auto rounded-md bg-background p-3">
+              <pre className="selectable font-mono text-[11px] whitespace-pre text-foreground">{ddl}</pre>
+            </ScrollArea>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => { void navigator.clipboard.writeText(ddl); showInfo("DDL copied."); }}>Copy</Button>
+            <Button onClick={() => setDdlOpen(false)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -181,42 +179,37 @@ function TableEditor({ table, onClose, onSave }: { table: DiagramTable | null; o
   if (!draft) return null;
   const patchColumn = (i: number, partial: Partial<DiagramColumn>) => setDraft({ ...draft, columns: draft.columns.map((c, j) => (j === i ? { ...c, ...partial } : c)) });
   return (
-    <Modal isOpen onOpenChange={(o) => !o && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog className="sm:max-w-[640px]">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Edit table</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body className="max-h-[60vh] p-0">
-              <ScrollShadow className="flex max-h-[60vh] flex-col gap-3 px-4 py-3">
-              <Field label="Table name" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} mono autoFocus />
-              <div className="flex flex-col gap-2">
-                {draft.columns.map((c, i) => (
-                  <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto_28px] items-end gap-2">
-                    <Field label={i === 0 ? "Column" : ""} value={c.name} onChange={(v) => patchColumn(i, { name: v })} mono className={i === 0 ? "" : "[&_label]:hidden"} />
-                    <Field label={i === 0 ? "Type" : ""} value={c.dataType} onChange={(v) => patchColumn(i, { dataType: v })} mono className={i === 0 ? "" : "[&_label]:hidden"} />
-                    <Toggle checked={c.primaryKey} onChange={(v) => patchColumn(i, { primaryKey: v, nullable: v ? false : c.nullable })} label="PK" />
-                    <Toggle checked={c.nullable} onChange={(v) => patchColumn(i, { nullable: v })} label="Null" />
-                    <IconButton icon="x" label="Remove column" onPress={() => setDraft({ ...draft, columns: draft.columns.filter((_, j) => j !== i) })} />
-                  </div>
-                ))}
-                <Button size="sm" variant="ghost" className="self-start text-muted" onPress={() => setDraft({ ...draft, columns: [...draft.columns, { name: `column_${draft.columns.length + 1}`, dataType: "text", primaryKey: false, nullable: true }] })}>
-                  <Icon name="plus" size={13} />
-                  Add column
-                </Button>
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[640px]">
+        <DialogHeader>
+          <DialogTitle>Edit table</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="max-h-[60vh] p-0">
+          <ScrollArea className="flex max-h-[60vh] flex-col gap-3 px-4 py-3">
+          <Field label="Table name" value={draft.name} onChange={(name) => setDraft({ ...draft, name })} mono autoFocus />
+          <div className="flex flex-col gap-2">
+            {draft.columns.map((c, i) => (
+              <div key={i} className="grid grid-cols-[1fr_1fr_auto_auto_28px] items-end gap-2">
+                <Field label={i === 0 ? "Column" : ""} value={c.name} onChange={(v) => patchColumn(i, { name: v })} mono className={i === 0 ? "" : "[&_label]:hidden"} />
+                <Field label={i === 0 ? "Type" : ""} value={c.dataType} onChange={(v) => patchColumn(i, { dataType: v })} mono className={i === 0 ? "" : "[&_label]:hidden"} />
+                <Toggle checked={c.primaryKey} onChange={(v) => patchColumn(i, { primaryKey: v, nullable: v ? false : c.nullable })} label="PK" />
+                <Toggle checked={c.nullable} onChange={(v) => patchColumn(i, { nullable: v })} label="Null" />
+                <IconButton icon="x" label="Remove column" onClick={() => setDraft({ ...draft, columns: draft.columns.filter((_, j) => j !== i) })} />
               </div>
-              </ScrollShadow>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button variant="tertiary" onPress={onClose}>Cancel</Button>
-              <Button onPress={() => onSave(draft)} isDisabled={draft.name.trim().length === 0}>Apply</Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+            ))}
+            <Button size="sm" variant="ghost" className="self-start text-muted" onClick={() => setDraft({ ...draft, columns: [...draft.columns, { name: `column_${draft.columns.length + 1}`, dataType: "text", primaryKey: false, nullable: true }] })}>
+              <Icon name="plus" size={13} />
+              Add column
+            </Button>
+          </div>
+          </ScrollArea>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="tertiary" onClick={onClose}>Cancel</Button>
+          <Button onClick={() => onSave(draft)} disabled={draft.name.trim().length === 0}>Apply</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 

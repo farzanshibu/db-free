@@ -1,8 +1,9 @@
-// SOT: app-state, sessions-registry, shared-handles, master-key-cache
+// SOT: app-state, sessions-registry, shared-handles, master-key-cache, agent-chat-registry
 
 use crate::adapters::crypto::MasterKey;
 use crate::adapters::keyring::KeyProvider;
 use crate::integrations::Integration;
+use crate::services::agent::{AgentChat, RunControl};
 use crate::error::{AppError, AppResult};
 use crate::store::Store;
 use std::collections::HashMap;
@@ -21,6 +22,12 @@ pub struct AppState {
     sessions: RwLock<HashMap<String, Arc<dyn Integration>>>,
     keys: Box<dyn KeyProvider>,
     master_key: OnceLock<MasterKey>,
+    /// Conversation memory, one per open chat. Held here rather than shipped
+    /// from the UI each message so the cached prompt prefix stays identical.
+    agent_chats: RwLock<HashMap<String, Arc<AgentChat>>>,
+    /// Turns that are running right now, so the UI can answer a permission
+    /// prompt or stop one. Keyed by run id; removed when the run ends.
+    agent_runs: RwLock<HashMap<String, Arc<RunControl>>>,
 }
 
 impl AppState {
@@ -30,6 +37,8 @@ impl AppState {
             sessions: RwLock::new(HashMap::new()),
             keys,
             master_key: OnceLock::new(),
+            agent_chats: RwLock::new(HashMap::new()),
+            agent_runs: RwLock::new(HashMap::new()),
         }
     }
 
@@ -69,6 +78,31 @@ impl AppState {
         if let Some(integration) = &removed {
             integration.close().await;
         }
+        // A chat is about a database. Dropping the connection drops the memory
+        // of it too, rather than leaving a transcript that describes a schema
+        // the next connection may not have.
+        self.agent_chats.write().await.retain(|id, _| !id.ends_with(connection_id));
         removed
+    }
+
+    /// The chat with this id, created on first use.
+    pub async fn agent_chat(&self, chat_id: &str) -> Arc<AgentChat> {
+        if let Some(chat) = self.agent_chats.read().await.get(chat_id) {
+            return Arc::clone(chat);
+        }
+        let mut chats = self.agent_chats.write().await;
+        Arc::clone(chats.entry(chat_id.to_string()).or_default())
+    }
+
+    pub async fn register_run(&self, run_id: String, control: Arc<RunControl>) {
+        self.agent_runs.write().await.insert(run_id, control);
+    }
+
+    pub async fn finish_run(&self, run_id: &str) {
+        self.agent_runs.write().await.remove(run_id);
+    }
+
+    pub async fn run_control(&self, run_id: &str) -> Option<Arc<RunControl>> {
+        self.agent_runs.read().await.get(run_id).cloned()
     }
 }

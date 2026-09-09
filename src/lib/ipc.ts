@@ -2,6 +2,13 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type {
+  AgentChatIdRequest,
+  AgentChatRequest,
+  AgentDecisionRequest,
+  AgentEvent,
+  AgentRunRequest,
+  AgentSkill,
+  AgentTurn,
   AiGenerateRequest,
   AiReply,
   AppError,
@@ -117,7 +124,13 @@ interface CommandMap {
   load_history: { req: ObjectRequest; res: ResultSet };
   create_template: { req: CreateTemplateRequest; res: string | null };
   check_update: { req: undefined; res: UpdateStatus };
+  download_update: { req: undefined; res: UpdateStatus };
   install_update: { req: undefined; res: null };
+  agent_chat: { req: AgentChatRequest; res: AgentTurn };
+  agent_decide: { req: AgentDecisionRequest; res: null };
+  agent_cancel: { req: AgentRunRequest; res: null };
+  agent_reset: { req: AgentChatIdRequest; res: null };
+  agent_skills: { req: undefined; res: AgentSkill[] };
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;
@@ -191,4 +204,14 @@ export function errorMessage(error: AppError): string {
 // WHERE: src-tauri/src/commands/updates.rs (emits "update:progress")
 export function onUpdateProgress(handler: (progress: UpdateProgress) => void): Promise<UnlistenFn> {
   return listen<UpdateProgress>("update:progress", (event) => handler(event.payload));
+}
+
+// WHAT:  Everything one agent run emits, in order: prose tokens, tool calls,
+//        permission prompts, charts it drew, and the finished turn.
+// WHY:   A run takes many seconds over several tool calls, so the reply cannot
+//        be one value — the chat renders it as it happens. Events carry a
+//        `runId` so a listener can drop frames from a run it no longer shows.
+// WHERE: src-tauri/src/commands/agent.rs (emits "agent:event")
+export function onAgentEvent(handler: (event: AgentEvent) => void): Promise<UnlistenFn> {
+  return listen<AgentEvent>("agent:event", (event) => handler(event.payload));
 }

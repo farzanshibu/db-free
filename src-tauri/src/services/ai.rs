@@ -2,7 +2,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::guard::SessionCtx;
-use crate::model::{AiProvider, AiReply, AiSettings, Engine, Family, PlanReport, StatementResult, Value};
+use crate::model::{AiProvider, AiSettings, Engine, Family, PlanReport, StatementResult, Value};
 use std::time::Duration;
 
 // WHAT:  Bring-your-own-key assistant: schema-aware NL→SQL and plan explanations.
@@ -23,7 +23,7 @@ fn engine_label(engine: Engine) -> &'static str {
 
 // WHAT:  Dialect rules the assistant follows, keyed by adapter family so every
 //        wire-compatible engine (Supabase, Neon, TimescaleDB…) inherits them.
-fn engine_guidelines(engine: Engine) -> &'static str {
+pub fn engine_guidelines(engine: Engine) -> &'static str {
     match engine.family() {
         Family::Postgres => {
             "PostgreSQL Dialect Rules:\n\
@@ -327,62 +327,6 @@ pub async fn schema_context(
     }
 
     Ok(out)
-}
-
-pub async fn generate(
-    ctx: &SessionCtx,
-    req: &AiRequest<'_>,
-    prompt: &str,
-    current_query: Option<&str>,
-    current_table: Option<&str>,
-    error_context: Option<&str>,
-    conversation_history: Option<&[crate::commands::ai::ChatMessage]>,
-) -> AppResult<AiReply> {
-    let schema = schema_context(ctx, prompt, current_table).await?;
-    let engine = ctx.connection.engine;
-    let system = format!(
-        "You are an expert {} database conversational assistant and data architect inside the DB Free native database workbench.\n\
-         Your goal is to converse with the user, answer questions about their database, explain schema relationships, and generate production-grade, highly efficient, and syntactically valid queries.\n\n\
-         {}\n\n\
-         Operating Rules:\n\
-         1. When generating or modifying an executable query or command, enclose it in a single fenced code block (e.g. ```sql for SQL, ```redis for Redis, ```javascript or ```json for MongoDB).\n\
-         2. Accompany the code block with a clear, concise explanation of the logic, filters, joins, or trade-offs.\n\
-         3. Strict Schema Adherence: Only reference tables and columns that exist in the database context below, unless asked to CREATE or ALTER tables.\n\
-         4. Safety & Destruction Warning: If the request requires a destructive statement (DROP, TRUNCATE, DELETE or UPDATE without a restrictive WHERE clause), clearly highlight a warning.\n\
-         5. If the user asks a schema or database question that does not require running a query, answer directly and helpfully in markdown.\n\
-         6. Maintain conversational context across follow-up questions.\n\n\
-         Database Context:\n\
-         {}",
-        engine_label(engine),
-        engine_guidelines(engine),
-        schema
-    );
-
-    let mut user_message = String::new();
-    if let Some(tbl) = current_table {
-        let trimmed = tbl.trim();
-        if !trimmed.is_empty() {
-            user_message.push_str(&format!("Active Table: {trimmed}\n"));
-        }
-    }
-    if let Some(query) = current_query {
-        let trimmed = query.trim();
-        if !trimmed.is_empty() {
-            user_message.push_str(&format!("Current Editor Query:\n```sql\n{trimmed}\n```\n\n"));
-        }
-    }
-    if let Some(err) = error_context {
-        let trimmed = err.trim();
-        if !trimmed.is_empty() {
-            user_message.push_str(&format!("Previous Execution Error:\n{trimmed}\n\n"));
-        }
-    }
-    user_message.push_str(&format!("User Request:\n{}", prompt.trim()));
-
-    let raw = complete(req, &system, &user_message, conversation_history).await?;
-    let cleaned = strip_think_blocks(&raw);
-    let sql = extract_fence(&cleaned);
-    Ok(AiReply { sql, text: cleaned, model: req.settings.model.clone() })
 }
 
 pub async fn explain(ctx: &SessionCtx, req: &AiRequest<'_>, sql: &str, max_rows: usize) -> AppResult<PlanReport> {

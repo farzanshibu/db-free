@@ -1,9 +1,9 @@
 // SOT: json-viewer, json-tree, collapsible-json
 import { useMemo, useState } from "react";
-import { Button } from "@heroui/react";
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
 
 const INDENT = 14;
 
@@ -36,15 +36,15 @@ export function JsonViewer({ value, defaultDepth = 2, className, bare = false }:
     <div className={cn("selectable font-mono text-[11px] leading-relaxed", className)}>
       {!bare && containers.length > 0 ? (
         <div className="mb-1.5 flex items-center gap-1">
-          <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onPress={() => setCollapsed(new Set())}>
+          <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onClick={() => setCollapsed(new Set())}>
             <Icon name="expand" size={11} />
             Expand all
           </Button>
-          <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onPress={() => setCollapsed(new Set(containers))}>
+          <Button size="sm" variant="ghost" className="h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onClick={() => setCollapsed(new Set(containers))}>
             <Icon name="collapse" size={11} />
             Collapse all
           </Button>
-          <Button size="sm" variant="ghost" className="ml-auto h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onPress={() => void navigator.clipboard.writeText(JSON.stringify(value, null, 2))}>
+          <Button size="sm" variant="ghost" className="ml-auto h-6 min-w-0 rounded-md px-1.5 text-[11px] text-muted hover:text-foreground" onClick={() => void navigator.clipboard.writeText(JSON.stringify(value, null, 2))}>
             <Icon name="copy" size={11} />
             Copy
           </Button>
@@ -90,11 +90,10 @@ function Node({ name, value, path, depth, collapsed, onToggle, last }: NodeProps
     <div>
       <div className="flex min-w-0 items-center" style={{ paddingLeft: depth * INDENT }}>
         <Button
-          isIconOnly
           size="sm"
           variant="ghost"
           aria-label={expanded ? "Collapse" : "Expand"}
-          onPress={() => onToggle(path)}
+          onClick={() => onToggle(path)}
           className="-ml-4 size-4 min-w-4 rounded-sm p-0 text-muted hover:bg-surface-secondary hover:text-foreground"
         >
           <Icon name={expanded ? "chevron-down" : "chevron-right"} size={11} />
@@ -103,7 +102,7 @@ function Node({ name, value, path, depth, collapsed, onToggle, last }: NodeProps
         <span className="text-muted">{open}</span>
         {expanded ? null : (
           <>
-            <Button size="sm" variant="ghost" onPress={() => onToggle(path)} className="mx-1 h-4 min-w-0 rounded-sm px-1 text-[10px] italic text-muted hover:text-foreground">
+            <Button size="sm" variant="ghost" onClick={() => onToggle(path)} className="mx-1 h-4 min-w-0 rounded-sm px-1 text-[10px] italic text-muted hover:text-foreground">
               {entries.length} {isArray ? (entries.length === 1 ? "item" : "items") : entries.length === 1 ? "key" : "keys"}
             </Button>
             <span className="text-muted">{close}</span>

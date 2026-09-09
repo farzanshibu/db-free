@@ -1,11 +1,11 @@
 // SOT: query-pane, run-query-flow, run-at-cursor-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, save-sql-file-flow, ai-assist-flow, explain-flow, format-sql
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, CloseButton, Modal, Popover, ScrollShadow, Spinner, TextArea, TextField } from "@heroui/react";
 import { format as formatSql } from "sql-formatter";
-import type { AppError, ConnectionSummary, PlanReport, QueryOutcome, StatementSpan } from "@/lib/bindings";
+import type { AgentEvent, AppError, ConnectionSummary, PlanReport, QueryOutcome, StatementSpan } from "@/lib/bindings";
 import type { SQLNamespace } from "@codemirror/lang-sql";
-import { ipc, normalizeError } from "@/lib/ipc";
+import { ipc, normalizeError, onAgentEvent } from "@/lib/ipc";
 import { engineMeta } from "@/lib/engines";
+import { Markdown } from "@/features/chat/Markdown";
 import { pickSqlSavePath } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
 import { AppSelect, Field } from "@/components/global/Field";
@@ -17,6 +17,13 @@ import { cn } from "@/lib/cn";
 import { SqlEditor, type RunTarget } from "./SqlEditor";
 import { ResultsPane } from "./ResultsPane";
 import { HistoryPanel } from "./HistoryPanel";
+import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 /// Per-tab row cap. The default comes from Settings -> Max query rows, so the
 /// app-wide answer is set once and a single tab can still override it.
@@ -85,6 +92,8 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const [aiBusy, setAiBusy] = useState(false);
   const [aiText, setAiText] = useState<string | null>(null);
   const [aiGeneratedSql, setAiGeneratedSql] = useState<string | null>(null);
+  /// The turn this pane is showing; frames from any other run are ignored.
+  const aiRunRef = useRef<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanReport | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
@@ -298,31 +307,58 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
     }
   };
 
+  // WHAT:  Generate a statement, streamed.
+  // WHY:   The editor's assistant used to block for several seconds behind a
+  //        spinner with nothing to read. It runs on the agent now with tools
+  //        off — one turn, no database access — so the prose arrives as it is
+  //        written while the statement still lands in the editor at the end.
+  useEffect(() => {
+    const pending = onAgentEvent((event: AgentEvent) => {
+      if (event.runId !== aiRunRef.current) return;
+      if (event.type === "text") setAiText((prev) => (prev ?? "") + event.delta);
+      if (event.type === "failed") setAiText((prev) => prev ?? null);
+    });
+    return () => {
+      void pending.then((unlisten) => unlisten());
+    };
+  }, []);
+
   const askAi = async (overridePrompt?: string) => {
     const promptText = (overridePrompt ?? aiPrompt).trim();
     if (promptText.length === 0) return;
     if (overridePrompt) setAiPrompt(overridePrompt);
+    const nextRun = crypto.randomUUID();
+    aiRunRef.current = nextRun;
     setAiBusy(true);
-    setAiText(null);
+    setAiText("");
     setAiGeneratedSql(null);
+
+    const context = [
+      sql.trim().length > 0 ? `Current editor statement:\n\`\`\`\n${sql.trim()}\n\`\`\`` : "",
+      lastError !== null ? `The last run failed with:\n${lastError}` : "",
+    ]
+      .filter((part) => part.length > 0)
+      .join("\n\n");
+
     try {
-      const reply = await ipc("ai_generate", {
+      const turn = await ipc("agent_chat", {
         connectionId: connection.id,
+        chatId: `editor:${connection.id}`,
+        runId: nextRun,
         prompt: promptText,
-        currentQuery: sql.trim().length > 0 ? sql : null,
-        currentTable: null,
-        errorContext: lastError,
-        conversationHistory: null,
+        context: context.length > 0 ? context : null,
+        useTools: false,
       });
-      setAiText(reply.text);
-      setAiGeneratedSql(reply.sql);
-      if (reply.sql !== null && sql.trim().length === 0) {
-        onChange(reply.sql);
+      setAiText(turn.text);
+      setAiGeneratedSql(turn.sql);
+      if (turn.sql !== null && sql.trim().length === 0) {
+        onChange(turn.sql);
         showInfo("Generated query placed in editor.");
       }
     } catch (raw) {
       showError(normalizeError(raw));
     } finally {
+      if (aiRunRef.current === nextRun) aiRunRef.current = null;
       setAiBusy(false);
     }
   };
@@ -370,28 +406,30 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
         <Button
           size="sm"
-          isPending={running}
-          onPress={runCurrent}
-          isDisabled={!loaded || empty}
-          className="glass-pill bg-accent text-accent-foreground font-semibold shadow-sm shadow-accent/30 liquid-hover"
+          pending={running}
+          onClick={runCurrent}
+          disabled={!loaded || empty}
+          className="gap-2 rounded-lg pr-1.5 font-semibold liquid-hover"
         >
           <Icon name="play" size={12} />
           {runLabel}
+          {/* The chord lives inside the button: one control, not a button with a
+              loose hint parked next to it. */}
+          <RunShortcut className="bg-accent-foreground/15 text-accent-foreground/85" />
         </Button>
         {spans.length > 1 ? (
           <Button
             size="sm"
             variant="ghost"
             className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-            onPress={runAll}
-            isDisabled={!loaded || running || empty}
+            onClick={runAll}
+            disabled={!loaded || running || empty}
           >
             Run all {spans.length}
           </Button>
         ) : null}
-        <RunShortcut />
         {isSql ? (
-          <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={doFormat} isDisabled={empty}>
+          <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onClick={doFormat} disabled={empty}>
             Format
           </Button>
         ) : null}
@@ -400,36 +438,37 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
             size="sm"
             variant="ghost"
             className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-            isPending={planBusy}
-            onPress={() => void explain()}
-            isDisabled={empty}
+            pending={planBusy}
+            onClick={() => void explain()}
+            disabled={empty}
           >
             Explain
           </Button>
         ) : null}
-        <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={() => setSaveOpen(true)} isDisabled={empty}>
+        <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onClick={() => setSaveOpen(true)} disabled={empty}>
           Save
         </Button>
         <Button
           size="sm"
           variant="ghost"
           className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-          isPending={savingFile}
-          onPress={() => void saveToFile()}
-          isDisabled={empty}
+          pending={savingFile}
+          onClick={() => void saveToFile()}
+          disabled={empty}
         >
           <Icon name="download" size={12} />
           .sql
         </Button>
-        <Popover isOpen={aiOpen} onOpenChange={setAiOpen}>
-          <Button size="sm" variant={aiEnabled ? "secondary" : "ghost"} className={cn("rounded-lg liquid-hover", aiEnabled ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
-            <Icon name="braces" size={12} />
-            AI
-          </Button>
-          <Popover.Content className="w-[500px] glass-modal rounded-xl">
-            <Popover.Dialog>
+        <Popover open={aiOpen} onOpenChange={setAiOpen}>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant={aiEnabled ? "secondary" : "ghost"} className={cn("rounded-lg liquid-hover", aiEnabled ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
+              <Icon name="braces" size={12} />
+              AI
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-[500px] rounded-xl glass-modal">
               <div className="flex items-center justify-between">
-                <Popover.Heading className="text-sm font-semibold text-foreground">AI Database Assistant</Popover.Heading>
+                <PopoverHeading className="text-sm font-semibold text-foreground">AI Database Assistant</PopoverHeading>
                 <div className="flex items-center gap-1.5">
                   <span className="rounded px-1.5 py-0.5 text-[10px] font-medium bg-surface-secondary text-muted">
                     {engineMeta(connection.engine).label}
@@ -454,7 +493,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                         size="sm"
                         variant="outline"
                         className="h-6 rounded-full border-danger/40 bg-danger-soft/40 px-2 text-[11px] text-danger hover:bg-danger-soft liquid-hover"
-                        onPress={() => void askAi("Fix the error in my query")}
+                        onClick={() => void askAi("Fix the error in my query")}
                       >
                         <Icon name="refresh" size={10} />
                         Fix Error
@@ -466,7 +505,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                           size="sm"
                           variant="outline"
                           className="h-6 rounded-full border-border/60 bg-surface-secondary/50 px-2 text-[11px] text-muted hover:text-foreground hover:bg-surface-secondary liquid-hover"
-                          onPress={() => void askAi("Optimize this query for performance and explain")}
+                          onClick={() => void askAi("Optimize this query for performance and explain")}
                         >
                           Optimize
                         </Button>
@@ -474,7 +513,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                           size="sm"
                           variant="outline"
                           className="h-6 rounded-full border-border/60 bg-surface-secondary/50 px-2 text-[11px] text-muted hover:text-foreground hover:bg-surface-secondary liquid-hover"
-                          onPress={() => void askAi("Add pagination using LIMIT and OFFSET")}
+                          onClick={() => void askAi("Add pagination using LIMIT and OFFSET")}
                         >
                           Paginate
                         </Button>
@@ -482,7 +521,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                           size="sm"
                           variant="outline"
                           className="h-6 rounded-full border-border/60 bg-surface-secondary/50 px-2 text-[11px] text-muted hover:text-foreground hover:bg-surface-secondary liquid-hover"
-                          onPress={() => void askAi("Explain what this query does in plain language")}
+                          onClick={() => void askAi("Explain what this query does in plain language")}
                         >
                           Explain
                         </Button>
@@ -493,7 +532,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                           size="sm"
                           variant="outline"
                           className="h-6 rounded-full border-border/60 bg-surface-secondary/50 px-2 text-[11px] text-muted hover:text-foreground hover:bg-surface-secondary liquid-hover"
-                          onPress={() => void askAi("List top 10 rows ordered by latest date")}
+                          onClick={() => void askAi("List top 10 rows ordered by latest date")}
                         >
                           Top 10 Rows
                         </Button>
@@ -501,18 +540,23 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                           size="sm"
                           variant="outline"
                           className="h-6 rounded-full border-border/60 bg-surface-secondary/50 px-2 text-[11px] text-muted hover:text-foreground hover:bg-surface-secondary liquid-hover"
-                          onPress={() => void askAi("Count total rows grouped by status")}
+                          onClick={() => void askAi("Count total rows grouped by status")}
                         >
                           Count by Status
                         </Button>
                       </>
                     )}
                   </div>
-                  <TextField value={aiPrompt} onChange={setAiPrompt} className="mt-2 w-full" aria-label="Prompt">
-                    <TextArea placeholder="Ask to generate, modify, explain, or fix a query..." rows={3} className="w-full" />
-                  </TextField>
+                  <Textarea
+                    value={aiPrompt}
+                    onChange={(event) => { setAiPrompt(event.target.value); }}
+                    aria-label="Prompt"
+                    placeholder="Ask to generate, modify, explain, or fix a query…"
+                    rows={3}
+                    className="mt-2 w-full"
+                  />
                   <div className="mt-2 flex items-center justify-between">
-                    <Button size="sm" isPending={aiBusy} onPress={() => void askAi()} isDisabled={aiPrompt.trim().length === 0} className="glass-pill bg-accent text-accent-foreground font-semibold liquid-hover">
+                    <Button size="sm" pending={aiBusy} onClick={() => void askAi()} disabled={aiPrompt.trim().length === 0} className="font-semibold liquid-hover">
                       Generate {engineMeta(connection.engine).commandLanguage}
                     </Button>
                     <span className="text-[11px] text-muted">Schema, context & prompt sent to {settings.ai.provider}.</span>
@@ -526,7 +570,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                             size="sm"
                             variant="ghost"
                             className="h-5 px-1.5 text-[10.5px] rounded text-muted hover:text-foreground liquid-hover"
-                            onPress={() => {
+                            onClick={() => {
                               void navigator.clipboard.writeText(aiGeneratedSql);
                               showInfo("Copied statement to clipboard.");
                             }}
@@ -537,7 +581,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                             size="sm"
                             variant="ghost"
                             className="h-5 px-1.5 text-[10.5px] rounded text-muted hover:text-foreground liquid-hover"
-                            onPress={() => {
+                            onClick={() => {
                               onChange(sql.trim().length > 0 ? `${sql.trimEnd()}\n\n${aiGeneratedSql}` : aiGeneratedSql);
                               showInfo("Inserted statement below.");
                             }}
@@ -548,7 +592,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                             size="sm"
                             variant="secondary"
                             className="h-5 px-2 text-[10.5px] rounded font-medium glass-pill text-accent liquid-hover"
-                            onPress={() => {
+                            onClick={() => {
                               onChange(aiGeneratedSql);
                               showInfo("Replaced editor query.");
                             }}
@@ -557,22 +601,29 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                           </Button>
                         </div>
                       </div>
-                      <ScrollShadow className="max-h-32">
+                      <ScrollArea className="max-h-32">
                         <pre className="selectable font-mono text-[11px] text-foreground whitespace-pre-wrap">{aiGeneratedSql}</pre>
-                      </ScrollShadow>
+                      </ScrollArea>
                     </div>
                   ) : null}
-                  {aiText !== null ? (
-                    <ScrollShadow className="selectable mt-2 max-h-36 rounded-lg border border-border/40 bg-surface/60 p-2 text-xs whitespace-pre-wrap text-muted">
-                      {aiText}
-                    </ScrollShadow>
+                  {aiText !== null && aiText.length > 0 ? (
+                    <ScrollArea className="mt-2 max-h-36 rounded-lg border border-border/40 bg-surface/60 p-2">
+                      <Markdown
+                        text={aiText}
+                        language={engineMeta(connection.engine).commandLanguage}
+                        streaming={aiBusy}
+                        onCopy={(code) => {
+                          void navigator.clipboard.writeText(code);
+                          showInfo("Copied to clipboard.");
+                        }}
+                      />
+                    </ScrollArea>
                   ) : null}
                 </>
               ) : (
                 <p className="mt-2 text-xs text-muted">Turn on a provider in Settings → AI (bring your own key).</p>
               )}
-            </Popover.Dialog>
-          </Popover.Content>
+          </PopoverContent>
         </Popover>
         <div className="ml-auto flex items-center gap-2">
           {dbOptions.length > 0 || showSchemas ? (
@@ -585,7 +636,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                   plain
                   className="w-auto min-w-0"
                   icon="database"
-                  isDisabled={connecting === connection.id}
+                  disabled={connecting === connection.id}
                   onChange={(db) => void switchDatabase(connection.id, db)}
                 />
               ) : null}
@@ -606,7 +657,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
             </div>
           ) : null}
           <AppSelect ariaLabel="Row cap" value={rowCap} options={ROW_CAPS} onChange={setRowCap} size="sm" className="w-32" />
-          <IconButton icon="history" label="Query history" active={showHistory} onPress={() => setShowHistory((v) => !v)} />
+          <IconButton icon="history" label="Query history" active={showHistory} onClick={() => setShowHistory((v) => !v)} />
         </div>
       </div>
       <div className="flex min-h-0 flex-1">
@@ -633,14 +684,14 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/40 glass-header px-3 text-xs">
                   <span className="font-semibold text-foreground tracking-tight">Execution plan</span>
                   <span className="ml-auto">
-                    <CloseButton onPress={() => setPlan(null)} aria-label="Close plan" />
+                    <Button variant="ghost" size="icon-sm" aria-label="Close plan" onClick={() => setPlan(null)}><Icon name="x" /></Button>
                   </span>
                 </div>
                 <div className="grid min-h-0 flex-1 grid-cols-2 gap-0">
-                  <ScrollShadow className="overflow-x-auto border-r border-border/40 p-3">
+                  <ScrollArea className="overflow-x-auto border-r border-border/40 p-3">
                     <pre className="selectable font-mono text-[11px] text-foreground">{plan.plan}</pre>
-                  </ScrollShadow>
-                  <ScrollShadow className="selectable p-3 text-xs whitespace-pre-wrap text-muted">{plan.explanation ?? "Enable an AI provider in Settings to get a plain-language explanation of this plan."}</ScrollShadow>
+                  </ScrollArea>
+                  <ScrollArea className="selectable p-3 text-xs whitespace-pre-wrap text-muted">{plan.explanation ?? "Enable an AI provider in Settings to get a plain-language explanation of this plan."}</ScrollArea>
                 </div>
               </div>
             ) : (
@@ -656,64 +707,54 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
         ) : null}
       </div>
 
-      <Modal isOpen={saveOpen} onOpenChange={setSaveOpen}>
-        <Modal.Backdrop>
-          <Modal.Container>
-            <Modal.Dialog className="sm:max-w-[440px]">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Heading>Save query</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body className="flex flex-col gap-4">
-                <Field label="Name" value={saveName} onChange={setSaveName} placeholder="Top customers" autoFocus />
-                <Field label="Tags" optional value={saveTags} onChange={setSaveTags} placeholder="reports, finance" />
-              </Modal.Body>
-              <Modal.Footer>
-                <Button variant="tertiary" onPress={() => setSaveOpen(false)}>Cancel</Button>
-                <Button onPress={() => void doSave()} isDisabled={saveName.trim().length === 0}>Save</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog open={saveOpen} onOpenChange={setSaveOpen}>
+        <DialogContent className="sm:max-w-[440px]">
+          <DialogHeader>
+            <DialogTitle>Save query</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="flex flex-col gap-4">
+            <Field label="Name" value={saveName} onChange={setSaveName} placeholder="Top customers" autoFocus />
+            <Field label="Tags" optional value={saveTags} onChange={setSaveTags} placeholder="reports, finance" />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="tertiary" onClick={() => setSaveOpen(false)}>Cancel</Button>
+            <Button onClick={() => void doSave()} disabled={saveName.trim().length === 0}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-      <Modal isOpen={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
-        <Modal.Backdrop>
-          <Modal.Container>
-            <Modal.Dialog className="sm:max-w-[520px]">
-              <Modal.CloseTrigger />
-              <Modal.Header>
-                <Modal.Icon className="bg-danger-soft text-danger">
-                  <Icon name="trash" size={18} />
-                </Modal.Icon>
-                <Modal.Heading>Run destructive statements?</Modal.Heading>
-              </Modal.Header>
-              <Modal.Body className="space-y-3">
-                <Alert status="danger" className="rounded-xl">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Title className="font-semibold text-xs">Destructive Operations</Alert.Title>
-                    <Alert.Description className="text-xs">
-                      These statements change or remove data without a safety net. Review before continuing.
-                    </Alert.Description>
-                  </Alert.Content>
-                </Alert>
-                <ul className="flex flex-col gap-1.5">
-                  {confirm?.statements.map((s) => (
-                    <li key={s} className="selectable rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] text-danger">
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </Modal.Body>
-              <Modal.Footer>
-                <Button variant="tertiary" onPress={() => setConfirm(null)}>Cancel</Button>
-                <Button variant="danger" onPress={() => void run(confirm?.script ?? sql, true)}>Run anyway</Button>
-              </Modal.Footer>
-            </Modal.Dialog>
-          </Modal.Container>
-        </Modal.Backdrop>
-      </Modal>
+      <Dialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <span className="bg-danger-soft text-danger">
+              <Icon name="trash" size={18} />
+            </span>
+            <DialogTitle>Run destructive statements?</DialogTitle>
+          </DialogHeader>
+          <DialogBody className="space-y-3">
+            <Alert variant="danger" className="rounded-xl">
+              <AlertIndicator />
+              <AlertContent>
+                <AlertTitle className="font-semibold text-xs">Destructive Operations</AlertTitle>
+                <AlertDescription className="text-xs">
+                  These statements change or remove data without a safety net. Review before continuing.
+                </AlertDescription>
+              </AlertContent>
+            </Alert>
+            <ul className="flex flex-col gap-1.5">
+              {confirm?.statements.map((s) => (
+                <li key={s} className="selectable rounded-md bg-danger-soft px-2.5 py-1.5 font-mono text-[11px] text-danger">
+                  {s}
+                </li>
+              ))}
+            </ul>
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="tertiary" onClick={() => setConfirm(null)}>Cancel</Button>
+            <Button variant="danger" onClick={() => void run(confirm?.script ?? sql, true)}>Run anyway</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
       {aiBusy ? <span className="sr-only"><Spinner size="sm" /></span> : null}
     </div>
   );

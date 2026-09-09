@@ -1,6 +1,5 @@
 // SOT: data-grid, virtualized-grid, grid-cell-rendering, column-sort-header, column-resize, row-selection, inline-cell-edit, foreign-key-link, change-highlighting
 import { useEffect, useReducer, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
-import { Button, ScrollShadow } from "@heroui/react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FilterRule, SortRule, Value } from "@/lib/bindings";
 import { cellClass, formatCell } from "@/lib/format";
@@ -11,6 +10,8 @@ import { CellEditor, type LookupRow } from "@/components/global/ValueEditor";
 import { Resizer } from "@/components/global/Resizer";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
 import { cn } from "@/lib/cn";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 export interface GridColumn {
   name: string;
@@ -360,7 +361,7 @@ export function DataGrid({
   const someSelected = selectable && selectedRows.size > 0 && !allSelected;
 
   return (
-    <ScrollShadow ref={parentRef} orientation="horizontal" className="h-full w-full overflow-y-auto bg-background/60 font-mono text-[12px] select-none">
+    <ScrollArea ref={parentRef} orientation="horizontal" className="h-full w-full overflow-y-auto bg-background/60 font-mono text-[12px] select-none">
       <div style={{ width: totalWidth + gutter, height: totalHeight + HEADER_HEIGHT, position: "relative" }}>
         <div className="sticky top-0 z-20 flex border-b border-border/50 glass-header" style={{ height: HEADER_HEIGHT, width: totalWidth + gutter }}>
           {selectable ? (
@@ -377,8 +378,8 @@ export function DataGrid({
                 <Button
                   variant="ghost"
                   key={vc.key}
-                  isDisabled={onSortToggle === undefined}
-                  onPress={() => onSortToggle?.(column.name)}
+                  disabled={onSortToggle === undefined}
+                  onClick={() => onSortToggle?.(column.name)}
                   onContextMenu={(e) => onHeaderMenu(e, column, vc.index)}
                   className={cn("absolute top-0 flex h-full items-center justify-start gap-1.5 truncate border-r border-border/40 px-2.5 text-left font-sans liquid-hover rounded-none", onSortToggle ? "hover:bg-surface-secondary/70" : "cursor-default")}
                   style={{ left: vc.start, width: vc.size }}
@@ -510,11 +511,10 @@ export function DataGrid({
                         {stagedCell !== undefined && !isEditing ? <span aria-hidden="true" className="ml-auto size-1.5 shrink-0 rounded-full bg-warning" /> : null}
                         {linked && !isEditing ? (
                           <Button
-                            isIconOnly
                             variant="ghost"
                             size="sm"
                             aria-label={`Open ${column.linkTo ?? "related"} rows`}
-                            onPress={() => {
+                            onClick={() => {
                               onLinkOpen(vr.index, vc.index);
                             }}
                             className="ml-auto flex size-4.5 min-w-4.5 p-0 shrink-0 rounded-sm text-accent opacity-60 hover:bg-accent-soft hover:opacity-100"
@@ -532,7 +532,7 @@ export function DataGrid({
         })}
       </div>
       {menu.node}
-    </ScrollShadow>
+    </ScrollArea>
   );
 }
 

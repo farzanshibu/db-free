@@ -1,6 +1,5 @@
 // SOT: transfer-tab, export-ui, import-ui, table-picker, export-preview
 import { useEffect, useMemo, useState } from "react";
-import { Button, Chip, ScrollShadow, Separator, Spinner } from "@heroui/react";
 import type { TableRef, TablePage, TransferFormat } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { pickDirectory, pickImportFile } from "@/lib/native";
@@ -11,6 +10,11 @@ import { AppSelect, Check, Segmented, Toggle } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Spinner } from "@/components/ui/spinner";
 
 const FORMATS: readonly { value: TransferFormat; label: string }[] = [
   { value: "csv", label: "CSV" },
@@ -109,7 +113,7 @@ export function TransferTab({ connectionId }: { connectionId: string }) {
         <Segmented label="Transfer mode" value={mode} onChange={setMode} options={[{ value: "export", label: "Export" }, { value: "import", label: "Import" }]} />
         {mode === "export" ? (
           <>
-            <Button size="sm" isPending={busy} onPress={() => void doExport()} isDisabled={selected.size === 0}>
+            <Button size="sm" pending={busy} onClick={() => void doExport()} disabled={selected.size === 0}>
               <Icon name="download" size={13} />
               Export {selected.size > 0 ? `(${selected.size})` : ""}
             </Button>
@@ -121,7 +125,7 @@ export function TransferTab({ connectionId }: { connectionId: string }) {
           <>
             <AppSelect ariaLabel="Target table" value={importTable} options={[{ value: "", label: "Choose a table…" }, ...tables.map((t) => ({ value: tableKey(t), label: tableKey(t) }))]} onChange={setImportTable} size="sm" className="w-64" />
             <Segmented label="File format" value={importFormat} onChange={setImportFormat} options={FORMATS.filter((f) => f.value !== "sql")} />
-            <Button size="sm" isPending={busy} onPress={() => void doImport()} isDisabled={importTable.length === 0}>
+            <Button size="sm" pending={busy} onClick={() => void doImport()} disabled={importTable.length === 0}>
               <Icon name="folder" size={13} />
               Choose file & import
             </Button>
@@ -133,19 +137,19 @@ export function TransferTab({ connectionId }: { connectionId: string }) {
         <div className="flex min-h-0 flex-1">
           <div className="flex w-[300px] shrink-0 flex-col border-r border-border/40">
             <div className="flex h-9 items-center px-3 text-xs text-muted">
-              <Chip size="sm" variant="soft" className="font-mono text-[10px]">
+              <Badge size="sm" variant="soft" className="font-mono text-[10px]">
                 {tables.length} tables
-              </Chip>
+              </Badge>
               <Button
                 variant="ghost"
                 size="sm"
                 className="ml-auto h-6 px-1.5 text-xs text-accent"
-                onPress={() => setSelected(selected.size === tables.length ? new Set() : new Set(tables.map(tableKey)))}
+                onClick={() => setSelected(selected.size === tables.length ? new Set() : new Set(tables.map(tableKey)))}
               >
                 {selected.size === tables.length ? "Clear" : "Select All"}
               </Button>
             </div>
-            <ScrollShadow className="min-h-0 flex-1">
+            <ScrollArea className="min-h-0 flex-1">
               {tables.map((t) => {
                 const key = tableKey(t);
                 return (
@@ -155,7 +159,7 @@ export function TransferTab({ connectionId }: { connectionId: string }) {
                       variant="ghost"
                       size="sm"
                       className="flex h-auto min-w-0 flex-1 items-center justify-start gap-2 p-0 text-left bg-transparent hover:bg-transparent"
-                      onPress={() => setPreviewKey(key)}
+                      onClick={() => setPreviewKey(key)}
                     >
                       <Icon name="table" size={13} className="shrink-0" />
                       <span className="truncate">{key}</span>
@@ -163,7 +167,7 @@ export function TransferTab({ connectionId }: { connectionId: string }) {
                   </div>
                 );
               })}
-            </ScrollShadow>
+            </ScrollArea>
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <div className="flex h-9 items-center px-3 text-xs text-muted">Preview (first 50 rows per table){previewKey ? ` · ${previewKey}` : ""}</div>

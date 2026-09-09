@@ -4,6 +4,7 @@
 // WHY:   Commands stay thin (validate, guard, call); integrations stay dumb.
 // WHERE: scripts/guardrail.py — commands may not import store/integrations directly.
 
+pub mod agent;
 pub mod ai;
 pub mod buffers;
 pub mod changes;

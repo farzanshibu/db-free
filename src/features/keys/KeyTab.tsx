@@ -1,6 +1,5 @@
 // SOT: key-tab, redis-key-viewer, key-value-editor, ttl-editor
 import { useCallback, useEffect, useState } from "react";
-import { Button, Chip, TextArea } from "@heroui/react";
 import type { QueryOutcome, TablePage, TableRef } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { DENSITIES } from "@/lib/format";
@@ -9,6 +8,9 @@ import { DataGrid } from "@/features/grid/DataGrid";
 import { AppSelect } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
 import { Icon } from "@/lib/icons";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 const TTLS = [
   { value: "-1", label: "No expiry" },
@@ -95,16 +97,16 @@ export function KeyTab({ connectionId, table }: { connectionId: string; table: T
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface ">
-        <Button size="sm" onPress={save} isDisabled={readOnly || type !== "string" || !dirty}>
+        <Button size="sm" onClick={save} disabled={readOnly || type !== "string" || !dirty}>
           <Icon name="check" size={12} />
           Save
         </Button>
-        <IconButton icon="refresh" label="Reload key" onPress={() => setRefresh((r) => r + 1)} />
-        <IconButton icon="trash" label="Delete key" isDisabled={readOnly} onPress={() => void remove()} />
+        <IconButton icon="refresh" label="Reload key" onClick={() => setRefresh((r) => r + 1)} />
+        <IconButton icon="trash" label="Delete key" disabled={readOnly} onClick={() => void remove()} />
         <div className="ml-auto flex items-center gap-2">
           <Icon name="history" size={13} className="text-muted" />
-          <AppSelect ariaLabel="TTL" value={ttl >= 0 ? (TTLS.find((t) => Number(t.value) === ttl)?.value ?? "custom") : "-1"} options={ttl >= 0 && !TTLS.some((t) => Number(t.value) === ttl) ? [...TTLS, { value: "custom", label: `${ttl}s` }] : TTLS} onChange={(v) => v !== "custom" && applyTtl(Number(v))} size="sm" className="w-32" isDisabled={readOnly} />
-          {type ? <Chip size="sm" color="success" variant="soft">{type}</Chip> : null}
+          <AppSelect ariaLabel="TTL" value={ttl >= 0 ? (TTLS.find((t) => Number(t.value) === ttl)?.value ?? "custom") : "-1"} options={ttl >= 0 && !TTLS.some((t) => Number(t.value) === ttl) ? [...TTLS, { value: "custom", label: `${ttl}s` }] : TTLS} onChange={(v) => v !== "custom" && applyTtl(Number(v))} size="sm" className="w-32" disabled={readOnly} />
+          {type ? <Badge size="sm" color="success" variant="soft">{type}</Badge> : null}
         </div>
       </div>
       <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border px-3 text-xs">
@@ -113,7 +115,7 @@ export function KeyTab({ connectionId, table }: { connectionId: string; table: T
       </div>
       <div className="min-h-0 flex-1">
         {type === "string" ? (
-          <TextArea
+          <Textarea
             value={text}
             onChange={(e) => {
               setText(e.target.value);

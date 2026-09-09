@@ -1,6 +1,5 @@
 // SOT: pending-changes-panel, review-mode-ui, commit-flow, visual-diff
 import { useCallback, useEffect, useState } from "react";
-import { Button, Card, Chip, CloseButton, Kbd, ScrollShadow } from "@heroui/react";
 import type { ChangePreview, StagedChange, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatCell } from "@/lib/format";
@@ -10,6 +9,11 @@ import { IconButton } from "@/components/global/Button";
 import { Resizer } from "@/components/global/Resizer";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Stable empty list: a selector must return the same reference for unchanged state.
 const EMPTY_CHANGES: StagedChange[] = [];
@@ -101,13 +105,13 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
         <span className="text-sm font-semibold text-foreground tracking-tight">Pending Changes</span>
         <span className="ml-auto">
-          <CloseButton onPress={() => setOpen(false)} aria-label="Hide panel" />
+          <Button variant="ghost" size="icon-sm" aria-label="Hide panel" onClick={() => setOpen(false)}><Icon name="x" /></Button>
         </span>
       </div>
       <div className="px-3 py-2">
         <Segmented label="Changes view" value={view} onChange={setView} options={[{ value: "visual", label: "Visual" }, { value: "sql", label: "SQL" }]} />
       </div>
-      <ScrollShadow className="min-h-0 flex-1 px-3 pb-3">
+      <ScrollArea className="min-h-0 flex-1 px-3 pb-3">
         {changes.length === 0 ? (
           <p className="py-8 text-center text-xs text-muted">No pending changes. Double-click a cell to edit, use Insert, or select rows and Delete.</p>
         ) : view === "sql" ? (
@@ -117,11 +121,11 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
             {changes.map((c) => (
               <li key={c.id}>
                 <Card className="rounded-xl glass-card border-border/40 p-3 shadow-xs">
-                  <Card.Content className="p-0">
+                  <CardContent className="p-0">
                     <div className="flex items-center gap-2 text-xs">
-                      <Chip size="sm" variant="soft" color={c.kind === "update" ? "warning" : c.kind === "insert" ? "success" : "danger"} className="font-bold text-[10px] size-5 min-w-5 p-0 justify-center">
+                      <Badge size="sm" variant="soft" color={c.kind === "update" ? "warning" : c.kind === "insert" ? "success" : "danger"} className="font-bold text-[10px] size-5 min-w-5 p-0 justify-center">
                         {c.kind === "update" ? "U" : c.kind === "insert" ? "I" : "D"}
-                      </Chip>
+                      </Badge>
                       <span className="truncate font-medium text-foreground">{tableKey(c.table)}</span>
                       <Icon name="chevron-right" size={11} className="text-muted" />
                       <span className="truncate text-muted">{describeKey(c)}</span>
@@ -132,7 +136,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
                         </>
                       ) : null}
                       <span className="ml-auto">
-                        <IconButton icon="refresh" label="Undo this change" onPress={() => unstage(connectionId, c.id)} />
+                        <IconButton icon="refresh" label="Undo this change" onClick={() => unstage(connectionId, c.id)} />
                       </span>
                     </div>
                     <div className="mt-2 flex flex-col gap-1 font-mono text-[11px]">
@@ -147,29 +151,29 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
                         <Diff sign="-" tone="danger" text={describeKey(c)} />
                       )}
                     </div>
-                  </Card.Content>
+                  </CardContent>
                 </Card>
               </li>
             ))}
           </ul>
         )}
-      </ScrollShadow>
+      </ScrollArea>
       <div className="flex shrink-0 items-center gap-2 border-t border-border/40 glass-header p-3">
-        <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onPress={() => clearChanges(connectionId)} isDisabled={changes.length === 0}>
+        <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onClick={() => clearChanges(connectionId)} disabled={changes.length === 0}>
           Clear All
         </Button>
         <Button
           size="sm"
-          className="flex-1 rounded-xl glass-pill bg-accent text-accent-foreground font-semibold shadow-xs liquid-hover"
-          isPending={committing}
-          onPress={() => void commit()}
-          isDisabled={changes.length === 0}
+          className="flex-1 rounded-xl font-semibold liquid-hover"
+          pending={committing}
+          onClick={() => void commit()}
+          disabled={changes.length === 0}
         >
           Commit All ({changes.length})
-          <Kbd className="ml-1 text-[10px]">
-            <Kbd.Abbr keyValue="command" />
-            <Kbd.Content>S</Kbd.Content>
-          </Kbd>
+          <KbdGroup className="ml-1">
+            <Kbd>⌘</Kbd>
+            <Kbd>S</Kbd>
+          </KbdGroup>
         </Button>
       </div>
     </aside>

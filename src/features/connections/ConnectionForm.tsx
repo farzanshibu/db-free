@@ -1,6 +1,5 @@
 // SOT: connection-form, connection-editor-page, test-connection-flow
 import { useState } from "react";
-import { Alert, Button, Card, ScrollShadow, Tabs } from "@heroui/react";
 import type { ConnectionInput, ConnectionSummary, Engine, Environment, SslMode } from "@/lib/bindings";
 import { ENGINE_ORDER, blankInput, categoryLabel, engineMeta, fieldLabels, type EnginePreset } from "@/lib/engines";
 import { EngineIcon } from "@/components/global/EngineIcon";
@@ -11,6 +10,11 @@ import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
+import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 const SSL_MODES: readonly { value: SslMode; label: string }[] = [
   { value: "disable", label: "Disable" },
@@ -120,7 +124,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
   return (
     <div className="grid-bg flex h-full min-h-0 flex-1 flex-col">
       <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onPress={editing ? goConnections : goPicker} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
+        <Button variant="ghost" size="sm" onClick={editing ? goConnections : goPicker} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
           <Icon name="chevron-left" size={14} />
           Back
         </Button>
@@ -130,10 +134,10 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
         <div className="drag-region h-full flex-1" data-tauri-drag-region />
       </div>
 
-      <ScrollShadow className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-[640px] flex-col gap-5 px-6 pt-8 pb-10">
           <Card className="glass-card rounded-2xl p-6 shadow-xl flex flex-col gap-5 border-border/40">
-            <Card.Content className="flex flex-col gap-5 p-0">
+            <CardContent className="flex flex-col gap-5 p-0">
               <AppSelect label="Type" value={input.engine} options={ENGINE_ORDER.map((e) => ({ value: e, label: `${engineMeta(e).label} · ${categoryLabel(engineMeta(e).kind)}`, leading: <EngineIcon engine={e} size={16} /> }))} onChange={changeEngine} />
               <Field label="Connection Name" value={input.name} onChange={(name) => patch({ name })} placeholder="local-db" autoFocus />
               <AppSelect label="Environment" value={input.environment} options={ENVIRONMENT_ORDER.map((e) => ({ value: e, label: environmentMeta(e).label }))} onChange={changeEnvironment} />
@@ -144,7 +148,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                   value={input.filePath ?? ""}
                   onChange={(filePath) => patch({ filePath })}
                   placeholder={input.engine === "rocksdb" ? "/path/to/rocksdb-dir" : input.engine === "duckdb" ? "/path/to/analytics.duckdb" : "/path/to/database.sqlite"}
-                  suffix={<Button variant="secondary" size="sm" onPress={() => void browse()} className="rounded-lg">Browse…</Button>}
+                  suffix={<Button variant="secondary" size="sm" onClick={() => void browse()} className="rounded-lg">Browse…</Button>}
                 />
               ) : meta.form === "http_token" ? (
                 <div className="flex flex-col gap-5">
@@ -162,7 +166,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                     onChange={(password) => patch({ password })}
                     placeholder={editing && !input.password ? "•••••••• (unchanged)" : ""}
                     optional
-                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onPress={() => setShowPassword((v) => !v)} />}
+                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
                   />
                   <AppSelect label="TLS" value={input.sslMode} options={SSL_MODES} onChange={(sslMode) => patch({ sslMode })} />
                   <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
@@ -181,7 +185,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                     value={input.password ?? ""}
                     onChange={(password) => patch({ password })}
                     placeholder={editing && !input.password ? "•••••••• (unchanged)" : ""}
-                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onPress={() => setShowPassword((v) => !v)} />}
+                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
                   />
                   <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
                     <Icon name="lock" size={12} className="text-accent" />
@@ -199,7 +203,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                     onChange={(password) => patch({ password })}
                     placeholder={editing && !input.password ? "•••••••• (unchanged)" : "Paste the service-account JSON key, or an OAuth access token"}
                     mono
-                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onPress={() => setShowPassword((v) => !v)} />}
+                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
                   />
                   <Field label="Emulator host" value={input.host ?? ""} onChange={(host) => patch({ host })} placeholder="localhost:8080 (leave empty for Google Cloud)" optional mono />
                   <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
@@ -208,12 +212,12 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                   </p>
                 </div>
               ) : (
-                <Tabs selectedKey={section} onSelectionChange={(k) => setSection(String(k) === "ssl" ? "ssl" : "general")} className="w-full">
-                  <Tabs.List className="glass-pill border border-border/40 p-1">
-                    <Tabs.Tab id="general">General</Tabs.Tab>
-                    <Tabs.Tab id="ssl">SSL / TLS</Tabs.Tab>
-                  </Tabs.List>
-                  <Tabs.Panel id="general" className="flex flex-col gap-5 pt-4">
+                <Tabs value={section} onValueChange={(next) => { setSection(next === "ssl" ? "ssl" : "general"); }} className="w-full">
+                  <TabsList className="glass-pill border border-border/40 p-1">
+                    <TabsTrigger value="general">General</TabsTrigger>
+                    <TabsTrigger value="ssl">SSL / TLS</TabsTrigger>
+                  </TabsList>
+                  <TabsContent value="general" className="flex flex-col gap-5 pt-4">
                     <div className="grid grid-cols-[1fr_120px] gap-3">
                       <Field label={labels.host} value={input.host ?? ""} onChange={(host) => patch({ host })} placeholder={meta.hostPlaceholder ?? "localhost"} />
                       <Field label={labels.port} type="number" value={input.port !== null ? String(input.port) : ""} onChange={(port) => patch({ port: port === "" ? null : Number(port) })} placeholder={String(meta.defaultPort ?? "")} />
@@ -226,46 +230,46 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                       value={input.password ?? ""}
                       onChange={(password) => patch({ password })}
                       placeholder={editing && !input.password ? "•••••••• (unchanged)" : "secret"}
-                      suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide password" : "Show password"} onPress={() => setShowPassword((v) => !v)} />}
+                      suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((v) => !v)} />}
                     />
                     <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
                       <Icon name="lock" size={12} className="text-accent" />
                       Keychain enabled — stored with AES-256-GCM; the key never leaves your OS keychain.
                     </p>
-                  </Tabs.Panel>
-                  <Tabs.Panel id="ssl" className="flex flex-col gap-5 pt-4">
+                  </TabsContent>
+                  <TabsContent value="ssl" className="flex flex-col gap-5 pt-4">
                     <AppSelect label="SSL mode" value={input.sslMode} options={SSL_MODES} onChange={(sslMode) => patch({ sslMode })} />
                     <p className="text-xs text-muted">SSH tunnelling (bastion hosts, key files, agent) arrives in Phase 2 of the roadmap.</p>
-                  </Tabs.Panel>
+                  </TabsContent>
                 </Tabs>
               )}
 
               <Toggle checked={input.readOnly} onChange={(readOnly) => patch({ readOnly })} label="Read-only lock" description="Blocks every write and DDL statement on this connection. On by default for Production." />
 
               {status ? (
-                <Alert status={status.tone === "ok" ? "success" : "danger"} className="rounded-xl font-mono text-xs">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Title className="font-sans font-semibold">{status.tone === "ok" ? "Success" : "Connection Error"}</Alert.Title>
-                    <Alert.Description className="selectable">{status.text}</Alert.Description>
-                  </Alert.Content>
+                <Alert variant={status.tone === "ok" ? "success" : "danger"} className="rounded-xl font-mono text-xs">
+                  <AlertIndicator />
+                  <AlertContent>
+                    <AlertTitle className="font-sans font-semibold">{status.tone === "ok" ? "Success" : "Connection Error"}</AlertTitle>
+                    <AlertDescription className="selectable">{status.text}</AlertDescription>
+                  </AlertContent>
                 </Alert>
               ) : null}
-            </Card.Content>
+            </CardContent>
           </Card>
         </div>
-      </ScrollShadow>
+      </ScrollArea>
 
       <div className="flex shrink-0 items-center justify-center gap-3 border-t border-border/40 glass-header px-6 py-3">
         {editing ? (
-          <Button variant="danger-soft" onPress={() => void remove()} className="mr-auto rounded-xl liquid-hover">
+          <Button variant="danger-soft" onClick={() => void remove()} className="mr-auto rounded-xl liquid-hover">
             Delete
           </Button>
         ) : null}
-        <Button variant="secondary" isPending={testing} onPress={() => void test()} className="w-[220px] rounded-xl glass-pill text-foreground liquid-hover">
+        <Button variant="secondary" pending={testing} onClick={() => void test()} className="w-[220px] rounded-xl glass-pill text-foreground liquid-hover">
           Test Connection
         </Button>
-        <Button isPending={saving} onPress={() => void save()} className="w-[220px] rounded-xl glass-pill bg-accent text-accent-foreground font-semibold shadow-md shadow-accent/25 liquid-hover">
+        <Button pending={saving} onClick={() => void save()} className="w-[220px] rounded-xl font-semibold liquid-hover">
           {editing ? "Save Changes" : "Create Connection"}
         </Button>
       </div>

@@ -1,10 +1,15 @@
 // SOT: connection-picker, engine-grid, engine-categories-ui, connection-string-detect
 import { useState } from "react";
-import { Alert, Button, Card, Input, Label, ScrollShadow, SearchField, Separator, TextField } from "@heroui/react";
 import { CATEGORIES, COMING_SOON, ENGINE_ORDER, PRESETS, blankInput, engineMeta, enginesOfKind, parseConnectionString } from "@/lib/engines";
 import { useWorkspace } from "@/stores/workspace";
 import { Icon } from "@/lib/icons";
 import { EngineIcon } from "@/components/global/EngineIcon";
+import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
+import { Input, SearchInput } from "@/components/ui/input";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
 
 // WHAT:  First step of "New connection": paste a connection string (auto-detects
 //        the engine) or pick an engine from the catalogue, grouped by category
@@ -28,7 +33,7 @@ export function ConnectionPicker() {
   return (
     <div className="grid-bg flex h-full min-h-0 flex-1 flex-col">
       <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onPress={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
+        <Button variant="ghost" size="sm" onClick={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
           <Icon name="chevron-left" size={14} />
           Back
         </Button>
@@ -38,7 +43,7 @@ export function ConnectionPicker() {
         <div className="drag-region h-full flex-1" data-tauri-drag-region />
         <span className="text-[11px] text-muted">{ENGINE_ORDER.length} engines · {CATEGORIES.length} categories</span>
       </div>
-      <ScrollShadow className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <div className="mx-auto flex w-full max-w-[720px] flex-col gap-6 px-6 pt-8 pb-12">
           <div className="text-center">
             <h1 className="text-xl font-bold tracking-tight text-foreground">Select a Database</h1>
@@ -46,33 +51,34 @@ export function ConnectionPicker() {
           </div>
 
           <Card className="glass-card rounded-2xl p-5 shadow-lg border-border/40">
-            <Card.Content className="p-0">
-              <TextField value={text} onChange={setText} className="w-full">
-                <Label className="text-xs font-semibold text-foreground tracking-tight">Connection String</Label>
-                <Input placeholder="protocol://user:password@host:port/database" className="w-full font-mono text-xs mt-1.5" />
-                <p className="mt-2 text-xs text-muted">Auto-detects database engine, user credentials, and host automatically.</p>
-              </TextField>
+            <CardContent className="p-0">
+              <Input
+                value={text}
+                onChange={(event) => { setText(event.target.value); }}
+                placeholder="protocol://user:password@host:port/database"
+                className="mt-1.5 w-full font-mono text-xs"
+              />
               {parsed ? (
                 <div className="mt-3.5 flex items-center justify-between border-t border-border/40 pt-3">
                   <span className="flex items-center gap-2 text-xs text-success font-medium">
                     <Icon name="check" size={13} />
                     Detected {engineMeta(parsed.engine).label}
                   </span>
-                  <Button onPress={() => openForm(undefined, undefined, parsed)} className="glass-pill bg-accent text-accent-foreground font-semibold shadow-xs liquid-hover">
+                  <Button onClick={() => openForm(undefined, undefined, parsed)} className="font-semibold liquid-hover">
                     Continue
                     <Icon name="chevron-right" size={14} />
                   </Button>
                 </div>
               ) : text.trim().length > 0 ? (
-                <Alert status="danger" className="mt-3 text-xs rounded-xl">
-                  <Alert.Indicator />
-                  <Alert.Content>
-                    <Alert.Title>Unrecognised Scheme</Alert.Title>
-                    <Alert.Description>Supported: {ENGINE_ORDER.flatMap((e) => engineMeta(e).schemes).join(", ")}.</Alert.Description>
-                  </Alert.Content>
+                <Alert variant="danger" className="mt-3 text-xs rounded-xl">
+                  <AlertIndicator />
+                  <AlertContent>
+                    <AlertTitle>Unrecognised Scheme</AlertTitle>
+                    <AlertDescription>Supported: {ENGINE_ORDER.flatMap((e) => engineMeta(e).schemes).join(", ")}.</AlertDescription>
+                  </AlertContent>
                 </Alert>
               ) : null}
-            </Card.Content>
+            </CardContent>
           </Card>
 
           <div className="flex items-center gap-3 text-xs text-muted">
@@ -81,13 +87,7 @@ export function ConnectionPicker() {
             <Separator className="flex-1 opacity-50" />
           </div>
 
-          <SearchField value={search} onChange={setSearch} aria-label="Search engines">
-            <SearchField.Group className="glass-input rounded-xl h-9 px-3">
-              <SearchField.SearchIcon />
-              <SearchField.Input placeholder="Search engines or categories…" className="w-full text-xs" />
-              <SearchField.ClearButton />
-            </SearchField.Group>
-          </SearchField>
+          <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Search engines or categories…" className="glass-input rounded-xl h-9 w-full text-xs" />
 
           {sections.length === 0 ? <p className="text-center text-xs text-muted">No engine matches “{search}”.</p> : null}
 
@@ -104,7 +104,7 @@ export function ConnectionPicker() {
                     <Button
                       key={engine}
                       variant="ghost"
-                      onPress={() => openForm(undefined, undefined, blankInput(engine))}
+                      onClick={() => openForm(undefined, undefined, blankInput(engine))}
                       className="group flex h-auto w-full items-center justify-start gap-3 rounded-xl glass-card px-3 py-2.5 text-left glass-card-hover border border-border/40"
                     >
                       <span className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-lg border border-border/40 bg-surface-tertiary/70 shadow-xs group-hover:scale-105 transition-transform">
@@ -127,7 +127,7 @@ export function ConnectionPicker() {
                 <Button
                   key={preset.id}
                   variant="ghost"
-                  onPress={() => openForm(undefined, preset, blankInput(preset.engine, preset))}
+                  onClick={() => openForm(undefined, preset, blankInput(preset.engine, preset))}
                   className="group flex h-auto w-full items-center justify-start gap-3 rounded-xl glass-card px-3 py-2.5 text-left glass-card-hover border border-border/40"
                 >
                   <span className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-surface-tertiary/70 text-success shadow-xs border border-border/40">
@@ -153,7 +153,7 @@ export function ConnectionPicker() {
             </div>
           ) : null}
         </div>
-      </ScrollShadow>
+      </ScrollArea>
     </div>
   );
 }

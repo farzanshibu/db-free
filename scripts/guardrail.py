@@ -90,6 +90,9 @@ VENDOR_OWNERS = {
     "rusqlite": ("store/", "integrations/sqlite.rs"),
     "keyring": ("adapters/keyring.rs",),
     "aes_gcm": ("adapters/crypto.rs",),
+    # The agent framework. Only the provider adapter speaks rig; the loop, the
+    # tools and the permission gate work in this codebase's own types.
+    "rig_core": ("services/agent/provider.rs",),
 }
 
 HARDCODED_COLOR = re.compile(

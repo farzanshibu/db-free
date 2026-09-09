@@ -1,12 +1,12 @@
 // SOT: document-tab, document-dispatch
 import { useEffect } from "react";
-import { Spinner } from "@heroui/react";
 import type { DocumentKind } from "@/lib/bindings";
 import { useWorkspace } from "@/stores/workspace";
 import { DashboardTab } from "@/features/dashboards/DashboardTab";
 import { WorkflowTab } from "@/features/workflows/WorkflowTab";
 import { DesignerTab } from "@/features/diagrams/DesignerTab";
 import { EmptyState } from "@/components/global/EmptyState";
+import { Spinner } from "@/components/ui/spinner";
 
 // WHAT:  Resolves a document tab to its editor; loads the kind's list if needed.
 export function DocumentTab({ kind, documentId, connectionId }: { kind: DocumentKind; documentId: string; connectionId: string | null }) {

@@ -32,6 +32,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             std::fs::create_dir_all(&data_dir)?;
             let store = Store::open(&data_dir.join("db-free.sqlite"))?;
             app.manage(AppState::new(store, Box::new(OsKeyring::default())));
+            // Holds an update downloaded in the background until the user restarts.
+            app.manage(commands::updates::StagedUpdate::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -79,8 +81,14 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::objects::query_range,
             commands::objects::load_history,
             commands::updates::check_update,
+            commands::updates::download_update,
             commands::updates::install_update,
             commands::schema::create_template,
+            commands::agent::agent_chat,
+            commands::agent::agent_decide,
+            commands::agent::agent_cancel,
+            commands::agent::agent_reset,
+            commands::agent::agent_skills,
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -159,6 +167,15 @@ mod export_bindings {
             crate::model::ServerStats::export_all(&cfg),
             crate::model::SearchResult::export_all(&cfg),
             crate::model::RangeResult::export_all(&cfg),
+            crate::commands::agent::AgentChatRequest::export_all(&cfg),
+            crate::commands::agent::AgentDecisionRequest::export_all(&cfg),
+            crate::commands::agent::AgentRunRequest::export_all(&cfg),
+            crate::commands::agent::AgentChatIdRequest::export_all(&cfg),
+            // Only reachable through the event stream, so it needs naming here.
+            crate::model::AgentEvent::export_all(&cfg),
+            crate::model::AgentTurn::export_all(&cfg),
+            crate::model::AgentSkill::export_all(&cfg),
+            crate::model::AgentAutonomy::export_all(&cfg),
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

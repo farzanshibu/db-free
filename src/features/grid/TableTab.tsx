@@ -1,6 +1,5 @@
 // SOT: table-tab, table-toolbar, page-based-browsing, sort-state, export-copy, full-table-export, file-download, row-inspector, inspector-collapse, insert-row-flow, delete-rows-flow, cell-edit-staging, foreign-key-traversal, staged-row-mapping
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Button, Chip, CloseButton, Dropdown, Label, Modal, Popover, ScrollShadow, SearchField, Separator, Tooltip } from "@heroui/react";
 import type { CellValue, ColumnInfo, FilterOp, FilterRule, ForeignKey, SortRule, StagedChange, TablePage, TableRef, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { downloadTextFile, exportFilename, plainValue, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
@@ -18,7 +17,15 @@ import { EmptyState } from "@/components/global/EmptyState";
 import { Segmented } from "@/components/global/Field";
 import { Resizer } from "@/components/global/Resizer";
 import { Icon } from "@/lib/icons";
-import { cn } from "@/lib/cn";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SearchInput } from "@/components/ui/input";
 
 const PAGE_SIZES = [
   { value: "50", label: "50 rows" },
@@ -514,61 +521,65 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollShadow orientation="horizontal" hideScrollBar className="flex app-toolbar shrink-0 items-center gap-1.5 border-b border-border/40 glass-header">
-        <Tooltip delay={300}>
-          <Button size="sm" isDisabled={!editable || columns.length === 0} onPress={() => setInsertOpen(true)} className="glass-pill text-foreground liquid-hover">
-            <Icon name="plus" size={13} className="text-accent" />
-            Insert
-          </Button>
-          <Tooltip.Content>{readOnly ? "Connection is read-only." : editable ? "Insert a row" : "Editing is only available for SQL engines."}</Tooltip.Content>
+      <ScrollArea orientation="horizontal" hideScrollBar className="flex app-toolbar shrink-0 items-center gap-0.5 border-b border-border/40 glass-header">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="xs" variant="soft" disabled={!editable || columns.length === 0} onClick={() => setInsertOpen(true)}>
+              <Icon name="plus" size={12} />
+              Insert
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{readOnly ? "Connection is read-only." : editable ? "Insert a row" : "Editing is only available for SQL engines."}</TooltipContent>
         </Tooltip>
-        <Button size="sm" variant="ghost" className="text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover rounded-lg" onPress={() => setRefresh((r) => r + 1)}>
-          <Icon name="refresh" size={13} />
+        <Button size="xs" variant="toolbar" onClick={() => setRefresh((r) => r + 1)}>
+          <Icon name="refresh" size={12} />
           Refresh
         </Button>
         <FilterPopover columns={columns} filters={filters} onApply={(next) => { setPageIndex(0); setFilters(next); }} />
         <ColumnsPopover columns={columns} hidden={hiddenColumns} onChange={setHiddenColumns} />
-        <Dropdown>
-          <Button size="sm" variant={autoRefresh > 0 ? "primary" : "ghost"} className={cn("rounded-lg liquid-hover", autoRefresh > 0 ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
-            <Icon name="clock" size={13} />
-            {autoRefresh > 0 ? REFRESH_LABEL[autoRefresh] : "Auto"}
-          </Button>
-          <Dropdown.Popover className="min-w-44 glass-modal rounded-xl">
-            <Dropdown.Menu onAction={(key) => setAutoRefresh(Number(key))}>
-              <Dropdown.Section>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="xs" variant={autoRefresh > 0 ? "soft" : "toolbar"}>
+              <Icon name="clock" size={12} />
+              {autoRefresh > 0 ? REFRESH_LABEL[autoRefresh] : "Auto"}
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="min-w-44 glass-modal rounded-xl">
+            <DropdownMenuGroup>
                 {REFRESH_INTERVALS.map((seconds) => (
-                  <Dropdown.Item key={seconds} id={String(seconds)} textValue={REFRESH_LABEL[seconds] ?? ""}>
-                    <Label className="flex-1">{REFRESH_LABEL[seconds]}</Label>
+                  <DropdownMenuItem key={seconds} textValue={REFRESH_LABEL[seconds] ?? ""} onSelect={() => { setAutoRefresh(seconds); }}>
+                    <span className="flex-1">{REFRESH_LABEL[seconds]}</span>
                     {autoRefresh === seconds ? <Icon name="check" size={13} className="ml-2 text-accent" /> : null}
-                  </Dropdown.Item>
+                  </DropdownMenuItem>
                 ))}
-              </Dropdown.Section>
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown>
-        <Button size="sm" variant={sort.length > 0 ? "primary" : "ghost"} className={cn("rounded-lg liquid-hover", sort.length > 0 ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")} onPress={() => setSort([])} isDisabled={sort.length === 0}>
-          <Icon name="sort" size={13} />
+              </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
+        <Button size="xs" variant={sort.length > 0 ? "soft" : "toolbar"} onClick={() => setSort([])} disabled={sort.length === 0}>
+          <Icon name="sort" size={12} />
           {sort.length > 0 ? `Sorted by ${sort.length} rule` : "Sort"}
         </Button>
-        <Dropdown>
-          <Button size="sm" variant="ghost" className="text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover rounded-lg" isDisabled={rows.length === 0 || exporting}>
-            <Icon name="download" size={13} />
-            {exporting ? "Exporting…" : "Export"}
-            <Icon name="chevron-down" size={12} />
-          </Button>
-          <Dropdown.Popover className="glass-modal rounded-xl">
-            <Dropdown.Menu onAction={(key) => onExportAction(String(key))}>
-              <Dropdown.Item id="copy-csv" textValue="Copy as CSV"><Label>Copy {selectedRows.size > 0 ? "selection" : "page"} as CSV</Label></Dropdown.Item>
-              <Dropdown.Item id="copy-json" textValue="Copy as JSON"><Label>Copy {selectedRows.size > 0 ? "selection" : "page"} as JSON</Label></Dropdown.Item>
-              <Dropdown.Item id="download-page-csv" textValue="Download page as CSV"><Label>Download {selectedRows.size > 0 ? "selection" : "page"} as CSV</Label></Dropdown.Item>
-              <Dropdown.Item id="download-page-json" textValue="Download page as JSON"><Label>Download {selectedRows.size > 0 ? "selection" : "page"} as JSON</Label></Dropdown.Item>
-              <Dropdown.Item id="download-all-csv" textValue="Download all rows as CSV"><Label>Download all{total !== null ? ` ${formatCount(total)}` : ""} rows as CSV</Label></Dropdown.Item>
-              <Dropdown.Item id="download-all-json" textValue="Download all rows as JSON"><Label>Download all{total !== null ? ` ${formatCount(total)}` : ""} rows as JSON</Label></Dropdown.Item>
-            </Dropdown.Menu>
-          </Dropdown.Popover>
-        </Dropdown>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button size="xs" variant="toolbar" disabled={rows.length === 0 || exporting}>
+              <Icon name="download" size={12} />
+              {exporting ? "Exporting…" : "Export"}
+              <Icon name="chevron-down" size={10} />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent className="glass-modal rounded-xl">
+            <DropdownMenuGroup>
+              <DropdownMenuItem textValue="Copy as CSV" onSelect={() => { onExportAction("copy-csv"); }}><span>Copy {selectedRows.size > 0 ? "selection" : "page"} as CSV</span></DropdownMenuItem>
+              <DropdownMenuItem textValue="Copy as JSON" onSelect={() => { onExportAction("copy-json"); }}><span>Copy {selectedRows.size > 0 ? "selection" : "page"} as JSON</span></DropdownMenuItem>
+              <DropdownMenuItem textValue="Download page as CSV" onSelect={() => { onExportAction("download-page-csv"); }}><span>Download {selectedRows.size > 0 ? "selection" : "page"} as CSV</span></DropdownMenuItem>
+              <DropdownMenuItem textValue="Download page as JSON" onSelect={() => { onExportAction("download-page-json"); }}><span>Download {selectedRows.size > 0 ? "selection" : "page"} as JSON</span></DropdownMenuItem>
+              <DropdownMenuItem textValue="Download all rows as CSV" onSelect={() => { onExportAction("download-all-csv"); }}><span>Download all{total !== null ? ` ${formatCount(total)}` : ""} rows as CSV</span></DropdownMenuItem>
+              <DropdownMenuItem textValue="Download all rows as JSON" onSelect={() => { onExportAction("download-all-json"); }}><span>Download all{total !== null ? ` ${formatCount(total)}` : ""} rows as JSON</span></DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
         {selectedRows.size > 0 && editable ? (
-          <Button size="sm" variant="danger-soft" className="rounded-lg liquid-hover" onPress={deleteSelected}>
+          <Button size="sm" variant="danger-soft" className="rounded-lg liquid-hover" onClick={deleteSelected}>
             <Icon name="trash" size={13} />
             Delete {selectedRows.size}
           </Button>
@@ -577,29 +588,29 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
         <div className="ml-auto flex shrink-0 items-center gap-2 text-xs whitespace-nowrap text-muted">
           {loading ? <span className="text-accent font-medium">loading…</span> : null}
           {selectedRows.size > 0 ? (
-            <Chip size="sm" variant="soft" color="accent" className="font-medium">
+            <Badge size="sm" variant="soft" color="accent" className="font-medium">
               {selectedRows.size} selected
-            </Chip>
+            </Badge>
           ) : null}
-          <IconButton icon="columns" label={cell === null ? "Inspect selected cell" : inspectorCollapsed ? "Show inspector" : "Hide inspector"} active={cell !== null && !inspectorCollapsed} isDisabled={cell === null} onPress={toggleInspector} />
+          <IconButton icon="columns" label={cell === null ? "Inspect selected cell" : inspectorCollapsed ? "Show inspector" : "Hide inspector"} active={cell !== null && !inspectorCollapsed} disabled={cell === null} onClick={toggleInspector} />
           <Separator orientation="vertical" className="mx-0.5 h-4 opacity-50" />
           <div className="flex items-center gap-1 rounded-lg glass-pill px-1.5 py-0.5">
-            <IconButton icon="chevron-left" label="Previous page" isDisabled={pageIndex === 0} onPress={() => setPageIndex((p) => Math.max(0, p - 1))} size={13} className="size-5 min-w-5" />
+            <IconButton icon="chevron-left" label="Previous page" disabled={pageIndex === 0} onClick={() => setPageIndex((p) => Math.max(0, p - 1))} size={13} className="size-5 min-w-5" />
             <span className="px-1 tabular-nums font-mono text-[11px] text-foreground">
               {pageIndex + 1}
               <span className="text-muted"> / {pageCount ?? "…"}</span>
             </span>
-            <IconButton icon="chevron-right" label="Next page" isDisabled={!hasNext} onPress={() => setPageIndex((p) => p + 1)} size={13} className="size-5 min-w-5" />
+            <IconButton icon="chevron-right" label="Next page" disabled={!hasNext} onClick={() => setPageIndex((p) => p + 1)} size={13} className="size-5 min-w-5" />
           </div>
           <AppSelect ariaLabel="Rows per page" value={pageSize} options={PAGE_SIZES} size="sm" className="w-24 shrink-0" onChange={(v) => { setPageIndex(0); setPageSize(v); }} />
           <span className="min-w-16 text-right tabular-nums font-mono text-[11px] text-muted">{total !== null ? `${page?.totalExact ? "" : "≈ "}${formatCount(total)} rows` : `${formatCount(rows.length)} rows`}</span>
         </div>
-      </ScrollShadow>
+      </ScrollArea>
 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
           {loaded.error !== null ? (
-            <EmptyState icon="table" title="Could not load table" body={loaded.error} action={<Button size="sm" onPress={() => setRefresh((r) => r + 1)}>Retry</Button>} />
+            <EmptyState icon="table" title="Could not load table" body={loaded.error} action={<Button size="sm" onClick={() => setRefresh((r) => r + 1)}>Retry</Button>} />
           ) : (
             <DataGrid
               columns={gridColumns}
@@ -675,31 +686,26 @@ function InsertRowModal({ open, onClose, columns, onSubmit }: { open: boolean; o
     onSubmit(out);
   };
   return (
-    <Modal isOpen={open} onOpenChange={(o) => !o && onClose()}>
-      <Modal.Backdrop>
-        <Modal.Container>
-          <Modal.Dialog className="sm:max-w-[560px]">
-            <Modal.CloseTrigger />
-            <Modal.Header>
-              <Modal.Heading>Insert row</Modal.Heading>
-            </Modal.Header>
-            <Modal.Body className="max-h-[60vh] p-0">
-              <ScrollShadow className="max-h-[60vh] px-4 py-3">
-                <div className="grid grid-cols-2 gap-3">
-                  {columns.map((c) => (
-                    <FormValueField key={c.name} column={c} value={values[c.name]} onChange={(v) => setValues((s) => ({ ...s, [c.name]: v }))} />
-                  ))}
-                </div>
-              </ScrollShadow>
-            </Modal.Body>
-            <Modal.Footer>
-              <Button variant="tertiary" onPress={onClose}>Cancel</Button>
-              <Button onPress={submit}>Add row</Button>
-            </Modal.Footer>
-          </Modal.Dialog>
-        </Modal.Container>
-      </Modal.Backdrop>
-    </Modal>
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>Insert row</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="max-h-[60vh] p-0">
+          <ScrollArea className="max-h-[60vh] px-4 py-3">
+            <div className="grid grid-cols-2 gap-3">
+              {columns.map((c) => (
+                <FormValueField key={c.name} column={c} value={values[c.name]} onChange={(v) => setValues((s) => ({ ...s, [c.name]: v }))} />
+              ))}
+            </div>
+          </ScrollArea>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="tertiary" onClick={onClose}>Cancel</Button>
+          <Button onClick={submit}>Add row</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -736,22 +742,24 @@ function RecordInspector({ columns, row, column, value, table, tabs, activeTab, 
   if (collapsed) {
     return (
       <aside className="flex w-9 shrink-0 flex-col items-center gap-1 border-l border-border/40 glass-sidebar py-1.5 select-none">
-        <IconButton icon="chevron-left" label="Expand inspector" onPress={onToggle} size={13} className="size-6 min-w-6" />
-        <Tooltip delay={500}>
-          <Button
-            variant="ghost"
-            size="sm"
-            aria-label={`Expand inspector for ${column.name}`}
-            onPress={onToggle}
-            className="h-auto min-h-0 w-6 min-w-0 flex-1 overflow-hidden rounded-md px-0 py-2 font-mono text-[11px] whitespace-nowrap text-muted [writing-mode:vertical-rl] rotate-180 hover:text-foreground"
-          >
-            {column.name}
-          </Button>
-          <Tooltip.Content>
+        <IconButton icon="chevron-left" label="Expand inspector" onClick={onToggle} size={13} className="size-6 min-w-6" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-label={`Expand inspector for ${column.name}`}
+              onClick={onToggle}
+              className="h-auto min-h-0 w-6 min-w-0 flex-1 overflow-hidden rounded-md px-0 py-2 font-mono text-[11px] whitespace-nowrap text-muted [writing-mode:vertical-rl] rotate-180 hover:text-foreground"
+            >
+              {column.name}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>
             {column.name} · {column.dataType}
-          </Tooltip.Content>
+          </TooltipContent>
         </Tooltip>
-        <CloseButton onPress={onClose} aria-label="Close inspector" />
+        <Button variant="ghost" size="icon-sm" aria-label="Close inspector" onClick={onClose}><Icon name="x" /></Button>
       </aside>
     );
   }
@@ -761,18 +769,18 @@ function RecordInspector({ columns, row, column, value, table, tabs, activeTab, 
       <Resizer direction="horizontal" onResize={handleResize} className="absolute -left-1 top-0 bottom-0" />
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header text-xs">
         <span className="truncate font-semibold text-foreground tracking-tight">{column.name}</span>
-        <Chip size="sm" variant="soft" className="font-mono text-[10px]">
+        <Badge size="sm" variant="soft" className="font-mono text-[10px]">
           {column.dataType}
-        </Chip>
+        </Badge>
         <span className="ml-auto flex items-center gap-0.5">
-          <IconButton icon="chevron-right" label="Collapse inspector" onPress={onToggle} size={13} className="size-6 min-w-6" />
-          <CloseButton onPress={onClose} aria-label="Close inspector" />
+          <IconButton icon="chevron-right" label="Collapse inspector" onClick={onToggle} size={13} className="size-6 min-w-6" />
+          <Button variant="ghost" size="icon-sm" aria-label="Close inspector" onClick={onClose}><Icon name="x" /></Button>
         </span>
       </div>
       <div className="px-3 py-2">
         <Segmented label="Inspector tab" value={current} onChange={onTab} options={tabs.map((t) => ({ value: t, label: t.toUpperCase() }))} />
       </div>
-      <ScrollShadow className="min-h-0 flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         {current === "fields" ? (
           <dl className="px-3 pb-3 text-xs">
             {columns.map((c, i) => (
@@ -789,7 +797,7 @@ function RecordInspector({ columns, row, column, value, table, tabs, activeTab, 
         ) : (
           <pre className="selectable p-3 font-mono text-[11px] whitespace-pre-wrap text-foreground">{inspectorBody(value)}</pre>
         )}
-      </ScrollShadow>
+      </ScrollArea>
     </aside>
   );
 }
@@ -849,20 +857,15 @@ function ColumnsPopover({ columns, hidden, onChange }: { columns: readonly Colum
   };
   return (
     <Popover>
-      <Button size="sm" variant={hidden.size > 0 ? "primary" : "ghost"} className={cn("rounded-lg liquid-hover", hidden.size > 0 ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
-        <Icon name="columns" size={13} />
-        {hidden.size > 0 ? `${columns.length - hidden.size}/${columns.length}` : "Columns"}
-      </Button>
-      <Popover.Content className="w-[260px]">
-        <Popover.Dialog className="p-2">
-          <SearchField value={search} onChange={setSearch} aria-label="Search columns" autoFocus>
-            <SearchField.Group className="glass-input h-7 rounded-lg px-2">
-              <SearchField.SearchIcon />
-              <SearchField.Input placeholder="Search…" className="w-full text-xs" />
-              <SearchField.ClearButton />
-            </SearchField.Group>
-          </SearchField>
-          <ScrollShadow hideScrollBar className="mt-2 max-h-64">
+      <PopoverTrigger asChild>
+        <Button size="xs" variant={hidden.size > 0 ? "soft" : "toolbar"}>
+          <Icon name="columns" size={12} />
+          {hidden.size > 0 ? `${columns.length - hidden.size}/${columns.length}` : "Columns"}
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[260px] p-2">
+          <SearchInput value={search} onChange={setSearch} aria-label="Search columns" placeholder="Search…" autoFocus className="glass-input h-7 rounded-lg w-full text-xs" />
+          <ScrollArea hideScrollBar className="mt-2 max-h-64">
             <ul className="flex flex-col gap-0.5">
               {shown.map((c) => (
                 <li key={c.name}>
@@ -872,17 +875,16 @@ function ColumnsPopover({ columns, hidden, onChange }: { columns: readonly Colum
                 </li>
               ))}
             </ul>
-          </ScrollShadow>
+          </ScrollArea>
           <div className="mt-2 flex justify-end gap-1.5 border-t border-border/40 pt-2">
-            <Button size="sm" variant="tertiary" className="h-6 min-h-6 px-2 text-[11px]" onPress={() => onChange(new Set(columns.map((c) => c.name)))}>
+            <Button size="sm" variant="tertiary" className="h-6 min-h-6 px-2 text-[11px]" onClick={() => onChange(new Set(columns.map((c) => c.name)))}>
               Hide all
             </Button>
-            <Button size="sm" variant="tertiary" className="h-6 min-h-6 px-2 text-[11px]" onPress={() => onChange(new Set())}>
+            <Button size="sm" variant="tertiary" className="h-6 min-h-6 px-2 text-[11px]" onClick={() => onChange(new Set())}>
               Show all
             </Button>
           </div>
-        </Popover.Dialog>
-      </Popover.Content>
+      </PopoverContent>
     </Popover>
   );
 }

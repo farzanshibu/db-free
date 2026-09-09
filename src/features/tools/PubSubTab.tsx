@@ -1,6 +1,5 @@
 // SOT: pubsub-tab, channel-list, publish-form
 import { useState } from "react";
-import { Button, ScrollShadow, Spinner, TextArea } from "@heroui/react";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatCell } from "@/lib/format";
 import { Icon } from "@/lib/icons";
@@ -10,6 +9,10 @@ import { Field } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { ObjectRow, useObjects } from "@/features/objects/ObjectList";
 import { ToolBody, ToolShell } from "./ToolShell";
+import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
 
 // WHAT:  Redis-style publish/subscribe: the active channels (with subscriber
 //        counts from the adapter) and a publish form. Publishing goes through
@@ -57,16 +60,16 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
   };
 
   return (
-    <ToolShell tool="pub_sub" right={<IconButton icon="refresh" label="Reload channels" onPress={refresh} />}>
+    <ToolShell tool="pub_sub" right={<IconButton icon="refresh" label="Reload channels" onClick={refresh} />}>
       <ToolBody
         form={
           <>
             <Field label="Channel" value={channel} onChange={setChannel} placeholder="events:orders" mono />
             <div className="flex flex-col gap-1">
               <span className="text-sm font-medium text-foreground">Message</span>
-              <TextArea aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} spellCheck={false} className="min-h-28 font-mono text-[12px]" placeholder='{"order": 42, "status": "paid"}' />
+              <Textarea aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} spellCheck={false} className="min-h-28 font-mono text-[12px]" placeholder='{"order": 42, "status": "paid"}' />
             </div>
-            <Button onPress={() => void publish()} isDisabled={running}>
+            <Button onClick={() => void publish()} disabled={running}>
               {running ? <Spinner size="sm" /> : <Icon name="send" size={13} />}
               Publish
             </Button>
@@ -90,7 +93,7 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
             Active channels {loading ? <Spinner size="sm" /> : null}
             <span className="ml-auto">Subscribers are counted server-side; a channel appears once someone subscribes.</span>
           </div>
-          <ScrollShadow className="min-h-0 flex-1 p-2">
+          <ScrollArea className="min-h-0 flex-1 p-2">
             {listError !== null ? (
               <EmptyState icon="alert" title="Could not list channels" body={listError} />
             ) : objects !== null && objects.length === 0 ? (
@@ -98,7 +101,7 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
             ) : (
               (objects ?? []).map((o) => <ObjectRow key={o.reference.name} connectionId={connectionId} object={o} onSelect={(ref) => setChannel(ref.name)} />)
             )}
-          </ScrollShadow>
+          </ScrollArea>
         </div>
       </ToolBody>
     </ToolShell>
