@@ -215,7 +215,7 @@ fn row_with(body: Value, o: Option<&Map<String, Json>>) -> Vec<Value> {
             .map(Value::Int)
             .unwrap_or(Value::Null),
         o.and_then(|m| m.get("properties"))
-            .map(|p| json_to_value(p))
+            .map(json_to_value)
             .unwrap_or(Value::Null),
     ]
 }
@@ -550,7 +550,7 @@ impl RabbitmqIntegration {
 
     async fn consume(&self, vhost: &str, queue: &str, limit: u64) -> AppResult<ResultSet> {
         self.queue_info(vhost, queue).await?;
-        let mut items = self.peek(vhost, queue, limit.min(MAX_GET).max(1)).await?;
+        let mut items = self.peek(vhost, queue, limit.clamp(1, MAX_GET)).await?;
         // The GET endpoint returns oldest first; the default view is newest first.
         items.reverse();
         let rows = items.iter().map(message_row).collect();
