@@ -32,7 +32,7 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
           className="h-8 min-w-0 shrink gap-1.5 rounded-lg px-2 text-sm font-semibold text-foreground glass-pill liquid-hover"
           aria-label={`${caption} — switch connection`}
         >
-          <EnvDot environment={connection.environment} live />
+          <EnvDot environment={connection.environment} live={sessions.includes(connection.id)} />
           <EngineIcon engine={connection.engine} size={16} className="shrink-0" />
           <span className="hidden min-w-0 truncate @[13rem]:inline">{connection.name}</span>
           {/* Part of the trigger, not a chip beside it: the lock describes this
