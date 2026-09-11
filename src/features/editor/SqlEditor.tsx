@@ -1,5 +1,5 @@
-// SOT: sql-editor, codemirror-setup, editor-theme, schema-completion, run-at-cursor, statement-gutter
-import { useEffect, useRef } from "react";
+// SOT: sql-editor, codemirror-setup, editor-theme, schema-completion, completion-dropdown, run-at-cursor, statement-gutter
+import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
   EditorView,
@@ -14,11 +14,16 @@ import {
   type DecorationSet,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { autocompletion, closeBrackets, closeBracketsKeymap, completionKeymap } from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import type { Completion } from "@codemirror/autocomplete";
 import { HighlightStyle, syntaxHighlighting, bracketMatching } from "@codemirror/language";
 import { sql, MSSQL, MySQL, MariaSQL, PostgreSQL, SQLite, StandardSQL, type SQLDialect, type SQLNamespace } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
 import type { Engine, StatementSpan } from "@/lib/bindings";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Icon } from "@/lib/icons";
+import type { IconName } from "@/lib/icons";
+import { cn } from "@/lib/cn";
 
 // WHAT:  The one statement a run will send, and where it came from.
 // WHY:   PRD §4.3 — a tab holds a script; running the whole buffer when the caret
@@ -191,24 +196,6 @@ const theme = EditorView.theme({
   },
   ".cm-panels": { backgroundColor: "var(--color-surface-elevated)", color: "var(--foreground)" },
   ".cm-tooltip": { backgroundColor: "var(--color-surface-elevated)", border: "1px solid var(--border)", color: "var(--foreground)", borderRadius: "4px" },
-  ".cm-tooltip-autocomplete": { maxHeight: "200px" },
-  // WHAT:  ScrollArea-style scrolling for the suggestion list: thin themed
-  //        scrollbar, transparent track. A React ScrollArea cannot mount inside
-  //        CodeMirror's own tooltip DOM, so the equivalent treatment lives here
-  //        as theme rules (Chromium/WebView2 needs the -webkit- rules; the
-  //        standard properties cover the rest).
-  ".cm-tooltip-autocomplete > ul": {
-    maxHeight: "200px",
-    overflowY: "auto",
-    overflowX: "hidden",
-    scrollbarWidth: "thin",
-    scrollbarColor: "var(--color-surface-tertiary) transparent",
-  },
-  ".cm-tooltip-autocomplete > ul::-webkit-scrollbar": { width: "8px" },
-  ".cm-tooltip-autocomplete > ul::-webkit-scrollbar-track": { backgroundColor: "transparent" },
-  ".cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb": { backgroundColor: "var(--color-surface-tertiary)", borderRadius: "4px" },
-  ".cm-tooltip-autocomplete > ul > li": { padding: "2px 8px", cursor: "pointer" },
-  ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "var(--color-selection-strong)", color: "var(--foreground)" },
   ".cm-run-gutter": { minWidth: "16px", cursor: "pointer" },
   ".cm-run-marker": { display: "block", lineHeight: "inherit", textAlign: "center", fontSize: "9px", color: "var(--color-muted)", opacity: "0.35" },
   ".cm-run-gutter:hover .cm-run-marker": { opacity: "0.85" },
@@ -313,6 +300,156 @@ function sameTarget(a: RunTarget | null, b: RunTarget): boolean {
   return a !== null && a.from === b.from && a.to === b.to && a.selected === b.selected && a.index === b.index && a.total === b.total;
 }
 
+type CompletionKind = "table" | "column" | "keyword";
+
+interface CompletionItem {
+  label: string;
+  detail: string;
+  kind: CompletionKind;
+}
+
+interface CompletionSnapshot {
+  x: number;
+  y: number;
+  from: number;
+  to: number;
+  items: CompletionItem[];
+  index: number;
+}
+
+const COMPLETION_ICONS: Record<CompletionKind, IconName> = { table: "table", column: "columns", keyword: "code" };
+const MAX_COMPLETIONS = 100;
+
+// WHAT:  The keyword half of the suggestion list. Tables and columns come from
+//        the live catalogue (`schema` prop); these are static SQL vocabulary.
+// WHERE: @codemirror/lang-sql (previously answered this before the dropdown
+//        moved to the app's own ScrollArea panel)
+const SQL_KEYWORDS = [
+  "SELECT", "FROM", "WHERE", "JOIN", "LEFT", "RIGHT", "INNER", "OUTER", "FULL", "CROSS", "ON",
+  "GROUP", "BY", "ORDER", "HAVING", "LIMIT", "OFFSET", "DISTINCT", "AS", "AND", "OR", "NOT",
+  "NULL", "IS", "IN", "BETWEEN", "LIKE", "ILIKE", "EXISTS", "CASE", "WHEN", "THEN", "ELSE",
+  "END", "UNION", "ALL", "INTERSECT", "EXCEPT", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
+  "DELETE", "CREATE", "TABLE", "VIEW", "INDEX", "ALTER", "DROP", "WITH", "ASC", "DESC",
+  "COUNT", "SUM", "AVG", "MIN", "MAX", "TRUE", "FALSE", "CAST", "COALESCE", "RETURNING",
+  "OVER", "PARTITION", "USING", "NATURAL", "CROSS",
+];
+
+/// Words that may follow a table reference but are never an alias for it.
+const CLAUSE_WORDS = new Set([
+  "WHERE", "GROUP", "ORDER", "LIMIT", "OFFSET", "HAVING", "UNION", "JOIN", "LEFT", "RIGHT",
+  "INNER", "OUTER", "FULL", "CROSS", "ON", "USING", "SELECT", "FROM", "SET", "VALUES",
+]);
+
+interface SchemaTable {
+  name: string;
+  columns: string[];
+}
+
+// WHAT:  Flattens the catalogue namespace into tables. Only the shapes the
+//        app's own builder emits are walked (`{ table: [...] }` and
+//        `{ schema: { table: [...] } }`, plus the `{ self, children }`
+//        completion-node form); anything else degrades to no suggestions
+//        rather than a crash. A level holding both a `self` and a `children`
+//        key is read as the node form, so a schema with literal tables of
+//        those names would misread — vanishingly rare, and it only costs
+//        suggestions, never correctness.
+// WHERE: src/features/editor/QueryPane.tsx (buildNamespace)
+function tablesOf(schema: SQLNamespace): SchemaTable[] {
+  const out: SchemaTable[] = [];
+  collectTables(schema, "", out);
+  return out;
+}
+
+function isCompletionList(node: SQLNamespace): node is readonly (Completion | string)[] {
+  return Array.isArray(node);
+}
+
+function collectTables(node: SQLNamespace, prefix: string, out: SchemaTable[]): void {
+  // WHAT:  A declared guard type, not Array.isArray inline: narrowing a
+  //        `readonly` array member out of this union needs the predicate's own
+  //        type — the lib guard leaves the member behind and indexing then
+  //        fails.
+  if (isCompletionList(node)) return;
+  if ("children" in node && "self" in node) {
+    collectTables(node.children, prefix, out);
+    return;
+  }
+  for (const name of Object.keys(node)) {
+    const value = node[name];
+    if (value === undefined) continue;
+    const label = prefix.length > 0 ? `${prefix}.${name}` : name;
+    if (Array.isArray(value)) {
+      out.push({ name: label, columns: value.filter((c): c is string => typeof c === "string") });
+    } else {
+      collectTables(value, label, out);
+    }
+  }
+}
+
+// WHAT:  alias (or bare table) → table name for the text before the caret, so
+//        `r.` after `FROM rental r` offers rental's columns. Clause keywords are
+//        never treated as aliases (`FROM t WHERE` must not alias t as WHERE).
+function aliasesOf(text: string): Map<string, string> {
+  const map = new Map<string, string>();
+  const pattern = /\b(?:FROM|JOIN)\s+([A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)(?:\s+(?:AS\s+)?([A-Za-z_][\w$]*))?/gi;
+  for (const match of text.matchAll(pattern)) {
+    const table = match[1] ?? "";
+    const alias = match[2] ?? "";
+    if (table.length === 0) continue;
+    map.set(table.toLowerCase(), table);
+    if (alias.length > 0 && !CLAUSE_WORDS.has(alias.toUpperCase())) map.set(alias.toLowerCase(), table);
+  }
+  return map;
+}
+
+function rankItems(partial: string, items: CompletionItem[]): CompletionItem[] {
+  const needle = partial.toLowerCase();
+  if (needle.length === 0) return items.slice(0, MAX_COMPLETIONS);
+  const prefix = items.filter((item) => item.label.toLowerCase().startsWith(needle));
+  if (prefix.length >= MAX_COMPLETIONS) return prefix.slice(0, MAX_COMPLETIONS);
+  const rest = items.filter((item) => !item.label.toLowerCase().startsWith(needle) && item.label.toLowerCase().includes(needle));
+  return [...prefix, ...rest].slice(0, MAX_COMPLETIONS);
+}
+
+// WHAT:  What the dropdown should show for this caret, or null when it should
+//        stay shut (selection open, caret after whitespace/punctuation, no match).
+// HOW:   `qualifier.` scopes to one table's columns (alias-aware); a bare word
+//        ranks tables, then columns, then keywords, prefix matches first.
+function computeCompletions(state: EditorState, schema: SQLNamespace, defaultSchema: string | undefined): { from: number; to: number; items: CompletionItem[] } | null {
+  const selection = state.selection.main;
+  if (!selection.empty) return null;
+  const head = selection.head;
+  const before = state.doc.sliceString(0, head);
+  const tables = tablesOf(schema);
+  if (tables.length === 0 && SQL_KEYWORDS.length === 0) return null;
+
+  const qualified = /([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)?$/.exec(before);
+  if (qualified !== null) {
+    const qualifier = (qualified[1] ?? "").toLowerCase();
+    const partial = qualified[2] ?? "";
+    const aliases = aliasesOf(before);
+    const tableName = aliases.get(qualifier) ?? tables.find((t) => t.name.toLowerCase() === qualifier || t.name.toLowerCase().endsWith(`.${qualifier}`))?.name;
+    const columns = tableName === undefined ? tables.flatMap((t) => t.columns.map((c) => ({ label: c, detail: t.name, kind: "column" as const }))) : (tables.find((t) => t.name === tableName)?.columns ?? []).map((c) => ({ label: c, detail: tableName, kind: "column" as const }));
+    const items = rankItems(partial, columns);
+    if (items.length === 0) return null;
+    return { from: head - partial.length, to: head, items };
+  }
+
+  const word = /([A-Za-z_][\w$]*)$/.exec(before);
+  if (word === null) return null;
+  const partial = word[1] ?? "";
+  if (partial.length === 0) return null;
+  const preferred = defaultSchema === undefined ? tables : [...tables.filter((t) => t.name.toLowerCase().startsWith(defaultSchema.toLowerCase())), ...tables.filter((t) => !t.name.toLowerCase().startsWith(defaultSchema.toLowerCase()))];
+  const candidates: CompletionItem[] = [
+    ...preferred.map((t) => ({ label: t.name, detail: `${t.columns.length} cols`, kind: "table" as const })),
+    ...preferred.flatMap((t) => t.columns.map((c) => ({ label: c, detail: t.name, kind: "column" as const }))),
+    ...SQL_KEYWORDS.map((k) => ({ label: k, detail: "keyword", kind: "keyword" as const })),
+  ];
+  const items = rankItems(partial, candidates);
+  if (items.length === 0) return null;
+  return { from: head - partial.length, to: head, items };
+}
+
 export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, onTargetChange, engine, schema, defaultSchema }: SqlEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -324,12 +461,85 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
   const gutterCompartment = useRef(new Compartment());
   const runGutter = useRef<Extension | null>(null);
   const lastTarget = useRef<RunTarget | null>(null);
+  const [completion, setCompletion] = useState<CompletionSnapshot | null>(null);
+  const completionRef = useRef<CompletionSnapshot | null>(null);
+  const schemaRef = useRef(schema);
+  const defaultSchemaRef = useRef(defaultSchema);
+  const suppressCompletionRef = useRef(false);
   useEffect(() => {
     onChangeRef.current = onChange;
     onRunRef.current = onRun;
     onRunAllRef.current = onRunAll;
     onTargetRef.current = onTargetChange;
+    schemaRef.current = schema;
+    defaultSchemaRef.current = defaultSchema;
   });
+
+  const hideCompletion = useCallback(() => {
+    completionRef.current = null;
+    setCompletion(null);
+  }, []);
+
+  const acceptCompletion = useCallback((view: EditorView): boolean => {
+    const snapshot = completionRef.current;
+    const item = snapshot === null ? undefined : snapshot.items[snapshot.index];
+    if (snapshot === null || item === undefined) return false;
+    suppressCompletionRef.current = true;
+    view.dispatch({
+      changes: { from: snapshot.from, to: snapshot.to, insert: item.label },
+      selection: { anchor: snapshot.from + item.label.length },
+    });
+    completionRef.current = null;
+    setCompletion(null);
+    view.focus();
+    return true;
+  }, []);
+
+  const moveCompletion = useCallback((host: HTMLDivElement | null, delta: number): boolean => {
+    const snapshot = completionRef.current;
+    if (snapshot === null || snapshot.items.length === 0) return false;
+    const index = (snapshot.index + delta + snapshot.items.length) % snapshot.items.length;
+    const next: CompletionSnapshot = { ...snapshot, index };
+    completionRef.current = next;
+    setCompletion(next);
+    host?.querySelector(`[data-completion-index="${index}"]`)?.scrollIntoView({ block: "nearest" });
+    return true;
+  }, []);
+
+  // WHAT:  Recomputes the suggestion dropdown from the caret context after
+  //        every edit or move. Positioning is caret-anchored and clamped to
+  //        the editor box, flipping above the caret when there is no room below.
+  const refreshCompletion = useCallback((view: EditorView) => {
+    // The accept transaction itself fires this listener; skipping once keeps
+    // the just-inserted word from reopening the list on the same tick.
+    if (suppressCompletionRef.current) {
+      suppressCompletionRef.current = false;
+      return;
+    }
+    const host = hostRef.current;
+    if (host === null) return;
+    const found = computeCompletions(view.state, schemaRef.current, defaultSchemaRef.current);
+    if (found === null) {
+      completionRef.current = null;
+      setCompletion(null);
+      return;
+    }
+    const coords = view.coordsAtPos(view.state.selection.main.head);
+    if (coords === null) {
+      completionRef.current = null;
+      setCompletion(null);
+      return;
+    }
+    const box = host.getBoundingClientRect();
+    const width = 256;
+    const listHeight = 224;
+    const x = Math.max(0, Math.min(coords.left - box.left, Math.max(0, box.width - width - 8)));
+    const below = coords.bottom - box.top + 4;
+    const y = below + listHeight > box.height && coords.top - box.top > listHeight + 8 ? Math.max(0, coords.top - box.top - listHeight - 4) : below;
+    const snapshot: CompletionSnapshot = { x, y, from: found.from, to: found.to, items: found.items, index: 0 };
+    completionRef.current = snapshot;
+    setCompletion(snapshot);
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -355,14 +565,17 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
         history(),
         bracketMatching(),
         closeBrackets(),
-        autocompletion(),
         keymap.of([
+          { key: "Escape", run: () => { if (completionRef.current === null) return false; hideCompletion(); return true; } },
+          { key: "ArrowDown", run: () => moveCompletion(host, 1) },
+          { key: "ArrowUp", run: () => moveCompletion(host, -1) },
+          { key: "Enter", run: (view) => acceptCompletion(view) },
+          { key: "Tab", run: (view) => acceptCompletion(view) },
           { key: "Mod-Enter", run: (view) => { onRunRef.current(targetOf(view.state)); return true; } },
           { key: "Mod-Shift-Enter", run: (view) => { (onRunAllRef.current ?? (() => onRunRef.current(wholeDoc(view.state))))(); return true; } },
           ...closeBracketsKeymap,
           ...defaultKeymap,
           ...historyKeymap,
-          ...completionKeymap,
           indentWithTab,
         ]),
         langCompartment.current.of(sqlConfig(engine, schema, defaultSchema)),
@@ -370,14 +583,26 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
         theme,
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChangeRef.current(update.state.doc.toString());
-          if (update.docChanged || update.selectionSet) announce(update.state);
+          if (update.docChanged || update.selectionSet) {
+            announce(update.state);
+            refreshCompletion(update.view);
+          }
         }),
       ],
     });
     const view = new EditorView({ state, parent: host });
     viewRef.current = view;
     announce(view.state);
+    // A React ScrollArea cannot mount inside CodeMirror's own tooltip DOM, so
+    // suggestions render in the app's own dropdown below — which means scroll
+    // and blur have to dismiss it explicitly.
+    const hide = () => hideCompletion();
+    const scroller = host.querySelector(".cm-scroller");
+    scroller?.addEventListener("scroll", hide);
+    view.dom.addEventListener("focusout", hide);
     return () => {
+      scroller?.removeEventListener("scroll", hide);
+      view.dom.removeEventListener("focusout", hide);
       view.destroy();
       viewRef.current = null;
     };
@@ -414,5 +639,59 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     }
   }, [spans]);
 
-  return <div ref={hostRef} className="h-full min-h-0 w-full overflow-hidden" />;
+  // WHAT:  The suggestion dropdown: the app's own floating panel with a
+  //        shadcn ScrollArea, caret-anchored. Replaces CodeMirror's built-in
+  //        tooltip so scrolling matches every other surface in the app.
+  const acceptIndex = (index: number) => {
+    const view = viewRef.current;
+    const snapshot = completionRef.current;
+    if (view === null || snapshot === null) return;
+    completionRef.current = { ...snapshot, index };
+    acceptCompletion(view);
+  };
+
+  return (
+    <div ref={hostRef} className="relative h-full min-h-0 w-full overflow-hidden">
+      {completion !== null && completion.items.length > 0 ? (
+        <div
+          role="listbox"
+          aria-label="Suggestions"
+          className="glass-modal absolute z-30 w-64 rounded-lg p-1 text-popover-foreground"
+          style={{ left: completion.x, top: completion.y }}
+        >
+          <ScrollArea className="max-h-56">
+            {completion.items.map((item, index) => (
+              <div
+                key={`${item.kind}:${item.label}`}
+                role="option"
+                aria-selected={index === completion.index}
+                data-completion-index={index}
+                onMouseEnter={() => {
+                  const snapshot = completionRef.current;
+                  if (snapshot !== null && snapshot.index !== index) {
+                    const next = { ...snapshot, index };
+                    completionRef.current = next;
+                    setCompletion(next);
+                  }
+                }}
+                onMouseDown={(event) => {
+                  // Keep editor focus: a blur would dismiss the list before click.
+                  event.preventDefault();
+                }}
+                onClick={() => acceptIndex(index)}
+                className={cn(
+                  "flex cursor-pointer items-center gap-2 rounded px-2 py-1 text-xs",
+                  index === completion.index ? "bg-selection-strong text-foreground" : "text-muted",
+                )}
+              >
+                <Icon name={COMPLETION_ICONS[item.kind]} size={12} className="shrink-0" />
+                <span className="min-w-0 flex-1 truncate font-mono">{item.label}</span>
+                <span className="shrink-0 truncate text-[10px] text-muted/70">{item.detail}</span>
+              </div>
+            ))}
+          </ScrollArea>
+        </div>
+      ) : null}
+    </div>
+  );
 }
