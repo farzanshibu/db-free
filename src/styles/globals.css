@@ -26,7 +26,7 @@
   --color-env-local: oklch(0.72 0.19 150);
   --color-env-staging: oklch(0.78 0.16 72);
   --color-env-production: oklch(0.64 0.22 26);
-  --color-selection: oklch(0.62 0.19 var(--accent-hue) / 0.35);
+  --color-selection: oklch(0.62 0.19 var(--accent-hue) / 0.15);
   --color-series-1: #3987e5;
   --color-series-2: #d95926;
   --color-series-3: #199e70;
