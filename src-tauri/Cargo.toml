@@ -1,6 +1,6 @@
 [package]
 name = "db-free"
-version = "0.7.1"
+version = "0.7.2"
 description = "Lightweight native database workbench"
 license = "MIT"
 authors = ["Farzan"]
