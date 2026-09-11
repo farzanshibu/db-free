@@ -26,7 +26,7 @@
   --color-env-local: oklch(0.72 0.19 150);
   --color-env-staging: oklch(0.78 0.16 72);
   --color-env-production: oklch(0.64 0.22 26);
-  --color-selection: oklch(0.62 0.19 var(--accent-hue) / 0.15);
+  --color-selection: oklch(0.6 0.2 var(--accent-hue) / 0.1);
   --color-series-1: #3987e5;
   --color-series-2: #d95926;
   --color-series-3: #199e70;
@@ -71,10 +71,15 @@
   --surface-secondary-foreground: var(--foreground);
   --surface-tertiary: oklch(0.23 0.012 var(--accent-hue) / 0.6);
   --surface-tertiary-foreground: var(--foreground);
+  --surface-hover: oklch(1 0 0 / 0.05);
 
   /* Floating layers: popovers, menus, dialogs. */
   --overlay: oklch(0.16 0.008 var(--accent-hue) / 0.88);
   --overlay-foreground: var(--foreground);
+  /* Solid lifted surface for small floating text layers (editor tooltips,
+     panels): translucent glass lets code bleed through behind the popup. */
+  --surface-elevated: oklch(0.19 0.012 var(--accent-hue));
+  --surface-elevated-foreground: var(--foreground);
   --backdrop: oklch(0 0 0 / 0.65);
 
   /* `muted` is dim *text* in this app (text-muted), not a shadcn grey block. */
@@ -141,6 +146,9 @@
   --color-surface-secondary-foreground: var(--surface-secondary-foreground);
   --color-surface-tertiary: var(--surface-tertiary);
   --color-surface-tertiary-foreground: var(--surface-tertiary-foreground);
+  --color-surface-hover: var(--surface-hover);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-surface-elevated-foreground: var(--surface-elevated-foreground);
   --color-overlay: var(--overlay);
   --color-overlay-foreground: var(--overlay-foreground);
   --color-backdrop: var(--backdrop);

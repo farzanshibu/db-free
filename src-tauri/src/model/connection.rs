@@ -31,6 +31,7 @@ pub enum Engine {
     Mongodb,
     Couchdb,
     Firestore,
+    Convex,
     // Key-value
     Redis,
     Valkey,
@@ -98,6 +99,7 @@ pub enum Engine {
     // Event / streaming
     Kafka,
     Redpanda,
+    Rabbitmq,
     // Object
     Objectdb,
     S3,
@@ -165,6 +167,8 @@ pub enum Family {
     Immudb,
     Qldb,
     Kafka,
+    Rabbitmq,
+    Convex,
     Objectdb,
     Sparql,
     Basex,
@@ -220,7 +224,7 @@ pub enum FormKind {
 }
 
 impl Engine {
-    pub const ALL: [Engine; 73] = [
+    pub const ALL: [Engine; 75] = [
         Engine::Postgres,
         Engine::Mysql,
         Engine::Mariadb,
@@ -232,6 +236,7 @@ impl Engine {
         Engine::Redis,
         Engine::Valkey,
         Engine::Dynamodb,
+        Engine::Convex,
         Engine::Cassandra,
         Engine::Scylladb,
         Engine::Hbase,
@@ -281,6 +286,7 @@ impl Engine {
         Engine::Qldb,
         Engine::Kafka,
         Engine::Redpanda,
+        Engine::Rabbitmq,
         Engine::Objectdb,
         Engine::S3,
         Engine::Minio,
@@ -351,8 +357,14 @@ impl Engine {
             Engine::Immudb => Family::Immudb,
             Engine::Qldb => Family::Qldb,
             Engine::Kafka | Engine::Redpanda => Family::Kafka,
+            Engine::Rabbitmq => Family::Rabbitmq,
+            Engine::Convex => Family::Convex,
             Engine::Objectdb => Family::Objectdb,
-            Engine::ApacheJena | Engine::Graphdb | Engine::Stardog | Engine::Blazegraph | Engine::Virtuoso => Family::Sparql,
+            Engine::ApacheJena
+            | Engine::Graphdb
+            | Engine::Stardog
+            | Engine::Blazegraph
+            | Engine::Virtuoso => Family::Sparql,
             Engine::Basex => Family::Basex,
             Engine::Existdb => Family::Existdb,
         }
@@ -369,7 +381,9 @@ impl Engine {
             | Engine::Supabase
             | Engine::Planetscale
             | Engine::Neon => EngineKind::Relational,
-            Engine::Mongodb | Engine::Couchdb | Engine::Firestore => EngineKind::Document,
+            Engine::Mongodb | Engine::Couchdb | Engine::Firestore | Engine::Convex => {
+                EngineKind::Document
+            }
             Engine::Redis | Engine::Valkey | Engine::Dynamodb => EngineKind::KeyValue,
             Engine::Cassandra | Engine::Scylladb | Engine::Hbase => EngineKind::WideColumn,
             Engine::Neo4j | Engine::Memgraph | Engine::Tigergraph => EngineKind::Graph,
@@ -378,22 +392,45 @@ impl Engine {
             | Engine::Victoriametrics
             | Engine::Prometheus
             | Engine::Questdb => EngineKind::TimeSeries,
-            Engine::Qdrant | Engine::Milvus | Engine::Pinecone | Engine::Chroma | Engine::Pgvector => EngineKind::Vector,
-            Engine::Elasticsearch | Engine::Opensearch | Engine::Meilisearch | Engine::Typesense => EngineKind::Search,
+            Engine::Qdrant
+            | Engine::Milvus
+            | Engine::Pinecone
+            | Engine::Chroma
+            | Engine::Pgvector => EngineKind::Vector,
+            Engine::Elasticsearch
+            | Engine::Opensearch
+            | Engine::Meilisearch
+            | Engine::Typesense => EngineKind::Search,
             Engine::Surrealdb | Engine::Orientdb => EngineKind::MultiModel,
             Engine::Arangodb | Engine::Weaviate => EngineKind::GraphVector,
             Engine::Postgis | Engine::Spatialite => EngineKind::Spatial,
             Engine::Memcached | Engine::Dragonfly => EngineKind::InMemory,
-            Engine::Clickhouse | Engine::Duckdb | Engine::Druid | Engine::Snowflake | Engine::Bigquery => EngineKind::Analytical,
-            Engine::Cockroachdb | Engine::Tidb | Engine::Yugabytedb | Engine::Spacetimedb => EngineKind::NewSql,
-            Engine::Sqlite | Engine::Rocksdb | Engine::Libsql | Engine::ValTown | Engine::CloudflareD1 => EngineKind::Embedded,
+            Engine::Clickhouse
+            | Engine::Duckdb
+            | Engine::Druid
+            | Engine::Snowflake
+            | Engine::Bigquery => EngineKind::Analytical,
+            Engine::Cockroachdb | Engine::Tidb | Engine::Yugabytedb | Engine::Spacetimedb => {
+                EngineKind::NewSql
+            }
+            Engine::Sqlite
+            | Engine::Rocksdb
+            | Engine::Libsql
+            | Engine::ValTown
+            | Engine::CloudflareD1 => EngineKind::Embedded,
             Engine::Immudb | Engine::Qldb => EngineKind::Ledger,
-            Engine::Kafka | Engine::Redpanda => EngineKind::Streaming,
-            Engine::Objectdb | Engine::S3 | Engine::Minio | Engine::CloudflareR2 => EngineKind::Object,
+            Engine::Kafka | Engine::Redpanda | Engine::Rabbitmq => EngineKind::Streaming,
+            Engine::Objectdb | Engine::S3 | Engine::Minio | Engine::CloudflareR2 => {
+                EngineKind::Object
+            }
             Engine::IbmIms => EngineKind::Hierarchical,
             Engine::RaimaRdm => EngineKind::Network,
             Engine::Basex | Engine::Existdb => EngineKind::Xml,
-            Engine::ApacheJena | Engine::Graphdb | Engine::Stardog | Engine::Blazegraph | Engine::Virtuoso => EngineKind::Rdf,
+            Engine::ApacheJena
+            | Engine::Graphdb
+            | Engine::Stardog
+            | Engine::Blazegraph
+            | Engine::Virtuoso => EngineKind::Rdf,
         }
     }
 
@@ -429,6 +466,7 @@ impl Engine {
             | Family::Orientdb
             | Family::Immudb
             | Family::Objectdb
+            | Family::Convex
             | Family::Spacetimedb => FormKind::HttpToken,
             Family::Postgres
             | Family::Mysql
@@ -440,6 +478,7 @@ impl Engine {
             | Family::Mongodb
             | Family::Cassandra
             | Family::Neo4j
+            | Family::Rabbitmq
             | Family::Kafka => FormKind::Server,
         }
     }
@@ -509,6 +548,8 @@ impl Engine {
             Engine::Qldb => "qldb",
             Engine::Kafka => "kafka",
             Engine::Redpanda => "redpanda",
+            Engine::Rabbitmq => "rabbitmq",
+            Engine::Convex => "convex",
             Engine::Objectdb => "objectdb",
             Engine::IbmIms => "ibm_ims",
             Engine::RaimaRdm => "raima_rdm",
@@ -589,6 +630,8 @@ impl Engine {
             Engine::Qldb => "Amazon QLDB",
             Engine::Kafka => "Apache Kafka",
             Engine::Redpanda => "Redpanda",
+            Engine::Rabbitmq => "RabbitMQ",
+            Engine::Convex => "Convex",
             Engine::Objectdb => "ObjectDB",
             Engine::IbmIms => "IBM IMS",
             Engine::RaimaRdm => "Raima RDM",
@@ -683,6 +726,8 @@ impl Engine {
             // immudb's HTTP web-api port (3322 is gRPC, which this adapter does not speak).
             Engine::Immudb => Some(8080),
             Engine::Kafka | Engine::Redpanda => Some(9092),
+            // RabbitMQ management HTTP API (15672); the AMQP port 5672 is not spoken.
+            Engine::Rabbitmq => Some(15672),
             Engine::Objectdb => Some(6136),
             // `spacetime start` serves the HTTP API on 3000.
             Engine::Spacetimedb => Some(3000),
@@ -703,6 +748,7 @@ impl Engine {
             | Engine::ValTown
             | Engine::CloudflareD1
             | Engine::Firestore
+            | Engine::Convex
             | Engine::Dynamodb
             | Engine::Pinecone
             | Engine::Snowflake
@@ -733,7 +779,12 @@ pub struct EngineFacts {
 
 impl Engine {
     pub fn facts(self) -> EngineFacts {
-        EngineFacts { kind: self.kind(), form: self.form(), default_port: self.default_port(), family: self.family() }
+        EngineFacts {
+            kind: self.kind(),
+            form: self.form(),
+            default_port: self.default_port(),
+            family: self.family(),
+        }
     }
 }
 
@@ -750,8 +801,12 @@ pub enum Environment {
 }
 
 impl Environment {
-    pub const ALL: [Environment; 4] =
-        [Environment::None, Environment::Local, Environment::Staging, Environment::Production];
+    pub const ALL: [Environment; 4] = [
+        Environment::None,
+        Environment::Local,
+        Environment::Staging,
+        Environment::Production,
+    ];
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -830,7 +885,9 @@ impl ConnectionInput {
             return Err(AppError::invalid_input("Connection name is required."));
         }
         if self.name.len() > 120 {
-            return Err(AppError::invalid_input("Connection name is too long (max 120)."));
+            return Err(AppError::invalid_input(
+                "Connection name is too long (max 120).",
+            ));
         }
         let blank = |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or_default().is_empty();
         match self.engine.form() {
@@ -841,20 +898,29 @@ impl ConnectionInput {
             }
             FormKind::HttpToken => {
                 // Hosted services without a self-hosted URL fall back to the vendor endpoint.
-                let hosted = matches!(self.engine, Engine::ValTown | Engine::Pinecone | Engine::Snowflake);
+                let hosted = matches!(
+                    self.engine,
+                    Engine::ValTown | Engine::Pinecone | Engine::Snowflake
+                );
                 if blank(&self.host) && !hosted {
                     return Err(AppError::invalid_input("Server URL or host is required."));
                 }
                 if self.engine == Engine::CloudflareD1 && blank(&self.database) {
-                    return Err(AppError::invalid_input("Cloudflare Database ID is required in the database field."));
+                    return Err(AppError::invalid_input(
+                        "Cloudflare Database ID is required in the database field.",
+                    ));
                 }
                 if self.engine == Engine::Snowflake && blank(&self.host) {
-                    return Err(AppError::invalid_input("Snowflake account identifier is required in the host field."));
+                    return Err(AppError::invalid_input(
+                        "Snowflake account identifier is required in the host field.",
+                    ));
                 }
             }
             FormKind::Aws => {
                 if blank(&self.host) {
-                    return Err(AppError::invalid_input("AWS region is required (e.g. us-east-1)."));
+                    return Err(AppError::invalid_input(
+                        "AWS region is required (e.g. us-east-1).",
+                    ));
                 }
                 if blank(&self.username) {
                     return Err(AppError::invalid_input("AWS access key ID is required."));
@@ -862,7 +928,9 @@ impl ConnectionInput {
             }
             FormKind::Gcp => {
                 if blank(&self.database) {
-                    return Err(AppError::invalid_input("Google Cloud project ID is required."));
+                    return Err(AppError::invalid_input(
+                        "Google Cloud project ID is required.",
+                    ));
                 }
             }
             FormKind::Server => {
@@ -881,7 +949,10 @@ impl ConnectionInput {
 
     /// Strips the write-only secret so the rest of the input can be logged or echoed.
     pub fn without_password(&self) -> ConnectionInput {
-        ConnectionInput { password: None, ..self.clone() }
+        ConnectionInput {
+            password: None,
+            ..self.clone()
+        }
     }
 }
 
@@ -969,7 +1040,10 @@ mod tests {
     fn postgres_requires_host_only() {
         let mut input = base();
         input.host = None;
-        assert!(matches!(input.validate(), Err(AppError::InvalidInput { .. })));
+        assert!(matches!(
+            input.validate(),
+            Err(AppError::InvalidInput { .. })
+        ));
         let mut input = base();
         input.database = Some("  ".into());
         assert!(input.validate().is_ok(), "database is optional");
@@ -981,7 +1055,10 @@ mod tests {
         let mut input = base();
         input.engine = Engine::Sqlite;
         input.host = None;
-        assert!(matches!(input.validate(), Err(AppError::InvalidInput { .. })));
+        assert!(matches!(
+            input.validate(),
+            Err(AppError::InvalidInput { .. })
+        ));
         input.file_path = Some("/tmp/x.db".into());
         assert!(input.validate().is_ok());
     }

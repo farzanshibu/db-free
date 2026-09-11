@@ -19,6 +19,7 @@ pub mod cassandra;
 pub mod chroma;
 pub mod clickhouse;
 pub mod cloudflare_d1;
+pub mod convex;
 pub mod couchdb;
 pub mod druid;
 pub mod duckdb;
@@ -48,6 +49,7 @@ pub mod postgres;
 pub mod prometheus;
 pub mod qdrant;
 pub mod qldb;
+pub mod rabbitmq;
 pub mod redis;
 pub mod rocksdb;
 pub mod s3;
@@ -382,6 +384,8 @@ fn family_profile(family: Family) -> FamilyProfile {
         Family::Immudb => immudb::profile(),
         Family::Qldb => qldb::profile(),
         Family::Kafka => kafka::profile(),
+        Family::Rabbitmq => rabbitmq::profile(),
+        Family::Convex => convex::profile(),
         Family::Objectdb => objectdb::profile(),
         Family::Sparql => sparql::profile(),
         Family::Basex => basex::profile(),
@@ -434,6 +438,8 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         Family::Immudb => immudb::connect(conn).await,
         Family::Qldb => qldb::connect(conn).await,
         Family::Kafka => kafka::connect(conn).await,
+        Family::Rabbitmq => rabbitmq::connect(conn).await,
+        Family::Convex => convex::connect(conn).await,
         Family::Objectdb => objectdb::connect(conn).await,
         Family::Sparql => sparql::connect(conn).await,
         Family::Basex => basex::connect(conn).await,

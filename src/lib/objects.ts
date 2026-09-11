@@ -48,6 +48,8 @@ export const OBJECT_KINDS = {
   stream: k("Stream", "Streams", "flow", "structure"),
   channel: k("Channel", "Channels", "rss", "structure"),
   consumer_group: k("Consumer group", "Consumer groups", "users", "structure"),
+  queue: k("Queue", "Queues", "flow", "structure"),
+  exchange: k("Exchange", "Exchanges", "send", "structure"),
   document: k("Document", "Documents", "file", "structure"),
   index: k("Index", "Indexes", "list", "structure"),
   constraint: k("Constraint", "Constraints", "shield", "structure"),

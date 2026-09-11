@@ -11,6 +11,7 @@ import {
   siClickhouse,
   siCloudflare,
   siCockroachlabs,
+  siConvex,
   siDuckdb,
   siElasticsearch,
   siFirebase,
@@ -28,6 +29,7 @@ import {
   siPostgresql,
   siPrometheus,
   siQdrant,
+  siRabbitmq,
   siRedis,
   siRocksdb,
   siScylladb,
@@ -96,6 +98,8 @@ const BRAND_MARKS: Partial<Record<Engine, SimpleIcon>> = {
   planetscale: siPlanetscale,
   neon: siNeon,
   kafka: siApachekafka,
+  rabbitmq: siRabbitmq,
+  convex: siConvex,
   apache_jena: siApache,
 };
 
@@ -223,6 +227,8 @@ const BRAND: Record<string, { bg: string; fg: string; text: string }> = {
   rocksdb: { bg: "#FFA400", fg: "#1F1F1F", text: "Rk" },
   immudb: { bg: "#2E8BC0", fg: "#FFFFFF", text: "Im" },
   qldb: { bg: "#8C4FFF", fg: "#FFFFFF", text: "Ql" },
+  rabbitmq: { bg: "#FF6600", fg: "#FFFFFF", text: "Mq" },
+  convex: { bg: "#EE342F", fg: "#FFFFFF", text: "Cx" },
   objectdb: { bg: "#3F51B5", fg: "#FFFFFF", text: "Ob" },
   ibm_ims: { bg: "#0F62FE", fg: "#FFFFFF", text: "IMS" },
   raima_rdm: { bg: "#00629B", fg: "#FFFFFF", text: "RDM" },

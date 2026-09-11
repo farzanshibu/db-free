@@ -34,7 +34,7 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
         >
           <EnvDot environment={connection.environment} live={sessions.includes(connection.id)} />
           <EngineIcon engine={connection.engine} size={16} className="shrink-0" />
-          <span className="hidden min-w-0 truncate @[13rem]:inline">{connection.name}</span>
+          <span className="hidden min-w-0 flex-1 truncate @[13rem]:inline" title={connection.name}>{connection.name}</span>
           {/* Part of the trigger, not a chip beside it: the lock describes this
               connection, and at narrow widths a separate badge was an unlabelled
               box sitting next to the engine's brand tile. */}
@@ -52,7 +52,7 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
                 <EnvDot environment={c.environment} live={sessions.includes(c.id)} />
                 <EngineIcon engine={c.engine} size={20} className="shrink-0" />
                 <span className="flex min-w-0 flex-col">
-                  <span className="truncate">{c.name}</span>
+                  <span className="truncate" title={c.name}>{c.name}</span>
                   <span className="truncate font-mono text-[10px] text-muted">
                     {meta.label} · {target}
                   </span>

@@ -99,6 +99,7 @@ export const ENGINES = {
   mongodb: server({ label: "MongoDB", kind: "document", defaultPort: 27017, defaultDatabase: "test", icon: "braces", hint: "Documents · JSON commands", commandLanguage: "Command", schemes: ["mongodb", "mongodb+srv"] }),
   couchdb: http({ label: "CouchDB", kind: "document", defaultPort: 5984, defaultUser: "admin", icon: "braces", hint: "Documents · Mango over HTTP", commandLanguage: "Mango", schemes: ["couchdb", "couch"], fields: { host: "Server URL", username: "User", password: "Password", database: "Database" } }),
   firestore: meta({ label: "Firestore", kind: "document", form: "gcp", defaultPort: null, defaultDatabase: "", defaultUser: "", icon: "braces", hint: "Documents · Google Cloud", commandLanguage: "Query", schemes: ["firestore"], fields: { database: "Project ID", username: "Database ID", password: "Service-account JSON" } }),
+  convex: http({ label: "Convex", kind: "document", defaultPort: null, icon: "braces", hint: "Serverless backend · functions", commandLanguage: "Query", schemes: ["convex"], fields: { host: "Deployment URL", password: "Deploy key", database: "Deployment name" }, hostPlaceholder: "https://your-app.convex.cloud" }),
 
   // ---- Key-value
   redis: server({ label: "Redis", kind: "key_value", defaultPort: 6379, defaultDatabase: "0", icon: "hash", hint: "Key-value · commands", commandLanguage: "Command", schemes: ["redis", "rediss"] }),
@@ -179,6 +180,7 @@ export const ENGINES = {
   // ---- Event / streaming
   kafka: server({ label: "Apache Kafka", kind: "streaming", defaultPort: 9092, icon: "rows", hint: "Event streaming · topics", commandLanguage: "Consume", schemes: ["kafka"], fields: { host: "Bootstrap servers", username: "SASL user", password: "SASL password", database: "Topic filter (optional)" } }),
   redpanda: server({ label: "Redpanda", kind: "streaming", defaultPort: 9092, icon: "rows", hint: "Event streaming · Kafka API", commandLanguage: "Consume", schemes: ["redpanda"], fields: { host: "Bootstrap servers", username: "SASL user", password: "SASL password", database: "Topic filter (optional)" } }),
+  rabbitmq: server({ label: "RabbitMQ", kind: "streaming", defaultPort: 15672, icon: "flow", hint: "Message broker · queues", commandLanguage: "Consume", schemes: ["rabbitmq", "amqp", "amqps"], fields: { host: "Management host", username: "User", password: "Password", database: "Vhost" } }),
 
   // ---- Object
   objectdb: http({ label: "ObjectDB", kind: "object", defaultPort: 6136, hint: "Object database · JPQL", commandLanguage: "JPQL", schemes: ["objectdb"], fields: { database: "Database file", username: "User", password: "Password" } }),
@@ -276,7 +278,7 @@ export function collectionNoun(engine: Engine): string {
     case "time_series":
       return engine === "timescaledb" || engine === "questdb" ? "Tables" : "Measurements";
     case "streaming":
-      return "Topics";
+      return engine === "rabbitmq" ? "Queues" : "Topics";
     case "rdf":
       return "Graphs";
     case "xml":

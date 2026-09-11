@@ -9,6 +9,7 @@ import { Markdown } from "@/features/chat/Markdown";
 import { pickSqlSavePath } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
 import { AppSelect, Field } from "@/components/global/Field";
+import { EnvDot } from "@/components/global/Badge";
 import { IconButton } from "@/components/global/Button";
 import { Resizer } from "@/components/global/Resizer";
 import { RunShortcut } from "@/components/global/Kbd";
@@ -60,6 +61,7 @@ interface QueryPaneProps {
 // WHERE: src-tauri/src/guard/mod.rs, src-tauri/src/services/ai.rs
 export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps) {
   const catalog = useWorkspace((s) => s.catalogs[connection.id]);
+  const live = useWorkspace((s) => s.sessions.includes(connection.id));
   const info = useWorkspace((s) => s.sessionInfos[connection.id]);
   const schemaFilter = useWorkspace((s) => s.schemaFilter[connection.id] ?? null);
   const setSchemaFilter = useWorkspace((s) => s.setSchemaFilter);
@@ -626,6 +628,9 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
           </PopoverContent>
         </Popover>
         <div className="ml-auto flex items-center gap-2">
+          {/* WHAT:  Live-connection dot beside the database picker, so a connected
+              tab shows green at full opacity and a stale one dims to 35%. */}
+          <EnvDot environment={connection.environment} live={live} />
           {dbOptions.length > 0 || showSchemas ? (
             <div className="flex items-center gap-1 text-xs text-muted">
               {dbOptions.length > 0 ? (

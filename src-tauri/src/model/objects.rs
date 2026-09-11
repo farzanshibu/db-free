@@ -53,6 +53,8 @@ pub enum ObjectKind {
     Stream,
     Channel,
     ConsumerGroup,
+    Queue,
+    Exchange,
     Document,
     Index,
     Constraint,
@@ -116,7 +118,7 @@ pub enum ObjectKind {
 }
 
 impl ObjectKind {
-    pub const ALL: [ObjectKind; 81] = [
+    pub const ALL: [ObjectKind; 83] = [
         ObjectKind::Database,
         ObjectKind::Schema,
         ObjectKind::Keyspace,
@@ -142,6 +144,8 @@ impl ObjectKind {
         ObjectKind::Stream,
         ObjectKind::Channel,
         ObjectKind::ConsumerGroup,
+        ObjectKind::Queue,
+        ObjectKind::Exchange,
         ObjectKind::Document,
         ObjectKind::Index,
         ObjectKind::Constraint,
@@ -230,6 +234,8 @@ impl ObjectKind {
                 | ObjectKind::Policy
                 | ObjectKind::Measurement
                 | ObjectKind::Document
+                | ObjectKind::Queue
+                | ObjectKind::Exchange
         )
     }
 }

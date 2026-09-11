@@ -26,9 +26,15 @@ export function EnvBadge({ environment, readOnly = false }: { environment: Envir
 
 export function EnvDot({ environment, live }: { environment: Environment; live: boolean }) {
   const meta = environmentMeta(environment);
+  // WHAT:  Live-connection dot: the environment colour at full opacity, or green
+  //        when the connection has no environment to name — otherwise a live
+  //        "none" connection stays grey and the connected state is invisible.
+  // WHY:   The query tab and the switcher both render this; a stale session dims
+  //        to 35% so connected vs disconnected never depends on hue alone.
+  const dot = live && environment === "none" ? "bg-success" : meta.dot;
   return (
     <span
-      className={cn("inline-block size-2 shrink-0 rounded-full transition-opacity duration-200", meta.dot, live ? "shadow-xs opacity-100" : "opacity-35")}
+      className={cn("inline-block size-2 shrink-0 rounded-full transition-opacity duration-200", dot, live ? "shadow-xs opacity-100" : "opacity-35")}
       title={`${meta.label}${live ? " · connected" : ""}`}
     />
   );
