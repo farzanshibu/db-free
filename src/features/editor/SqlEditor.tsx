@@ -179,21 +179,48 @@ const theme = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "var(--color-surface-hover)" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--foreground)" },
   "&.cm-focused .cm-cursor": { borderLeftColor: "var(--color-accent)", borderLeftWidth: "2px" },
-  ".cm-selectionBackground": { backgroundColor: "var(--color-selection)" },
-  "&.cm-focused .cm-selectionBackground, ::selection": { backgroundColor: "var(--color-selection)" },
+  // WHAT:  Selection in the app's 10% accent wash, focused or not. The full
+  //        descendant path mirrors CodeMirror's own base rule
+  //        (`&light/dark.cm-focused > .cm-scroller > .cm-selectionLayer
+  //        .cm-selectionBackground`), whose six-class specificity otherwise
+  //        beats a short override — which is how the default light-lavender
+  //        fill kept showing through on this dark editor.
+  ".cm-selectionLayer .cm-selectionBackground": { backgroundColor: "var(--color-selection)" },
+  "&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, ::selection": {
+    backgroundColor: "var(--color-selection)",
+  },
   ".cm-panels": { backgroundColor: "var(--color-surface-elevated)", color: "var(--foreground)" },
   ".cm-tooltip": { backgroundColor: "var(--color-surface-elevated)", border: "1px solid var(--border)", color: "var(--foreground)", borderRadius: "4px" },
   ".cm-tooltip-autocomplete": { maxHeight: "200px" },
-  ".cm-tooltip-autocomplete > ul": { maxHeight: "200px", overflowY: "auto", overflowX: "hidden" },
+  // WHAT:  ScrollArea-style scrolling for the suggestion list: thin themed
+  //        scrollbar, transparent track. A React ScrollArea cannot mount inside
+  //        CodeMirror's own tooltip DOM, so the equivalent treatment lives here
+  //        as theme rules (Chromium/WebView2 needs the -webkit- rules; the
+  //        standard properties cover the rest).
+  ".cm-tooltip-autocomplete > ul": {
+    maxHeight: "200px",
+    overflowY: "auto",
+    overflowX: "hidden",
+    scrollbarWidth: "thin",
+    scrollbarColor: "var(--color-surface-tertiary) transparent",
+  },
+  ".cm-tooltip-autocomplete > ul::-webkit-scrollbar": { width: "8px" },
+  ".cm-tooltip-autocomplete > ul::-webkit-scrollbar-track": { backgroundColor: "transparent" },
+  ".cm-tooltip-autocomplete > ul::-webkit-scrollbar-thumb": { backgroundColor: "var(--color-surface-tertiary)", borderRadius: "4px" },
   ".cm-tooltip-autocomplete > ul > li": { padding: "2px 8px", cursor: "pointer" },
-  ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "var(--color-selection)", color: "var(--foreground)" },
+  ".cm-tooltip-autocomplete > ul > li[aria-selected]": { backgroundColor: "var(--color-selection-strong)", color: "var(--foreground)" },
   ".cm-run-gutter": { minWidth: "16px", cursor: "pointer" },
   ".cm-run-marker": { display: "block", lineHeight: "inherit", textAlign: "center", fontSize: "9px", color: "var(--color-muted)", opacity: "0.35" },
   ".cm-run-gutter:hover .cm-run-marker": { opacity: "0.85" },
   ".cm-run-marker-active": { color: "var(--color-accent)", opacity: "1" },
   ".cm-run-marker-danger": { color: "var(--color-danger)", opacity: "0.8" },
   ".cm-active-statement": { backgroundColor: "var(--color-selection)" },
-});
+  // WHAT:  `{ dark: true }` tells CodeMirror this is a dark editor, so its own
+  //        base rules resolve to the `&dark` variants (`#222`/`#233`) instead of
+  //        the light ones (`#d9d9d9`/`#d7d4f0`) — the lavender wash that kept
+  //        showing through selections on this black theme.
+  // WHERE: @codemirror/view baseTheme (&light/&dark selectionBackground)
+}, { dark: true });
 
 const highlight = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--color-syntax-keyword)", fontWeight: "600" },
