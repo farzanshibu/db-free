@@ -184,7 +184,7 @@ fn message_row(item: &Json) -> Vec<Value> {
             if trimmed.starts_with('{') || trimmed.starts_with('[') {
                 if let Ok(json) = serde_json::from_str::<Json>(&text) {
                     if json.is_object() || json.is_array() {
-                        return row_with(Json::from(json), o);
+                        return row_with(Value::Json(json), o);
                     }
                 }
             }
@@ -1097,7 +1097,7 @@ impl Integration for RabbitmqIntegration {
 
     async fn close(&self) {}
 
-    async fn object_table(&self, reference: &ObjectRef) -> TableRef {
+    fn object_table(&self, reference: &ObjectRef) -> TableRef {
         match reference.kind {
             ObjectKind::Queue => TableRef {
                 schema: reference

@@ -167,6 +167,14 @@ pub fn engine_guidelines(engine: Engine) -> &'static str {
             "Kafka Rules:\n\
              - Output a consume request as JSON ({\"topic\": \"…\", \"partition\": 0, \"offset\": \"latest\", \"limit\": 100}). Never output SQL."
         }
+        Family::Rabbitmq => {
+            "RabbitMQ Rules:\n\
+             - Output a consume request as JSON ({\"queue\": \"…\", \"limit\": 100}), a publish body ({\"publish\": {\"exchange\": \"…\", \"routing_key\": \"…\", \"payload\": \"…\"}}), or one of the shorthands QUEUES, EXCHANGES, CONSUME <queue> [n]. Browsing never consumes: deliveries requeue. Never output SQL."
+        }
+        Family::Convex => {
+            "Convex Rules:\n\
+             - Output a function call as JSON ({\"function\": \"module:name\", \"args\": {...}}) with optional \"kind\": \"query\" (default), \"mutation\" or \"action\". Shorthands QUERY <module:function> [{…}], MUTATE … and ACTION … are also accepted. Never output SQL."
+        }
         Family::Objectdb => {
             "JPQL Rules:\n\
              - Output JPQL (SELECT e FROM Entity e WHERE e.field = :value). Never output relational DDL."
