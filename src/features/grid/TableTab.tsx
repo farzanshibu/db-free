@@ -4,7 +4,8 @@ import type { CellValue, ColumnInfo, FilterOp, FilterRule, ForeignKey, SortRule,
 import { ipc, normalizeError } from "@/lib/ipc";
 import { downloadTextFile, exportFilename, plainValue, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
 import { DENSITIES, formatCell, formatCount } from "@/lib/format";
-import { engineMeta } from "@/lib/engines";
+import { engineMeta, isObjectStorageEngine } from "@/lib/engines";
+import { pickSaveFile } from "@/lib/native";
 import { tableKey, useWorkspace } from "@/stores/workspace";
 import { DataGrid, type GridColumn, type StagedCell } from "./DataGrid";
 import type { LookupRow } from "@/components/global/ValueEditor";
@@ -515,6 +516,43 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
     else if (key === "download-all-json") void downloadAll("json");
   };
 
+  // WHAT:  Byte-exact download for object storage (S3 / MinIO / R2).
+  // WHY:   The grid row only shows key/size metadata; GET shows text, but binary
+  //        files need a real local copy without JSON overhead.
+  const isObjectStore = isObjectStorageEngine(engine);
+  const [downloading, setDownloading] = useState(false);
+  const downloadKey = useCallback((): string | null => {
+    if (!isObjectStore || !page) return null;
+    const keyIndex = columns.findIndex((c) => c.name === "key");
+    if (keyIndex < 0) return null;
+    const rowIndex = cell?.row ?? [...selectedRows][0];
+    if (rowIndex === undefined) return null;
+    const row = allRows[rowIndex];
+    const value = row?.[keyIndex];
+    if (!value || value.t === "null") return null;
+    const text = value.t === "json" ? JSON.stringify(value.v) : String(value.v);
+    return text.length > 0 ? text : null;
+  }, [isObjectStore, page, columns, cell, selectedRows, allRows]);
+  const downloadSelected = useCallback(async () => {
+    const key = downloadKey();
+    if (!key) {
+      showError("Select a row to download.");
+      return;
+    }
+    const suggested = key.split("/").pop() ?? key;
+    const path = await pickSaveFile(suggested.length > 0 ? suggested : key);
+    if (!path) return;
+    setDownloading(true);
+    try {
+      const report = await ipc("download_object", { connectionId, bucket: table.name, key, path });
+      showInfo(`Downloaded ${key} (${formatCount(report.bytes)} bytes) to ${report.path}.`);
+    } catch (raw) {
+      showError(normalizeError(raw));
+    } finally {
+      setDownloading(false);
+    }
+  }, [connectionId, downloadKey, showError, showInfo, table.name]);
+
   const selectedRow = cell ? allRows[cell.row] : undefined;
   const selectedValue = cell ? selectedRow?.[cell.col] : undefined;
   const selectedColumn = cell ? columns[cell.col] : undefined;
@@ -578,6 +616,17 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
             </DropdownMenuGroup>
           </DropdownMenuContent>
         </DropdownMenu>
+        {isObjectStore ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="xs" variant="toolbar" disabled={rows.length === 0 || downloading || downloadKey() === null} onClick={() => void downloadSelected()}>
+                <Icon name="download" size={12} />
+                {downloading ? "Downloading…" : "Download"}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Download the selected file to disk (byte-exact).</TooltipContent>
+          </Tooltip>
+        ) : null}
         {selectedRows.size > 0 && editable ? (
           <Button size="sm" variant="danger-soft" className="rounded-lg liquid-hover" onClick={deleteSelected}>
             <Icon name="trash" size={13} />

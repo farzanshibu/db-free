@@ -1,4 +1,4 @@
-// SOT: native-dialogs, file-picker, directory-picker, sql-file-save-picker
+// SOT: native-dialogs, file-picker, directory-picker, sql-file-save-picker, object-save-picker
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { TransferFormat } from "./bindings";
 
@@ -32,5 +32,12 @@ export async function pickSqlSavePath(defaultName: string): Promise<string | nul
     defaultPath: defaultName.toLowerCase().endsWith(".sql") ? defaultName : `${defaultName}.sql`,
     filters: [{ name: "SQL script", extensions: ["sql"] }],
   });
+  return typeof picked === "string" ? picked : null;
+}
+
+// WHAT:  Save dialog for object-storage downloads (S3 / MinIO / R2).
+// WHY:   The backend writes bytes straight to disk, so the UI only picks the destination.
+export async function pickSaveFile(suggestedName: string): Promise<string | null> {
+  const picked = await save({ defaultPath: suggestedName });
   return typeof picked === "string" ? picked : null;
 }

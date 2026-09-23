@@ -192,10 +192,11 @@ impl S3Integration {
         }
     }
 
-    // WHAT:  Signs and sends one S3 request, returning the body text.
-    // HOW:   `query` pairs are sorted and encoded here so the canonical query
-    //        string handed to the signer is exactly what goes on the wire.
-    async fn call(&self, method: Method, bucket: Option<&str>, key: Option<&str>, query: &[(&str, String)]) -> AppResult<String> {
+    // WHAT:  Signs and sends one S3 request, returning the body bytes.
+    // WHY:   Downloads must stay byte-exact (images, zips, parquet): text
+    //        decoding would corrupt binary, so this is the byte path and
+    //        `call` below is the UTF-8 convenience wrapper over it.
+    async fn call_bytes(&self, method: Method, bucket: Option<&str>, key: Option<&str>, query: &[(&str, String)]) -> AppResult<Vec<u8>> {
         let (url, host, path) = self.address(bucket, key);
         let mut pairs: Vec<(String, String)> = query.iter().map(|(k, v)| (uri_encode(k, true), uri_encode(v, true))).collect();
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
@@ -226,7 +227,15 @@ impl S3Integration {
             }
         }
         let resp = self.http.send(req).await?;
-        resp.text().await.map_err(|e| AppError::internal(format!("S3 response was not readable: {e}")))
+        resp.bytes().await.map(|b| b.to_vec()).map_err(|e| AppError::internal(format!("S3 response was not readable: {e}")))
+    }
+
+    // WHAT:  Signs and sends one S3 request, returning the body text.
+    // HOW:   `query` pairs are sorted and encoded here so the canonical query
+    //        string handed to the signer is exactly what goes on the wire.
+    async fn call(&self, method: Method, bucket: Option<&str>, key: Option<&str>, query: &[(&str, String)]) -> AppResult<String> {
+        let bytes = self.call_bytes(method, bucket, key, query).await?;
+        String::from_utf8(bytes).map_err(|e| AppError::internal(format!("S3 response was not valid UTF-8: {e}")))
     }
 
     async fn buckets(&self) -> AppResult<Vec<(String, String)>> {
@@ -506,6 +515,13 @@ impl Integration for S3Integration {
                 Stat::number("Buckets", buckets.len() as f64, None),
             ],
         }]))
+    }
+
+    async fn download_object(&self, bucket: &str, key: &str) -> AppResult<Vec<u8>> {
+        if bucket.is_empty() || key.is_empty() {
+            return Err(AppError::invalid_input("Enter a bucket and a key to download."));
+        }
+        self.call_bytes(Method::GET, Some(bucket), Some(key), &[]).await
     }
 }
 

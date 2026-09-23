@@ -70,6 +70,7 @@ pub enum CommandName {
     SearchDocuments,
     QueryRange,
     LoadHistory,
+    DownloadObject,
     CheckUpdate,
     DownloadUpdate,
     InstallUpdate,
@@ -82,7 +83,7 @@ pub enum CommandName {
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 52] = [
+    pub const ALL: [CommandName; 53] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -126,6 +127,7 @@ impl CommandName {
         CommandName::SearchDocuments,
         CommandName::QueryRange,
         CommandName::LoadHistory,
+        CommandName::DownloadObject,
         CommandName::CheckUpdate,
         CommandName::DownloadUpdate,
         CommandName::InstallUpdate,
@@ -182,6 +184,7 @@ impl CommandName {
             CommandName::SearchDocuments => "search_documents",
             CommandName::QueryRange => "query_range",
             CommandName::LoadHistory => "load_history",
+            CommandName::DownloadObject => "download_object",
             CommandName::CheckUpdate => "check_update",
             CommandName::DownloadUpdate => "download_update",
             CommandName::InstallUpdate => "install_update",
@@ -258,7 +261,8 @@ mod tests {
             | CommandName::VectorSearch
             | CommandName::SearchDocuments
             | CommandName::QueryRange
-            | CommandName::LoadHistory => "objects",
+            | CommandName::LoadHistory
+            | CommandName::DownloadObject => "objects",
             CommandName::CheckUpdate | CommandName::DownloadUpdate | CommandName::InstallUpdate => "updates",
         }
     }

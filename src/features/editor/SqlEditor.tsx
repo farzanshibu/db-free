@@ -184,7 +184,7 @@ const theme = EditorView.theme({
   ".cm-activeLine": { backgroundColor: "var(--color-surface-hover)" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--foreground)" },
   "&.cm-focused .cm-cursor": { borderLeftColor: "var(--color-accent)", borderLeftWidth: "2px" },
-  // WHAT:  Selection in the app's 10% accent wash, focused or not. The full
+  // WHAT:  Selection in the app's accent wash, focused or not. The full
   //        descendant path mirrors CodeMirror's own base rule
   //        (`&light/dark.cm-focused > .cm-scroller > .cm-selectionLayer
   //        .cm-selectionBackground`), whose six-class specificity otherwise
