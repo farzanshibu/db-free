@@ -33,6 +33,8 @@ export type * from "./DiagramTable";
 export type * from "./Document";
 export type * from "./DocumentBody";
 export type * from "./DocumentKind";
+export type * from "./DownloadObjectReport";
+export type * from "./DownloadObjectRequest";
 export type * from "./EditorBuffer";
 export type * from "./Engine";
 export type * from "./EngineFacts";

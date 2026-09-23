@@ -158,3 +158,19 @@ pub async fn query_range(ctx: &SessionCtx, req: &RangeQueryRequest) -> AppResult
 pub async fn history(ctx: &SessionCtx, reference: &ObjectRef) -> AppResult<ResultSet> {
     ctx.integration.history(reference).await
 }
+
+// WHAT:  Download one object-store file (S3 / MinIO / R2) to a local path.
+// WHY:   `GET <bucket> <key>` shows text in the grid, but binary files need a
+//        byte-exact local copy. Writing here keeps large files off the JSON IPC.
+// WHERE: src-tauri/src/commands/objects.rs (download_object command)
+pub async fn download_object(ctx: &SessionCtx, bucket: &str, key: &str, path: &str) -> AppResult<u64> {
+    if bucket.trim().is_empty() || key.trim().is_empty() {
+        return Err(AppError::invalid_input("Enter a bucket and a key to download."));
+    }
+    if path.trim().is_empty() {
+        return Err(AppError::invalid_input("Choose where to save the file."));
+    }
+    let bytes = ctx.integration.download_object(bucket, key).await?;
+    std::fs::write(path, &bytes).map_err(AppError::internal)?;
+    Ok(bytes.len() as u64)
+}

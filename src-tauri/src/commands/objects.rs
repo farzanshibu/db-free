@@ -53,6 +53,24 @@ pub struct RangeQueryCommand {
     pub request: RangeQueryRequest,
 }
 
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DownloadObjectRequest {
+    pub connection_id: String,
+    pub bucket: String,
+    pub key: String,
+    pub path: String,
+}
+
+#[derive(Debug, serde::Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DownloadObjectReport {
+    pub bytes: u64,
+    pub path: String,
+}
+
 // WHAT:  Object explorer + admin + playground commands. None runs user SQL, so
 //        they pass through guard::session; object *actions* run through
 //        execute_query so the statement guard applies to them.
@@ -99,4 +117,13 @@ pub async fn query_range(state: State<'_, AppState>, req: RangeQueryCommand) -> 
 #[tauri::command]
 pub async fn load_history(state: State<'_, AppState>, req: ObjectRequest) -> AppResult<ResultSet> {
     guard::session(&state, &req.connection_id, |ctx| async move { services::objects::history(&ctx, &req.reference).await }).await
+}
+
+// WHAT:  Save one S3 / MinIO / R2 object to a local file, byte-exact.
+// WHY:   The grid shows text; binary needs a real download without JSON overhead.
+#[tauri::command]
+pub async fn download_object(state: State<'_, AppState>, req: DownloadObjectRequest) -> AppResult<DownloadObjectReport> {
+    let path = req.path.clone();
+    let bytes = guard::session(&state, &req.connection_id, |ctx| async move { services::objects::download_object(&ctx, &req.bucket, &req.key, &req.path).await }).await?;
+    Ok(DownloadObjectReport { bytes, path })
 }

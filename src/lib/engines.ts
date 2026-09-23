@@ -260,6 +260,11 @@ export function isKeyValueEngine(engine: Engine): boolean {
   return engine === "redis" || engine === "valkey" || engine === "dragonfly" || engine === "memcached" || engine === "rocksdb";
 }
 
+// WHAT:  S3-compatible object storage (buckets + keys): rows support byte-exact download.
+export function isObjectStorageEngine(engine: Engine): boolean {
+  return engine === "s3" || engine === "minio" || engine === "cloudflare_r2";
+}
+
 // WHAT:  What the sidebar calls the things in the catalogue.
 export function collectionNoun(engine: Engine): string {
   if (isKeyValueEngine(engine)) return "Keys";

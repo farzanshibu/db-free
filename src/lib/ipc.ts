@@ -19,6 +19,8 @@ import type {
   ConnectionSummary,
   CreateTemplateRequest,
   Document,
+  DownloadObjectReport,
+  DownloadObjectRequest,
   EditorBuffer,
   ExecuteQueryRequest,
   ExplainRequest,
@@ -110,6 +112,7 @@ interface CommandMap {
   search_documents: { req: SearchCommand; res: SearchResult };
   query_range: { req: RangeQueryCommand; res: RangeResult };
   load_history: { req: ObjectRequest; res: ResultSet };
+  download_object: { req: DownloadObjectRequest; res: DownloadObjectReport };
   create_template: { req: CreateTemplateRequest; res: string | null };
   check_update: { req: undefined; res: UpdateStatus };
   install_update: { req: undefined; res: null };

@@ -57,7 +57,8 @@ export function KeyTab({ connectionId, table }: { connectionId: string; table: T
         if (token.cancelled) return;
         setPage(p);
         setType(scalar(typeOut));
-        setTtl(Number(scalar(ttlOut)) || -1);
+        const next = Number(scalar(ttlOut));
+        setTtl(Number.isFinite(next) ? next : -1);
         const first = p.rows[0]?.[0];
         if (first) setText(first.t === "json" ? JSON.stringify(first.v, null, 2) : first.t === "null" ? "" : String(first.v));
         setDirty(false);
@@ -69,6 +70,18 @@ export function KeyTab({ connectionId, table }: { connectionId: string; table: T
       token.cancelled = true;
     };
   }, [connectionId, table, key, refresh, scalar, showError]);
+
+  // WHAT:  Live TTL countdown: Redis only reports seconds on fetch, so tick the
+  //        displayed value down once per second between refetches.
+  // WHY:   Without this the "16s" badge looks frozen until Save / Reload.
+  const hasExpiry = ttl >= 0;
+  useEffect(() => {
+    if (!hasExpiry) return;
+    const id = window.setInterval(() => {
+      setTtl((v) => (v > 0 ? v - 1 : v));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [hasExpiry, key, refresh]);
 
   const run = async (command: string, message: string) => {
     try {

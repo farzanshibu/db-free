@@ -291,6 +291,11 @@ pub trait Integration: Send + Sync {
     async fn history(&self, _reference: &ObjectRef) -> AppResult<ResultSet> {
         Err(AppError::invalid_input("This engine keeps no verifiable history."))
     }
+    /// Raw object bytes for object storage (S3 / MinIO / R2): bucket + key.
+    /// Default rejects; only object-store adapters implement it.
+    async fn download_object(&self, _bucket: &str, _key: &str) -> AppResult<Vec<u8>> {
+        Err(AppError::invalid_input("This engine has no downloadable objects."))
+    }
 }
 
 // WHAT:  Static profile per adapter family (see `FamilyProfile`), plus the kinds
