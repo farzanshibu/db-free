@@ -5,6 +5,7 @@ import "@xyflow/react/dist/style.css";
 import type { ColumnInfo, ForeignKey, TableRef } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { tableKey, useWorkspace } from "@/stores/workspace";
+import { useResolvedTheme } from "@/stores/useTheme";
 import { IconButton } from "@/components/global/Button";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon, typeIcon } from "@/lib/icons";
@@ -21,6 +22,7 @@ const NODE_TYPES = { table: TableNode };
 // WHERE: src-tauri/src/integrations/*.rs (foreign_keys), src/features/diagrams/TableNode.tsx
 export function ErdTab({ connectionId, schema }: { connectionId: string; schema: string | null }) {
   const catalog = useWorkspace((s) => s.catalogs[connectionId]);
+  const colorMode = useResolvedTheme();
   const showError = useWorkspace((s) => s.showError);
   const showInfo = useWorkspace((s) => s.showInfo);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<TableNodeData>>([]);
@@ -67,7 +69,10 @@ export function ErdTab({ connectionId, schema }: { connectionId: string; schema:
     const viewport = document.querySelector<HTMLElement>(".react-flow__viewport");
     if (!viewport) return;
     const html = viewport.outerHTML;
-    const doc = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="2000" height="1400"><style>.react-flow__node{font-family:Inter,sans-serif;font-size:12px;color:#e8e8e8}</style><foreignObject width="2000" height="1400"><xhtml:div>${html}</xhtml:div></foreignObject>${svg ? svg.innerHTML : ""}</svg>`;
+    // The exported file has no stylesheet, so the text colour is the resolved
+    // foreground token of the theme on screen, not a literal that suits one.
+    const ink = getComputedStyle(document.documentElement).getPropertyValue("--foreground").trim();
+    const doc = `<svg xmlns="http://www.w3.org/2000/svg" xmlns:xhtml="http://www.w3.org/1999/xhtml" width="2000" height="1400"><style>.react-flow__node{font-family:Inter,sans-serif;font-size:12px;color:${ink}}</style><foreignObject width="2000" height="1400"><xhtml:div>${html}</xhtml:div></foreignObject>${svg ? svg.innerHTML : ""}</svg>`;
     await navigator.clipboard.writeText(doc);
     showInfo("Diagram SVG copied to the clipboard.");
   };
@@ -86,12 +91,12 @@ export function ErdTab({ connectionId, schema }: { connectionId: string; schema:
         nodeTypes={NODE_TYPES}
         fitView
         minZoom={0.05}
-        colorMode="dark"
+        colorMode={colorMode}
         proOptions={{ hideAttribution: true }}
       >
         <Background gap={24} size={1} />
         <Controls showInteractive={false} />
-        <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="rgba(0,0,0,0.6)" />
+        <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="var(--backdrop)" />
       </ReactFlow>
       <div className="absolute top-3 right-3 flex items-center gap-1 rounded-lg border border-border bg-surface/90 p-1 backdrop-blur">
         <IconButton icon="refresh" label="Reload from database" onClick={() => setRefresh((r) => r + 1)} />

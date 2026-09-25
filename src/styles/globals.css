@@ -1,9 +1,10 @@
-/* SOT: design-tokens, black-theme, shadcn-theme, typography, density, syntax-colours, liquid-glass */
+/* SOT: design-tokens, black-theme, light-theme, shadcn-theme, typography, density, syntax-colours, liquid-glass */
 @import "tailwindcss";
 @import "tw-animate-css";
 
 /*
- WHAT:  The app's black Liquid-Glass theme, expressed as shadcn/ui design tokens.
+ WHAT:  The app's Liquid-Glass theme (black by default, plus a light palette),
+        expressed as shadcn/ui design tokens.
  WHY:   shadcn components are unstyled source in src/components/ui: they read
         `bg-background`, `text-muted-foreground`, `border-input`, `ring-ring`…
         Nothing ships a palette, so this file *is* the design system — it owns
@@ -27,6 +28,8 @@
   --color-env-staging: oklch(0.78 0.16 72);
   --color-env-production: oklch(0.64 0.22 26);
   --color-selection: oklch(0.62 0.19 var(--accent-hue) / 0.55);
+  /* The highlighted row of a suggestion list: a firmer wash than a text selection. */
+  --color-selection-strong: oklch(0.62 0.19 var(--accent-hue) / 0.35);
   --color-series-1: #3987e5;
   --color-series-2: #d95926;
   --color-series-3: #199e70;
@@ -43,10 +46,11 @@
   --color-syntax-type: oklch(0.85 0.1 200);
 }
 
-/* WHAT:  Every palette variable, in one dark scheme.
-   WHY:   DB Free is a black-themed desktop app: there is no light mode to
-          fork. `[data-theme="dark"]` and `.dark` are accepted so a shadcn block
-          pasted in unmodified still resolves. */
+/* WHAT:  Every palette variable, dark scheme (the default).
+   WHY:   DB Free is black-first; the light scheme below overrides the same
+          names, so no component knows which one is drawn. `[data-theme="dark"]`
+          and `.dark` are accepted so a shadcn block pasted in unmodified still
+          resolves. App.tsx writes `data-theme` on <html> (Settings → Themes). */
 :root,
 .dark,
 [data-theme="dark"] {
@@ -132,6 +136,107 @@
   --surface-shadow: none;
   --overlay-shadow: 0 8px 24px -8px oklch(0 0 0 / 0.5);
   --field-shadow: none;
+
+  /* Window ground and the glass utilities below. Tokens rather than literals
+     so the light scheme can restate them. */
+  --page-base: oklch(0.08 0.008 var(--accent-hue));
+  --page-glow: oklch(0.35 0.05 var(--accent-hue) / 0.5);
+  --page-corner: oklch(0.18 0.03 285 / 0.25);
+  --page-top: oklch(0.23 0.025 var(--accent-hue));
+  --page-mid: oklch(0.13 0.012 var(--accent-hue));
+  --page-bottom: oklch(0.075 0.005 var(--accent-hue));
+  --glass-edge: oklch(1 0 0 / 0.08);
+  --glass-edge-strong: oklch(1 0 0 / 0.12);
+  --glass-edge-hover: oklch(1 0 0 / 0.16);
+  --glass-dock: oklch(0.12 0.008 var(--accent-hue) / 0.75);
+  --glass-sidebar: oklch(0.135 0.008 var(--accent-hue) / 0.65);
+  --glass-header: oklch(0.13 0.008 var(--accent-hue) / 0.72);
+  --glass-card: oklch(0.155 0.008 var(--accent-hue) / 0.55);
+  --glass-card-hover: oklch(0.175 0.01 var(--accent-hue) / 0.65);
+  --glass-pill: oklch(0.2 0.01 var(--accent-hue) / 0.45);
+  --glass-input: oklch(0.14 0.008 var(--accent-hue) / 0.5);
+  --glass-modal: var(--overlay);
+  --modal-shadow: 0 12px 32px -12px oklch(0 0 0 / 0.55);
+  --row-stripe: oklch(1 0 0 / 0.035);
+}
+
+/* WHAT:  The light scheme: every variable above, restated for a white ground.
+   WHY:   Settings → Themes offers Light and System. Overriding the same names
+          keeps every component and utility theme-agnostic.
+   HOW:   `:root[data-theme="light"]` outranks the dark block (and the
+          `@theme static` layer) by specificity, so order and layers cannot
+          flip it. Text tokens are chosen for contrast on the white surfaces:
+          foreground ≈ 15:1, muted ≈ 5:1, status colours ≥ 4.5:1 as text.
+          The accent's own lightness is picked per theme in App.tsx. */
+:root[data-theme="light"] {
+  color-scheme: light;
+
+  --background: oklch(0.995 0.002 var(--accent-hue) / 0.85);
+  --foreground: oklch(0.21 0.012 var(--accent-hue));
+
+  --surface: oklch(0.995 0.002 var(--accent-hue) / 0.78);
+  --surface-secondary: oklch(0.955 0.006 var(--accent-hue) / 0.75);
+  --surface-tertiary: oklch(0.915 0.009 var(--accent-hue) / 0.8);
+  --surface-hover: oklch(0.3 0.02 var(--accent-hue) / 0.05);
+
+  --overlay: oklch(0.995 0.002 var(--accent-hue));
+  --surface-elevated: oklch(0.975 0.004 var(--accent-hue));
+  --backdrop: oklch(0.25 0.015 var(--accent-hue) / 0.35);
+
+  --muted: oklch(0.5 0.012 var(--accent-hue));
+  --default: oklch(0.93 0.007 var(--accent-hue) / 0.75);
+
+  --accent: oklch(0.52 0.2 var(--accent-hue));
+  --accent-foreground: oklch(0.99 0 0);
+
+  --field: oklch(1 0 0 / 0.75);
+  --field-placeholder: oklch(0.62 0.008 var(--accent-hue));
+  --field-border: oklch(0.3 0.02 var(--accent-hue) / 0.16);
+  --segment: oklch(0.92 0.008 var(--accent-hue) / 0.75);
+
+  --border: oklch(0.3 0.02 var(--accent-hue) / 0.12);
+  --separator: oklch(0.3 0.02 var(--accent-hue) / 0.08);
+
+  --success: oklch(0.52 0.15 150);
+  --success-foreground: oklch(0.99 0 0);
+  --warning: oklch(0.56 0.13 65);
+  --warning-foreground: oklch(0.99 0 0);
+  --danger: oklch(0.53 0.21 25);
+  --danger-foreground: oklch(0.99 0 0);
+
+  --overlay-shadow: 0 8px 24px -8px oklch(0.25 0.03 var(--accent-hue) / 0.2);
+
+  --page-base: oklch(0.97 0.004 var(--accent-hue));
+  --page-glow: oklch(0.88 0.05 var(--accent-hue) / 0.45);
+  --page-corner: oklch(0.9 0.03 285 / 0.25);
+  --page-top: oklch(0.95 0.012 var(--accent-hue));
+  --page-mid: oklch(0.975 0.005 var(--accent-hue));
+  --page-bottom: oklch(0.985 0.003 var(--accent-hue));
+  --glass-edge: oklch(0.3 0.02 var(--accent-hue) / 0.1);
+  --glass-edge-strong: oklch(0.3 0.02 var(--accent-hue) / 0.14);
+  --glass-edge-hover: oklch(0.3 0.02 var(--accent-hue) / 0.2);
+  --glass-dock: oklch(0.965 0.006 var(--accent-hue) / 0.8);
+  --glass-sidebar: oklch(0.975 0.005 var(--accent-hue) / 0.72);
+  --glass-header: oklch(0.985 0.004 var(--accent-hue) / 0.78);
+  --glass-card: oklch(1 0 0 / 0.65);
+  --glass-card-hover: oklch(1 0 0 / 0.85);
+  --glass-pill: oklch(0.94 0.007 var(--accent-hue) / 0.6);
+  --glass-input: oklch(1 0 0 / 0.7);
+  --modal-shadow: 0 12px 32px -12px oklch(0.25 0.03 var(--accent-hue) / 0.28);
+  --row-stripe: oklch(0.3 0.02 var(--accent-hue) / 0.035);
+
+  --color-env-local: oklch(0.53 0.15 150);
+  --color-env-staging: oklch(0.58 0.13 70);
+  --color-env-production: oklch(0.53 0.21 26);
+  --color-selection: oklch(0.7 0.14 var(--accent-hue) / 0.28);
+  --color-selection-strong: oklch(0.7 0.14 var(--accent-hue) / 0.22);
+  --color-grid-line: oklch(0.3 0.02 var(--accent-hue) / 0.05);
+  --color-syntax-keyword: oklch(0.47 0.19 300);
+  --color-syntax-string: oklch(0.49 0.14 150);
+  --color-syntax-number: oklch(0.52 0.15 50);
+  --color-syntax-comment: oklch(0.56 0.01 var(--accent-hue));
+  --color-syntax-operator: oklch(0.46 0.12 240);
+  --color-syntax-type: oklch(0.48 0.1 200);
 }
 
 /* WHAT:  Publishes the variables above as Tailwind utilities.
@@ -241,10 +346,10 @@
     margin: 0;
   }
   body {
-    background-color: oklch(0.08 0.008 var(--accent-hue));
+    background-color: var(--page-base);
     background-image:
-      radial-gradient(ellipse 110% 65% at 50% -8%, oklch(0.36 0.05 var(--accent-hue) / 0.45), transparent 75%),
-      linear-gradient(175deg, oklch(0.24 0.025 var(--accent-hue)) 0%, oklch(0.14 0.015 var(--accent-hue)) 45%, oklch(0.075 0.006 var(--accent-hue)) 100%);
+      radial-gradient(ellipse 110% 65% at 50% -8%, var(--page-glow), transparent 75%),
+      linear-gradient(175deg, var(--page-top) 0%, var(--page-mid) 45%, var(--page-bottom) 100%);
     background-attachment: fixed;
     color: var(--foreground);
     font-family: var(--font-sans);
@@ -265,10 +370,11 @@
   }
 }
 
-/* Zebra striping for grids. A tint of white, not a surface colour: the surfaces
-   are translucent, so `bg-surface/20` over a black ground rendered as nothing. */
+/* Zebra striping for grids. A tint of the foreground, not a surface colour: the
+   surfaces are translucent, so `bg-surface/20` over a black ground rendered as
+   nothing. White on dark, ink on light (--row-stripe). */
 @utility row-stripe {
-  background-color: oklch(1 0 0 / 0.035);
+  background-color: var(--row-stripe);
 }
 
 @utility app-toolbar {
@@ -296,9 +402,9 @@
 @utility grid-bg {
   background-color: transparent;
   background-image:
-    radial-gradient(ellipse 120% 70% at 50% -10%, oklch(0.35 0.05 var(--accent-hue) / 0.5), transparent 75%),
-    radial-gradient(circle at 100% 100%, oklch(0.18 0.03 285 / 0.25), transparent 50%),
-    linear-gradient(175deg, oklch(0.23 0.025 var(--accent-hue)) 0%, oklch(0.13 0.012 var(--accent-hue)) 45%, oklch(0.075 0.005 var(--accent-hue)) 100%),
+    radial-gradient(ellipse 120% 70% at 50% -10%, var(--page-glow), transparent 75%),
+    radial-gradient(circle at 100% 100%, var(--page-corner), transparent 50%),
+    linear-gradient(175deg, var(--page-top) 0%, var(--page-mid) 45%, var(--page-bottom) 100%),
     linear-gradient(var(--color-grid-line) 1px, transparent 1px),
     linear-gradient(90deg, var(--color-grid-line) 1px, transparent 1px);
   background-size: 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
@@ -310,31 +416,31 @@
 }
 
 @utility glass-dock {
-  background: oklch(0.12 0.008 var(--accent-hue) / 0.75);
+  background: var(--glass-dock);
   backdrop-filter: blur(28px) saturate(190%);
   -webkit-backdrop-filter: blur(28px) saturate(190%);
-  border-right: 1px solid oklch(1 0 0 / 0.08);
+  border-right: 1px solid var(--glass-edge);
 }
 
 @utility glass-sidebar {
-  background: oklch(0.135 0.008 var(--accent-hue) / 0.65);
+  background: var(--glass-sidebar);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-right: 1px solid oklch(1 0 0 / 0.08);
+  border-right: 1px solid var(--glass-edge);
 }
 
 @utility glass-header {
-  background: oklch(0.13 0.008 var(--accent-hue) / 0.72);
+  background: var(--glass-header);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
-  border-bottom: 1px solid oklch(1 0 0 / 0.08);
+  border-bottom: 1px solid var(--glass-edge);
 }
 
 @utility glass-card {
-  background: oklch(0.155 0.008 var(--accent-hue) / 0.55);
+  background: var(--glass-card);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
-  border: 1px solid oklch(1 0 0 / 0.09);
+  border: 1px solid var(--glass-edge);
 }
 
 @utility glass-card-hover {
@@ -344,33 +450,33 @@
     border-color 160ms cubic-bezier(0.16, 1, 0.3, 1);
 
   &:hover {
-    background: oklch(0.175 0.01 var(--accent-hue) / 0.65);
-    border-color: oklch(1 0 0 / 0.16);
+    background: var(--glass-card-hover);
+    border-color: var(--glass-edge-hover);
   }
 }
 
 @utility glass-pill {
-  background: oklch(0.2 0.01 var(--accent-hue) / 0.45);
+  background: var(--glass-pill);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid oklch(1 0 0 / 0.08);
+  border: 1px solid var(--glass-edge);
 }
 
 @utility glass-input {
-  background: oklch(0.14 0.008 var(--accent-hue) / 0.5);
+  background: var(--glass-input);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
-  border: 1px solid oklch(1 0 0 / 0.1);
+  border: 1px solid var(--glass-edge-strong);
 }
 
 @utility glass-modal {
   /* Opaque: a menu or popover over a data grid must not let the rows show
-     through, so floating layers are solid black rather than frosted glass. */
-  background: oklch(0.08 0.004 var(--accent-hue));
-  border: 1px solid oklch(1 0 0 / 0.12);
+     through, so floating layers are solid (--overlay) rather than frosted glass. */
+  background: var(--glass-modal);
+  border: 1px solid var(--glass-edge-strong);
   /* A floating layer still has to separate from what it covers; this is an
      ambient shadow, not a raised edge. */
-  box-shadow: 0 12px 32px -12px rgba(0, 0, 0, 0.55);
+  box-shadow: var(--modal-shadow);
 }
 
 /* Kept as no-ops: the specular edge highlight was the main thing that read as

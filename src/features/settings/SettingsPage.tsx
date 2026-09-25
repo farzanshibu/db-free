@@ -13,7 +13,7 @@ import type {
 import { ipc, normalizeError, onUpdateProgress } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
-import { AppSelect, Field, Toggle } from "@/components/global/Field";
+import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
@@ -24,6 +24,7 @@ import { Separator } from "@/components/ui/separator";
 import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
 import { ShortcutsSection } from "./ShortcutsSection";
 import { SnippetsSection } from "./SnippetsSection";
+import { THEME_OPTIONS, isThemeChoice, type ThemeChoice } from "@/stores/useTheme";
 
 const ACCENTS = [
   { value: "blue", label: "Blue" },
@@ -155,7 +156,10 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             {section === "themes" ? (
               <>
                 <h2 className="text-sm font-semibold text-foreground">Themes</h2>
-                <p className="text-xs text-muted">The app is dark-only by design. Pick the accent colour.</p>
+                <p className="text-xs text-muted">Black by default; light for bright rooms. System follows the OS and switches with it.</p>
+                <Row title="Theme" body="Dark, light, or match the operating system.">
+                  <Segmented<ThemeChoice> label="Theme" value={isThemeChoice(draft.theme) ? draft.theme : "dark"} options={THEME_OPTIONS} onChange={(v) => patch({ theme: v })} />
+                </Row>
                 <Row title="Accent" body="Buttons, selections, links.">
                   <AppSelect ariaLabel="Accent" value={draft.accent} options={ACCENTS} onChange={(v) => patch({ accent: v })} className="w-44" />
                 </Row>
@@ -475,6 +479,7 @@ function downloadLabel(progress: UpdateProgress): string {
 
 function defaultSettings(): AppSettings {
   return {
+    theme: "dark",
     accent: "blue",
     uiFont: "jetbrains-mono",
     editorFont: "jetbrains-mono",

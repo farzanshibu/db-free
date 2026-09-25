@@ -7,10 +7,10 @@ import { Toaster as Sonner, toast } from "sonner";
 // HOW:   Mounted once in App.tsx; call `toast.success` / `toast.error` from
 //        anywhere (the store's showInfo / showError wrap it).
 // WHERE: https://ui.shadcn.com/docs/components/sonner
-export function Toaster() {
+export function Toaster({ theme = "dark" }: { theme?: "dark" | "light" }) {
   return (
     <Sonner
-      theme="dark"
+      theme={theme}
       position="bottom-right"
       visibleToasts={3}
       toastOptions={{

@@ -10,7 +10,7 @@
 // WHERE: vite.config.ts, package.json (`pnpm preview:ui`)
 (function () {
   var settings = {
-    accent: "blue", uiFont: "jetbrains-mono", editorFont: "jetbrains-mono",
+    theme: "dark", accent: "blue", uiFont: "jetbrains-mono", editorFont: "jetbrains-mono",
     uiFontSize: 13, editorFontSize: 13, gridDensity: "cozy",
     alternatingRows: true, rememberTableState: true, columnPreview: true,
     maxQueryRows: 5000, nullDisplay: "NULL", showResultsPane: true,

@@ -5,6 +5,7 @@ import "@xyflow/react/dist/style.css";
 import type { DiagramBody, DiagramColumn, DiagramTable, Document } from "@/lib/bindings";
 import { normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
+import { useResolvedTheme } from "@/stores/useTheme";
 import { IconButton } from "@/components/global/Button";
 import { Field, Toggle } from "@/components/global/Field";
 import { Icon, typeIcon } from "@/lib/icons";
@@ -30,6 +31,7 @@ function newId(prefix: string): string {
 // WHERE: src-tauri/src/model/documents.rs (DiagramBody)
 export function DesignerTab({ document: doc }: { document: Document }) {
   const saveDocument = useWorkspace((s) => s.saveDocument);
+  const colorMode = useResolvedTheme();
   const showError = useWorkspace((s) => s.showError);
   const showInfo = useWorkspace((s) => s.showInfo);
   const body: DiagramBody = doc.body.kind === "diagram" ? doc.body.data : { tables: [], relations: [] };
@@ -129,12 +131,12 @@ export function DesignerTab({ document: doc }: { document: Document }) {
           onNodeDoubleClick={(_, node) => { const t = tables.find((x) => x.id === node.id); if (t) setEditing(t); }}
           nodeTypes={NODE_TYPES}
           fitView
-          colorMode="dark"
+          colorMode={colorMode}
           proOptions={{ hideAttribution: true }}
         >
           <Background gap={24} size={1} />
           <Controls showInteractive={false} />
-          <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="rgba(0,0,0,0.6)" />
+          <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="var(--backdrop)" />
         </ReactFlow>
         {tables.length === 0 ? (
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

@@ -28,6 +28,7 @@ import { cn } from "@/lib/cn";
 import { toCodeMirrorKey, type Keymap } from "@/lib/keymap";
 import { useKeymap } from "@/stores/useShortcut";
 import { useWorkspace } from "@/stores/workspace";
+import { useResolvedTheme, type ResolvedTheme } from "@/stores/useTheme";
 import { snippetForWord, snippetLanguageOf, snippetPreview, snippetsFor } from "@/lib/snippets";
 
 // WHAT:  The one statement a run will send, and where it came from.
@@ -179,8 +180,8 @@ class RunMarker extends GutterMarker {
 }
 
 // WHAT:  Theme built from the CSS tokens so light/dark follow the app.
-// WHERE: src/styles/globals.css (HeroUI variables)
-const theme = EditorView.theme({
+// WHERE: src/styles/globals.css (design tokens), src/stores/useTheme.ts
+const THEME_SPEC: Parameters<typeof EditorView.theme>[0] = {
   "&": { backgroundColor: "var(--background)", color: "var(--foreground)", height: "100%", fontSize: "13px" },
   ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.55" },
   ".cm-content": { caretColor: "var(--color-accent)", padding: "12px 0" },
@@ -207,12 +208,20 @@ const theme = EditorView.theme({
   ".cm-run-marker-active": { color: "var(--color-accent)", opacity: "1" },
   ".cm-run-marker-danger": { color: "var(--color-danger)", opacity: "0.8" },
   ".cm-active-statement": { backgroundColor: "var(--color-selection)" },
-  // WHAT:  `{ dark: true }` tells CodeMirror this is a dark editor, so its own
-  //        base rules resolve to the `&dark` variants (`#222`/`#233`) instead of
-  //        the light ones (`#d9d9d9`/`#d7d4f0`) — the lavender wash that kept
-  //        showing through selections on this black theme.
-  // WHERE: @codemirror/view baseTheme (&light/&dark selectionBackground)
-}, { dark: true });
+};
+
+// WHAT:  `{ dark }` tells CodeMirror which of its own base rules to use: the
+//        `&dark` variants (`#222`/`#233`) on the black theme, the `&light` ones
+//        on the light theme. A dark editor flagged light let the lavender
+//        `#d7d4f0` wash show through selections; the flag now follows the
+//        resolved app theme (reconfigured through a Compartment).
+// WHERE: @codemirror/view baseTheme (&light/&dark selectionBackground)
+const DARK_THEME = EditorView.theme(THEME_SPEC, { dark: true });
+const LIGHT_THEME = EditorView.theme(THEME_SPEC, { dark: false });
+
+function editorTheme(theme: ResolvedTheme): Extension {
+  return theme === "light" ? LIGHT_THEME : DARK_THEME;
+}
 
 const highlight = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--color-syntax-keyword)", fontWeight: "600" },
@@ -500,6 +509,9 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
   const onTargetRef = useRef(onTargetChange);
   const gutterCompartment = useRef(new Compartment());
   const runKeysCompartment = useRef(new Compartment());
+  const themeCompartment = useRef(new Compartment());
+  const appTheme = useResolvedTheme();
+  const appThemeRef = useRef(appTheme);
   const keys = useKeymap();
   const keysRef = useRef(keys);
   const runGutter = useRef<Extension | null>(null);
@@ -649,7 +661,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
         ]),
         langCompartment.current.of(sqlConfig(engine, schema, defaultSchema)),
         syntaxHighlighting(highlight),
-        theme,
+        themeCompartment.current.of(editorTheme(appThemeRef.current)),
         EditorView.updateListener.of((update) => {
           if (update.docChanged) onChangeRef.current(update.state.doc.toString());
           if (update.docChanged || update.selectionSet) {
@@ -683,6 +695,14 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     if (!view) return;
     view.dispatch({ effects: langCompartment.current.reconfigure(sqlConfig(engine, schema, defaultSchema)) });
   }, [engine, schema, defaultSchema]);
+
+  // Settings → Themes (or the OS, on "system") reaches an open editor too.
+  useEffect(() => {
+    appThemeRef.current = appTheme;
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: themeCompartment.current.reconfigure(editorTheme(appTheme)) });
+  }, [appTheme]);
 
   // A rebind in Settings reaches an open editor without remounting it.
   useEffect(() => {

@@ -68,6 +68,7 @@ export function CommandPalette() {
     }
     list.push({ id: "connections", section: "navigation", label: "Connections", icon: "plug", run: () => s.goConnections() });
     list.push({ id: "settings", section: "settings", label: "Settings", icon: "settings", run: () => s.goSettings() });
+    list.push({ id: "theme", section: "settings", label: "Theme", hint: "Dark, light or system", icon: "eye", run: () => s.goSettingsSection("themes") });
     list.push({ id: "shortcuts", section: "settings", label: "Keyboard shortcuts", hint: "Rebind keys, keybindings, hotkeys", icon: "hash", run: () => s.goSettingsSection("shortcuts") });
     list.push({ id: "capabilities", section: "settings", label: "Engine capabilities", hint: "Feature × engine matrix", icon: "grid", run: () => s.goCapabilities() });
     for (const c of connections) {

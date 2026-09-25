@@ -1,4 +1,4 @@
-// SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars, tab-shortcuts
+// SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars, tab-shortcuts, theme-attribute
 import { useEffect } from "react";
 import { useActiveConnection, useActiveTab, useWorkspace } from "@/stores/workspace";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -19,6 +19,7 @@ import { Toaster } from "@/components/global/Toaster";
 import { toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useShortcut } from "@/stores/useShortcut";
+import { useResolvedTheme } from "@/stores/useTheme";
 
 /// Stacks used until the settings load (they match globals.css).
 const UI_FONT_FALLBACK = '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -32,12 +33,15 @@ const EDITOR_FONT_FALLBACK = UI_FONT_FALLBACK;
 /// survives that remount where component state does not.
 let updateChecked = false;
 
-const ACCENTS: Record<string, { color: string; hue: number }> = {
-  blue: { color: "oklch(0.6 0.2 258)", hue: 258 },
-  violet: { color: "oklch(0.62 0.2 295)", hue: 295 },
-  green: { color: "oklch(0.68 0.17 150)", hue: 150 },
-  orange: { color: "oklch(0.7 0.17 55)", hue: 55 },
-  rose: { color: "oklch(0.64 0.2 10)", hue: 10 },
+/// `light` is the same hue darkened for a white ground: the dark-theme accents
+/// (L 0.6–0.7) fall under 3:1 as text on white; these hold ≥ 4.5:1, and white
+/// text on them stays readable for the filled Run / Save buttons.
+const ACCENTS: Record<string, { color: string; light: string; hue: number }> = {
+  blue: { color: "oklch(0.6 0.2 258)", light: "oklch(0.52 0.2 258)", hue: 258 },
+  violet: { color: "oklch(0.62 0.2 295)", light: "oklch(0.52 0.2 295)", hue: 295 },
+  green: { color: "oklch(0.68 0.17 150)", light: "oklch(0.52 0.15 150)", hue: 150 },
+  orange: { color: "oklch(0.7 0.17 55)", light: "oklch(0.56 0.16 50)", hue: 55 },
+  rose: { color: "oklch(0.64 0.2 10)", light: "oklch(0.53 0.2 10)", hue: 10 },
 };
 
 export function App() {
@@ -55,6 +59,7 @@ export function App() {
   const reopenClosedTab = useWorkspace((s) => s.reopenClosedTab);
   const cycleTab = useWorkspace((s) => s.cycleTab);
   const openQuery = useWorkspace((s) => s.openQuery);
+  const theme = useResolvedTheme();
 
   // WHAT:  Browser-style tab keys: new, close, reopen closed, next / previous.
   useShortcut("new-query", () => {
@@ -122,6 +127,14 @@ export function App() {
     })();
   }, [showError]);
 
+  // WHAT:  The resolved theme (Settings → Themes; "system" follows the OS live)
+  //        as `data-theme` on <html>, which is all globals.css keys off.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("data-theme", theme);
+    root.classList.toggle("dark", theme === "dark");
+  }, [theme]);
+
   // Density drives the chrome's spacing tokens (globals.css), not just row height.
   useEffect(() => {
     document.documentElement.setAttribute("data-density", density);
@@ -139,7 +152,7 @@ export function App() {
     const root = document.documentElement.style;
     const accent = ACCENTS[settings.accent] ?? ACCENTS.blue;
     if (accent) {
-      root.setProperty("--accent", accent.color);
+      root.setProperty("--accent", theme === "light" ? accent.light : accent.color);
       root.setProperty("--accent-hue", String(accent.hue));
     }
     root.setProperty("--font-sans", fontStack(settings.uiFont, UI_FONT_FALLBACK));
@@ -147,7 +160,7 @@ export function App() {
     root.setProperty("--ui-font-size", `${settings.uiFontSize}px`);
     root.setProperty("--editor-font-size", `${settings.editorFontSize}px`);
     document.body.style.fontSize = `${settings.uiFontSize}px`;
-  }, [settings]);
+  }, [settings, theme]);
 
   return (
     <TooltipProvider>

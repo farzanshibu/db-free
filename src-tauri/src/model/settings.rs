@@ -1,4 +1,4 @@
-// SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope, key-bindings, user-snippets
+// SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope, key-bindings, user-snippets, theme-setting
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -103,6 +103,8 @@ pub struct Snippet {
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
 pub struct AppSettings {
+    /// Colour theme: "dark" (default), "light", or "system" (follows the OS).
+    pub theme: String,
     pub accent: String,
     /// Font family key for the app chrome; `src/lib/fonts.ts` maps it to a stack.
     pub ui_font: String,
@@ -141,6 +143,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         AppSettings {
+            theme: "dark".to_string(),
             accent: "blue".to_string(),
             ui_font: "jetbrains-mono".to_string(),
             editor_font: "jetbrains-mono".to_string(),
@@ -185,5 +188,6 @@ mod tests {
         assert_eq!(parsed.ui_font_size, 14);
         assert!(parsed.keybindings.is_empty());
         assert!(parsed.snippets.is_empty());
+        assert_eq!(parsed.theme, "dark");
     }
 }
