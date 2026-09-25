@@ -1,4 +1,4 @@
-// SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope, key-bindings
+// SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope, key-bindings, user-snippets
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -83,6 +83,22 @@ pub struct KeyBinding {
     pub keys: String,
 }
 
+// WHAT:  One user snippet for the query editor: typing `prefix` then Tab
+//        expands `body` (CodeMirror snippet syntax, `${field}` placeholders).
+// WHY:   The built-in set lives in the UI; only the user's own are stored.
+// HOW:   `language` is a `SnippetLanguage` id ("sql", "cypher", "mongo",
+//        "redis" or "any"); a snippet for another language is not offered.
+// WHERE: src/lib/snippets.ts (registry, built-ins), src/features/editor/SqlEditor.tsx
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct Snippet {
+    pub prefix: String,
+    pub name: String,
+    pub body: String,
+    pub language: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -118,6 +134,8 @@ pub struct AppSettings {
     pub native_tool_paths: BTreeMap<crate::model::NativeTool, String>,
     /// Shortcut rebinds on top of the registry defaults (empty: every default).
     pub keybindings: Vec<KeyBinding>,
+    /// The user's own editor snippets, on top of the built-in set.
+    pub snippets: Vec<Snippet>,
 }
 
 impl Default for AppSettings {
@@ -148,6 +166,7 @@ impl Default for AppSettings {
             ai: AiSettings::default(),
             native_tool_paths: BTreeMap::new(),
             keybindings: Vec::new(),
+            snippets: Vec::new(),
         }
     }
 }
@@ -165,5 +184,6 @@ mod tests {
         assert_eq!(parsed.accent, "green");
         assert_eq!(parsed.ui_font_size, 14);
         assert!(parsed.keybindings.is_empty());
+        assert!(parsed.snippets.is_empty());
     }
 }

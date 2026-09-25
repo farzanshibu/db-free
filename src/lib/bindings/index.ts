@@ -156,3 +156,4 @@ export type * from "./WorkflowRunReport";
 export type * from "./WorkflowStep";
 export type * from "./WorkflowStepResult";
 export type * from "./KeyBinding";
+export type * from "./Snippet";

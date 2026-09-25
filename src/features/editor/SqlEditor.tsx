@@ -1,5 +1,5 @@
-// SOT: sql-editor, codemirror-setup, editor-theme, schema-completion, completion-dropdown, run-at-cursor, statement-gutter
-import { useCallback, useEffect, useRef, useState } from "react";
+// SOT: sql-editor, codemirror-setup, editor-theme, schema-completion, completion-dropdown, run-at-cursor, statement-gutter, snippet-expansion
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
   EditorView,
@@ -15,18 +15,20 @@ import {
   type KeyBinding as CmKeyBinding,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
+import { closeBrackets, closeBracketsKeymap, snippet } from "@codemirror/autocomplete";
 import type { Completion } from "@codemirror/autocomplete";
 import { HighlightStyle, syntaxHighlighting, bracketMatching } from "@codemirror/language";
 import { sql, MSSQL, MySQL, MariaSQL, PostgreSQL, SQLite, StandardSQL, type SQLDialect, type SQLNamespace } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
-import type { Engine, StatementSpan } from "@/lib/bindings";
+import type { Engine, Snippet, StatementSpan } from "@/lib/bindings";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Icon } from "@/lib/icons";
 import type { IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { toCodeMirrorKey, type Keymap } from "@/lib/keymap";
 import { useKeymap } from "@/stores/useShortcut";
+import { useWorkspace } from "@/stores/workspace";
+import { snippetForWord, snippetLanguageOf, snippetPreview, snippetsFor } from "@/lib/snippets";
 
 // WHAT:  The one statement a run will send, and where it came from.
 // WHY:   PRD §4.3 — a tab holds a script; running the whole buffer when the caret
@@ -322,12 +324,14 @@ function sameTarget(a: RunTarget | null, b: RunTarget): boolean {
   return a !== null && a.from === b.from && a.to === b.to && a.selected === b.selected && a.index === b.index && a.total === b.total;
 }
 
-type CompletionKind = "table" | "column" | "keyword";
+type CompletionKind = "snippet" | "table" | "column" | "keyword";
 
 interface CompletionItem {
   label: string;
   detail: string;
   kind: CompletionKind;
+  /// Set for `snippet` items: accepting expands the body instead of inserting the label.
+  snippet?: Snippet;
 }
 
 interface CompletionSnapshot {
@@ -339,7 +343,20 @@ interface CompletionSnapshot {
   index: number;
 }
 
-const COMPLETION_ICONS: Record<CompletionKind, IconName> = { table: "table", column: "columns", keyword: "code" };
+const COMPLETION_ICONS: Record<CompletionKind, IconName> = { snippet: "flash", table: "table", column: "columns", keyword: "code" };
+const NO_SNIPPETS: readonly Snippet[] = [];
+
+/// The characters a snippet prefix may use; the run of them before the caret is
+/// what Tab tries to expand.
+const SNIPPET_WORD = /[A-Za-z0-9_.-]+$/;
+
+// WHAT:  Replaces `from..to` with a snippet body and selects its first field.
+// HOW:   @codemirror/autocomplete's `snippet()` installs its own field state and
+//        a highest-precedence Tab / Shift-Tab / Esc keymap on first use, so Tab
+//        walks the fields without anything else registered here.
+function expandSnippet(view: EditorView, body: string, from: number, to: number): void {
+  snippet(body)(view, null, from, to);
+}
 const MAX_COMPLETIONS = 100;
 
 // WHAT:  The keyword half of the suggestion list. Tables and columns come from
@@ -437,7 +454,7 @@ function rankItems(partial: string, items: CompletionItem[]): CompletionItem[] {
 //        stay shut (selection open, caret after whitespace/punctuation, no match).
 // HOW:   `qualifier.` scopes to one table's columns (alias-aware); a bare word
 //        ranks tables, then columns, then keywords, prefix matches first.
-function computeCompletions(state: EditorState, schema: SQLNamespace, defaultSchema: string | undefined): { from: number; to: number; items: CompletionItem[] } | null {
+function computeCompletions(state: EditorState, schema: SQLNamespace, defaultSchema: string | undefined, snippets: readonly Snippet[]): { from: number; to: number; items: CompletionItem[] } | null {
   const selection = state.selection.main;
   if (!selection.empty) return null;
   const head = selection.head;
@@ -463,6 +480,7 @@ function computeCompletions(state: EditorState, schema: SQLNamespace, defaultSch
   if (partial.length === 0) return null;
   const preferred = defaultSchema === undefined ? tables : [...tables.filter((t) => t.name.toLowerCase().startsWith(defaultSchema.toLowerCase())), ...tables.filter((t) => !t.name.toLowerCase().startsWith(defaultSchema.toLowerCase()))];
   const candidates: CompletionItem[] = [
+    ...snippets.map((sn) => ({ label: sn.prefix, detail: sn.name.length > 0 ? sn.name : snippetPreview(sn.body), kind: "snippet" as const, snippet: sn })),
     ...preferred.map((t) => ({ label: t.name, detail: `${t.columns.length} cols`, kind: "table" as const })),
     ...preferred.flatMap((t) => t.columns.map((c) => ({ label: c, detail: t.name, kind: "column" as const }))),
     ...SQL_KEYWORDS.map((k) => ({ label: k, detail: "keyword", kind: "keyword" as const })),
@@ -489,6 +507,11 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
   const [completion, setCompletion] = useState<CompletionSnapshot | null>(null);
   const completionRef = useRef<CompletionSnapshot | null>(null);
   const schemaRef = useRef(schema);
+  // WHAT:  Snippets for this editor's language: the user's, then the built-ins.
+  // WHERE: src/lib/snippets.ts, AppSettings.snippets
+  const userSnippets = useWorkspace((s) => s.settings?.snippets ?? NO_SNIPPETS);
+  const snippets = useMemo(() => snippetsFor(snippetLanguageOf(engine), userSnippets), [engine, userSnippets]);
+  const snippetsRef = useRef(snippets);
   const defaultSchemaRef = useRef(defaultSchema);
   const suppressCompletionRef = useRef(false);
   useEffect(() => {
@@ -498,6 +521,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     onTargetRef.current = onTargetChange;
     schemaRef.current = schema;
     defaultSchemaRef.current = defaultSchema;
+    snippetsRef.current = snippets;
   });
 
   const hideCompletion = useCallback(() => {
@@ -510,13 +534,34 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     const item = snapshot === null ? undefined : snapshot.items[snapshot.index];
     if (snapshot === null || item === undefined) return false;
     suppressCompletionRef.current = true;
-    view.dispatch({
-      changes: { from: snapshot.from, to: snapshot.to, insert: item.label },
-      selection: { anchor: snapshot.from + item.label.length },
-    });
+    if (item.snippet !== undefined) {
+      expandSnippet(view, item.snippet.body, snapshot.from, snapshot.to);
+    } else {
+      view.dispatch({
+        changes: { from: snapshot.from, to: snapshot.to, insert: item.label },
+        selection: { anchor: snapshot.from + item.label.length },
+      });
+    }
     completionRef.current = null;
     setCompletion(null);
     view.focus();
+    return true;
+  }, []);
+
+  // WHAT:  Tab on a word that is exactly a snippet prefix expands it (`sel⇥`).
+  // WHY:   Checked before accepting a suggestion: the dropdown ranks `SELECT`
+  //        and friends alongside, and the exact prefix is what was meant.
+  const tabExpand = useCallback((view: EditorView): boolean => {
+    const selection = view.state.selection.main;
+    if (!selection.empty) return false;
+    const line = view.state.doc.lineAt(selection.head);
+    const word = SNIPPET_WORD.exec(line.text.slice(0, selection.head - line.from))?.[0] ?? "";
+    const found = snippetForWord(word, snippetsRef.current);
+    if (found === undefined) return false;
+    suppressCompletionRef.current = true;
+    expandSnippet(view, found.body, selection.head - word.length, selection.head);
+    completionRef.current = null;
+    setCompletion(null);
     return true;
   }, []);
 
@@ -543,7 +588,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     }
     const host = hostRef.current;
     if (host === null) return;
-    const found = computeCompletions(view.state, schemaRef.current, defaultSchemaRef.current);
+    const found = computeCompletions(view.state, schemaRef.current, defaultSchemaRef.current, snippetsRef.current);
     if (found === null) {
       completionRef.current = null;
       setCompletion(null);
@@ -596,7 +641,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
           { key: "ArrowDown", run: () => moveCompletion(host, 1) },
           { key: "ArrowUp", run: () => moveCompletion(host, -1) },
           { key: "Enter", run: (view) => acceptCompletion(view) },
-          { key: "Tab", run: (view) => acceptCompletion(view) },
+          { key: "Tab", run: (view) => tabExpand(view) || acceptCompletion(view) },
           ...closeBracketsKeymap,
           ...defaultKeymap,
           ...historyKeymap,

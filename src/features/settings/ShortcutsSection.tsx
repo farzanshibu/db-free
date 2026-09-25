@@ -23,6 +23,7 @@ import { Kbd, KbdGroup } from "@/components/ui/kbd";
 const FIXED: readonly { keys: string; action: string }[] = [
   { keys: "Esc", action: "Close dialogs / cancel edit" },
   { keys: "Enter (in cell)", action: "Stage edit" },
+  { keys: "Tab (in editor)", action: "Expand snippet / next field / accept suggestion" },
   { keys: "Middle click (tab)", action: "Close tab" },
 ];
 

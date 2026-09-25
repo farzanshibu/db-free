@@ -23,6 +23,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
 import { ShortcutsSection } from "./ShortcutsSection";
+import { SnippetsSection } from "./SnippetsSection";
 
 const ACCENTS = [
   { value: "blue", label: "Blue" },
@@ -252,6 +253,8 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     </li>
                   ))}
                 </ul>
+                <Separator />
+                <SnippetsSection snippets={draft.snippets} onChange={(snippets) => patch({ snippets })} />
               </>
             ) : null}
             {section === "shortcuts" ? <ShortcutsSection bindings={draft.keybindings} onChange={(keybindings) => patch({ keybindings })} /> : null}
@@ -358,7 +361,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 //        objects inside the list fields — the replacer list filters every
 //        level, so a nested key missing from it would compare as equal).
 function sameSettings(a: AppSettings, b: AppSettings): boolean {
-  const nested = [...a.keybindings, ...b.keybindings].flatMap((k) => Object.keys(k));
+  const nested = [...a.keybindings, ...b.keybindings, ...a.snippets, ...b.snippets].flatMap((k) => Object.keys(k));
   const keys = [...new Set([...Object.keys(a), ...Object.keys(a.ai), ...Object.keys(a.nativeToolPaths), ...Object.keys(b.nativeToolPaths), ...nested])].sort();
   return JSON.stringify(a, keys) === JSON.stringify(b, keys);
 }
@@ -494,5 +497,6 @@ function defaultSettings(): AppSettings {
     ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false, autonomy: "ask_on_write" },
     nativeToolPaths: {},
     keybindings: [],
+    snippets: [],
   };
 }

@@ -50,6 +50,7 @@ UI component → src/lib/ipc.ts (client block) → #[tauri::command] (src-tauri/
 | Playground tools: vector search, search, metrics explorer, message viewer, pipeline builder, ledger history, graph view, pub/sub, XML viewer | `model/objects.rs` (`Tool`, request types), `Integration::{vector_search,search,query_range,history}` | `features/tools/*Tab.tsx` (`ToolTab.tsx` dispatches) |
 | Capability matrix (feature × engine) | `integrations::profile(family)` → `FamilyProfiles.gen.ts` | `features/engines/CapabilityMatrixPage.tsx` |
 | Settings (incl. AI keys) | `services/settings.rs` | `features/settings/SettingsPage.tsx` |
+| Keyboard shortcuts (rebindable) / editor snippets | `AppSettings.{keybindings,snippets}` | `src/lib/keymap.ts` + `stores/useShortcut.ts`, `src/lib/snippets.ts`, `features/settings/{Shortcuts,Snippets}Section.tsx` |
 | Command palette ⌘K | — | `features/palette/CommandPalette.tsx` |
 
 Boundaries with a single audited escape: `src/lib/ipc.ts` (`unknown`), `src/lib/json.ts` (`JSON.parse` any).
