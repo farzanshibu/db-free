@@ -7,8 +7,10 @@
 import { execSync } from "node:child_process";
 import { readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const root = new URL("..", import.meta.url).pathname;
+// fileURLToPath, not URL.pathname: on Windows the latter is "/D:/…".
+const root = fileURLToPath(new URL("..", import.meta.url));
 const outDir = join(root, "src/lib/bindings");
 mkdirSync(outDir, { recursive: true });
 
