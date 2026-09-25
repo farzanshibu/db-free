@@ -8,6 +8,7 @@ import { engineMeta } from "@/lib/engines";
 import { Markdown } from "@/features/chat/Markdown";
 import { pickSqlSavePath } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
+import { useShortcut } from "@/stores/useShortcut";
 import { AppSelect, Field } from "@/components/global/Field";
 import { EnvDot } from "@/components/global/Badge";
 import { IconButton } from "@/components/global/Button";
@@ -285,16 +286,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
     }
   }, [connection.engine, isSql, onChange, settings?.condenseSqlWhenFormatting, showError, sql]);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.shiftKey && e.altKey && e.key.toLowerCase() === "f") {
-        e.preventDefault();
-        doFormat();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [doFormat]);
+  useShortcut("format", doFormat);
 
   const doSave = async () => {
     try {

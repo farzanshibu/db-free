@@ -1,7 +1,8 @@
 // SOT: command-palette, cmd-k, quick-actions
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { tableKey, useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { useBackupDialog } from "@/features/backup/useBackupDialog";
+import { useShortcut } from "@/stores/useShortcut";
 import { Icon, type IconName } from "@/lib/icons";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { engineMeta } from "@/lib/engines";
@@ -36,16 +37,7 @@ export function CommandPalette() {
   const store = useWorkspace;
   const [query, setQuery] = useState("");
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        setOpen(!store.getState().paletteOpen);
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [setOpen, store]);
+  useShortcut("palette", () => setOpen(!store.getState().paletteOpen));
 
   const actions = useMemo<Action[]>(() => {
     const s = store.getState();
@@ -76,6 +68,7 @@ export function CommandPalette() {
     }
     list.push({ id: "connections", section: "navigation", label: "Connections", icon: "plug", run: () => s.goConnections() });
     list.push({ id: "settings", section: "settings", label: "Settings", icon: "settings", run: () => s.goSettings() });
+    list.push({ id: "shortcuts", section: "settings", label: "Keyboard shortcuts", hint: "Rebind keys, keybindings, hotkeys", icon: "hash", run: () => s.goSettingsSection("shortcuts") });
     list.push({ id: "capabilities", section: "settings", label: "Engine capabilities", hint: "Feature × engine matrix", icon: "grid", run: () => s.goCapabilities() });
     for (const c of connections) {
       list.push({ id: `conn:${c.id}`, section: "connections", label: c.name, hint: engineMeta(c.engine).label, icon: "database", leading: <EngineIcon engine={c.engine} size={16} />, run: () => s.selectConnection(c.id) });

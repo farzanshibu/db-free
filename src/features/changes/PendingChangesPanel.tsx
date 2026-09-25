@@ -4,6 +4,7 @@ import type { ChangePreview, StagedChange, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatCell } from "@/lib/format";
 import { tableKey, useWorkspace } from "@/stores/workspace";
+import { useShortcut } from "@/stores/useShortcut";
 import { Segmented } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
 import { Resizer } from "@/components/global/Resizer";
@@ -12,7 +13,7 @@ import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { Shortcut } from "@/components/global/Kbd";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 // Stable empty list: a selector must return the same reference for unchanged state.
@@ -87,17 +88,8 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
     }
   };
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
-        e.preventDefault();
-        void commit();
-      }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- commit reads latest state via closure each render
-  }, [changes, connectionId]);
+  // The hook keeps the latest handler in a ref, so `commit` sees current changes.
+  useShortcut("commit-changes", () => void commit());
 
   return (
     <aside className="relative flex shrink-0 flex-col glass-sidebar select-none" style={{ width }}>
@@ -170,10 +162,9 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
           disabled={changes.length === 0}
         >
           Commit All ({changes.length})
-          <KbdGroup className="ml-1">
-            <Kbd>⌘</Kbd>
-            <Kbd>S</Kbd>
-          </KbdGroup>
+          <span className="ml-1 inline-flex">
+            <Shortcut action="commit-changes" />
+          </span>
         </Button>
       </div>
     </aside>

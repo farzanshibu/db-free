@@ -10,6 +10,8 @@
 //        `KeyboardEvent.key`, with the named keys Enter, Tab, Escape, Space,
 //        ArrowUp/Down/Left/Right, Backspace, Delete, F1–F12.
 // WHERE: src/stores/useShortcut.ts (the hook), src/features/settings/SettingsPage.tsx
+import type { KeyBinding } from "@/lib/bindings";
+
 export type ShortcutAction =
   | "palette"
   | "run"
@@ -24,6 +26,9 @@ export type ShortcutAction =
 
 export type ShortcutGroup = "General" | "Editor" | "Tabs" | "Data";
 
+/// Display order of the groups on the Settings page.
+export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ["General", "Editor", "Tabs", "Data"];
+
 export interface ShortcutMeta {
   label: string;
   group: ShortcutGroup;
@@ -35,7 +40,7 @@ export const SHORTCUTS = {
   "commit-changes": { label: "Commit pending changes", group: "Data", keys: "Mod+S" },
   run: { label: "Run statement / selection", group: "Editor", keys: "Mod+Enter" },
   "run-all": { label: "Run whole script", group: "Editor", keys: "Mod+Shift+Enter" },
-  format: { label: "Format SQL", group: "Editor", keys: "Shift+Alt+F" },
+  format: { label: "Format SQL", group: "Editor", keys: "Alt+Shift+F" },
   "new-query": { label: "New query tab", group: "Tabs", keys: "Mod+T" },
   "close-tab": { label: "Close tab", group: "Tabs", keys: "Mod+W" },
   "reopen-tab": { label: "Reopen closed tab", group: "Tabs", keys: "Mod+Shift+T" },
@@ -49,15 +54,12 @@ export function isShortcutAction(value: string): value is ShortcutAction {
   return value in SHORTCUTS;
 }
 
-/// One override as stored in settings; an empty `keys` unbinds the action.
-export interface KeyOverride {
-  action: string;
-  keys: string;
-}
-
 export type Keymap = Record<ShortcutAction, string>;
 
-export function resolveKeymap(overrides: readonly KeyOverride[] | undefined): Keymap {
+// WHAT:  Registry defaults with the user's rebinds (AppSettings.keybindings) on top.
+// HOW:   An override naming no registered action is skipped, so a binding saved for
+//        an action a later build removed is harmless. An empty `keys` unbinds.
+export function resolveKeymap(overrides: readonly KeyBinding[] | undefined): Keymap {
   const map: Keymap = {
     palette: SHORTCUTS.palette.keys,
     run: SHORTCUTS.run.keys,
@@ -152,13 +154,48 @@ export function toCodeMirrorKey(chord: string): string | null {
   return parts.join("-");
 }
 
-/// "⌘ ⇧ T" on macOS, "Ctrl + Shift + T" elsewhere.
-export function displayChord(chord: string): string {
+/// The keycaps of a chord for the host platform: ["⌘", "⇧", "T"] on macOS,
+/// ["Ctrl", "Shift", "T"] elsewhere. Empty for an unbound action.
+export function chordParts(chord: string): string[] {
   const c = parseChord(chord);
-  if (!c) return "—";
+  if (!c) return [];
   const key = c.key.length === 1 ? c.key.toUpperCase() : c.key.charAt(0).toUpperCase() + c.key.slice(1);
   if (IS_MAC) {
-    return [c.ctrl ? "⌃" : "", c.alt ? "⌥" : "", c.shift ? "⇧" : "", c.mod || c.meta ? "⌘" : "", key === "Enter" ? "↩" : key].filter((p) => p.length > 0).join(" ");
+    return [c.ctrl ? "⌃" : "", c.alt ? "⌥" : "", c.shift ? "⇧" : "", c.mod || c.meta ? "⌘" : "", key === "Enter" ? "↩" : key].filter((p) => p.length > 0);
   }
-  return [c.mod || c.ctrl ? "Ctrl" : "", c.meta ? "Win" : "", c.alt ? "Alt" : "", c.shift ? "Shift" : "", key].filter((p) => p.length > 0).join(" + ");
+  return [c.mod || c.ctrl ? "Ctrl" : "", c.meta ? "Win" : "", c.alt ? "Alt" : "", c.shift ? "Shift" : "", key].filter((p) => p.length > 0);
+}
+
+/// "⌘ ⇧ T" on macOS, "Ctrl + Shift + T" elsewhere.
+export function displayChord(chord: string): string {
+  const parts = chordParts(chord);
+  if (parts.length === 0) return "—";
+  return parts.join(IS_MAC ? " " : " + ");
+}
+
+// WHAT:  For each action that shares its chord, the other actions on it.
+// WHY:   Two actions on one chord means only one of them ever fires (whichever
+//        listener runs first); the Settings page warns instead of guessing.
+export function conflictsOf(keymap: Keymap): Map<ShortcutAction, ShortcutAction[]> {
+  const byChord = new Map<string, ShortcutAction[]>();
+  for (const action of SHORTCUT_ACTIONS) {
+    const chord = keymap[action];
+    if (chord.length === 0) continue;
+    byChord.set(chord, [...(byChord.get(chord) ?? []), action]);
+  }
+  const out = new Map<ShortcutAction, ShortcutAction[]>();
+  for (const actions of byChord.values()) {
+    if (actions.length < 2) continue;
+    for (const action of actions) out.set(action, actions.filter((a) => a !== action));
+  }
+  return out;
+}
+
+// WHAT:  The override list after binding `action` to `keys` (null: back to the
+//        default). A chord equal to the default drops the override, so the
+//        stored list only ever holds real rebinds.
+export function withBinding(overrides: readonly KeyBinding[], action: ShortcutAction, keys: string | null): KeyBinding[] {
+  const rest = overrides.filter((o) => o.action !== action);
+  if (keys === null || normalizeChord(keys) === normalizeChord(SHORTCUTS[action].keys)) return rest;
+  return [...rest, { action, keys: normalizeChord(keys) }];
 }

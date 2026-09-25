@@ -1,6 +1,7 @@
 // SOT: use-shortcut, keymap-hook, global-shortcut-listener
 import { useEffect, useMemo, useRef } from "react";
 import { matchesChord, resolveKeymap, type Keymap, type ShortcutAction } from "@/lib/keymap";
+import { useWorkspace } from "@/stores/workspace";
 
 // WHAT:  The effective keymap, and a hook that runs a handler on an action's chord.
 // WHY:   Components name the action ("reopen-tab"), never the keys, so a
@@ -8,9 +9,10 @@ import { matchesChord, resolveKeymap, type Keymap, type ShortcutAction } from "@
 // HOW:   One window keydown listener per hook; the handler lives in a ref so a
 //        new closure each render does not re-register it. An empty chord
 //        (unbound action) never matches.
-// WHERE: src/lib/keymap.ts (registry and matching)
+// WHERE: src/lib/keymap.ts (registry and matching), AppSettings.keybindings
 export function useKeymap(): Keymap {
-  return useMemo(() => resolveKeymap(undefined), []);
+  const overrides = useWorkspace((s) => s.settings?.keybindings);
+  return useMemo(() => resolveKeymap(overrides), [overrides]);
 }
 
 export function useShortcut(action: ShortcutAction, handler: (event: KeyboardEvent) => void, enabled = true): void {

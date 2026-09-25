@@ -1,4 +1,4 @@
-// SOT: settings-page, preferences-ui, ai-settings-ui, shortcuts-list
+// SOT: settings-page, preferences-ui, ai-settings-ui
 import { useEffect, useState } from "react";
 import type {
   AgentAutonomy,
@@ -14,28 +14,15 @@ import { ipc, normalizeError, onUpdateProgress } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
-import { Icon, type IconName } from "@/lib/icons";
+import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-
-type Section = "general" | "themes" | "fonts" | "grid" | "editor" | "shortcuts" | "ai" | "security" | "updates" | "advanced";
-
-const SECTIONS: readonly { id: Section; label: string; icon: IconName }[] = [
-  { id: "general", label: "General", icon: "settings" },
-  { id: "themes", label: "Themes", icon: "eye" },
-  { id: "fonts", label: "Fonts", icon: "text" },
-  { id: "grid", label: "Data Grid", icon: "table" },
-  { id: "editor", label: "Editor", icon: "terminal" },
-  { id: "shortcuts", label: "Shortcuts", icon: "hash" },
-  { id: "ai", label: "AI", icon: "braces" },
-  { id: "security", label: "Security & Privacy", icon: "lock" },
-  { id: "updates", label: "Updates", icon: "download" },
-  { id: "advanced", label: "Advanced", icon: "columns" },
-];
+import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
+import { ShortcutsSection } from "./ShortcutsSection";
 
 const ACCENTS = [
   { value: "blue", label: "Blue" },
@@ -62,16 +49,6 @@ const AUTONOMY: readonly { value: AgentAutonomy; label: string }[] = [
   { value: "full", label: "Write without asking" },
 ];
 
-const SHORTCUTS: readonly { keys: string; action: string }[] = [
-  { keys: "⌘/Ctrl + K", action: "Command palette" },
-  { keys: "⌘/Ctrl + Enter", action: "Run query" },
-  { keys: "⌘/Ctrl + S", action: "Commit pending changes" },
-  { keys: "⇧ + ⌥ + F", action: "Format SQL" },
-  { keys: "Esc", action: "Close dialogs / cancel edit" },
-  { keys: "Enter (in cell)", action: "Stage edit" },
-  { keys: "Middle click (tab)", action: "Close tab" },
-];
-
 // WHAT:  Settings page mirroring DB Manager's sections; edits a draft of AppSettings.
 //        A floating dock appears while the draft differs from the saved settings
 //        (Reset / Save). The AI key is written separately and never echoed.
@@ -86,7 +63,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
   const goConnections = useWorkspace((s) => s.goConnections);
   const showError = useWorkspace((s) => s.showError);
   const showInfo = useWorkspace((s) => s.showInfo);
-  const [section, setSection] = useState<Section>("general");
+  // The section lives in the store's Page, so ⌘K can open Settings at one.
+  const section = useWorkspace((s) => (s.page.kind === "settings" ? (s.page.section ?? "general") : "general"));
+  const setSection = useWorkspace((s) => s.goSettingsSection);
   const [draft, setDraft] = useState<AppSettings | null>(initial);
   const [apiKey, setApiKey] = useState("");
   const [clearKey, setClearKey] = useState(false);
@@ -143,7 +122,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
       </div>
       <div className="flex min-h-0 flex-1">
         <nav className="w-56 shrink-0 space-y-0.5 px-2.5 py-4 glass-sidebar" aria-label="Settings sections">
-          {SECTIONS.map((s) => (
+          {SETTINGS_SECTIONS.map((s) => (
             <Button
               key={s.id}
               variant="ghost"
@@ -275,19 +254,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 </ul>
               </>
             ) : null}
-            {section === "shortcuts" ? (
-              <>
-                <h2 className="text-sm font-semibold text-foreground">Shortcuts</h2>
-                <ul className="divide-y divide-separator rounded-md border border-border bg-surface">
-                  {SHORTCUTS.map((s) => (
-                    <li key={s.keys} className="flex items-center px-3 py-2 text-[13px]">
-                      <span className="text-foreground">{s.action}</span>
-                      <span className="ml-auto font-mono text-xs text-muted">{s.keys}</span>
-                    </li>
-                  ))}
-                </ul>
-              </>
-            ) : null}
+            {section === "shortcuts" ? <ShortcutsSection bindings={draft.keybindings} onChange={(keybindings) => patch({ keybindings })} /> : null}
             {section === "ai" ? (
               <>
                 <h2 className="text-sm font-semibold text-foreground">AI (bring your own key)</h2>
@@ -387,9 +354,12 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 }
 
 // WHAT:  Structural equality for the draft vs saved settings; a fixed key list
-//        keeps JSON.stringify order-independent (top level and `ai`).
+//        keeps JSON.stringify order-independent (top level, `ai`, and the
+//        objects inside the list fields — the replacer list filters every
+//        level, so a nested key missing from it would compare as equal).
 function sameSettings(a: AppSettings, b: AppSettings): boolean {
-  const keys = [...Object.keys(a), ...Object.keys(a.ai), ...Object.keys(a.nativeToolPaths), ...Object.keys(b.nativeToolPaths)].sort();
+  const nested = [...a.keybindings, ...b.keybindings].flatMap((k) => Object.keys(k));
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(a.ai), ...Object.keys(a.nativeToolPaths), ...Object.keys(b.nativeToolPaths), ...nested])].sort();
   return JSON.stringify(a, keys) === JSON.stringify(b, keys);
 }
 
@@ -523,5 +493,6 @@ function defaultSettings(): AppSettings {
     crashReportsOptIn: false,
     ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false, autonomy: "ask_on_write" },
     nativeToolPaths: {},
+    keybindings: [],
   };
 }

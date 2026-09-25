@@ -23,6 +23,7 @@ import type {
 import { errorMessage, ipc, normalizeError } from "@/lib/ipc";
 import type { Density } from "@/lib/format";
 import type { EnginePreset } from "@/lib/engines";
+import type { SettingsSection } from "@/lib/settingsSections";
 import { toast } from "@/components/ui/sonner";
 import { readStoredTabs, storable, writeStoredTabs } from "./tabPersistence";
 
@@ -33,7 +34,7 @@ export type Page =
   | { kind: "connection-picker" }
   | { kind: "connection-form"; editingId: string | null; preset?: EnginePreset; draft?: ConnectionInput }
   | { kind: "workspace" }
-  | { kind: "settings" }
+  | { kind: "settings"; section?: SettingsSection }
   | { kind: "capabilities" };
 
 export type Tab =
@@ -99,6 +100,8 @@ interface WorkspaceState {
   goPicker: () => void;
   goWorkspace: () => void;
   goSettings: () => void;
+  /// Settings open at one section (the page nav, ⌘K "Keyboard shortcuts").
+  goSettingsSection: (section: SettingsSection) => void;
   goCapabilities: () => void;
   openForm: (editingId?: string, preset?: EnginePreset, draft?: ConnectionInput) => void;
   setSidebar: (mode: SidebarMode) => void;
@@ -298,6 +301,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   goPicker: () => set({ page: { kind: "connection-picker" } }),
   goWorkspace: () => set({ page: { kind: "workspace" } }),
   goSettings: () => set({ page: { kind: "settings" } }),
+  goSettingsSection: (section) => set({ page: { kind: "settings", section } }),
   goCapabilities: () => set({ page: { kind: "capabilities" } }),
   openForm: (editingId, preset, draft) =>
     set({ page: { kind: "connection-form", editingId: editingId ?? null, ...(preset ? { preset } : {}), ...(draft ? { draft } : {}) } }),

@@ -19,6 +19,7 @@
     inspectorTabs: ["columns", "indexes", "keys"],
     confirmDestructive: true, crashReportsOptIn: false,
     ai: { provider: "openai", model: "gpt-4o-mini", baseUrl: null, hasApiKey: false, autonomy: "ask" },
+    keybindings: [],
   };
 
   function conn(id, name, engine, environment, host, port, database) {

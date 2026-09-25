@@ -1,4 +1,4 @@
-// SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope
+// SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope, key-bindings
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -69,6 +69,20 @@ impl Default for AiSettings {
     }
 }
 
+// WHAT:  One user override of a keyboard shortcut: which action, which chord.
+// WHY:   Defaults live in the UI registry; only the rebinds are stored, so a new
+//        default shipped later still reaches everyone who never touched it.
+// HOW:   `action` is a `ShortcutAction` id and `keys` a chord like "Mod+Shift+T";
+//        an empty `keys` unbinds the action. Unknown actions are ignored on read.
+// WHERE: src/lib/keymap.ts (registry, `resolveKeymap`)
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct KeyBinding {
+    pub action: String,
+    pub keys: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase", default)]
 #[ts(export)]
@@ -102,6 +116,8 @@ pub struct AppSettings {
     /// Settings → Advanced: where pg_dump, mysqldump, mongodump… live when they
     /// are not on PATH. A file, or the directory holding it. Absent = PATH.
     pub native_tool_paths: BTreeMap<crate::model::NativeTool, String>,
+    /// Shortcut rebinds on top of the registry defaults (empty: every default).
+    pub keybindings: Vec<KeyBinding>,
 }
 
 impl Default for AppSettings {
@@ -131,6 +147,23 @@ impl Default for AppSettings {
             crash_reports_opt_in: false,
             ai: AiSettings::default(),
             native_tool_paths: BTreeMap::new(),
+            keybindings: Vec::new(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WHAT:  Settings saved by an older build (no field added since) still load,
+    //        with every new field at its default.
+    #[test]
+    fn legacy_settings_fill_new_fields_with_defaults() {
+        let legacy = r#"{"accent":"green","uiFontSize":14}"#;
+        let parsed: AppSettings = serde_json::from_str(legacy).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(parsed.accent, "green");
+        assert_eq!(parsed.ui_font_size, 14);
+        assert!(parsed.keybindings.is_empty());
     }
 }

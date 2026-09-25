@@ -12,6 +12,7 @@ import {
   GutterMarker,
   Decoration,
   type DecorationSet,
+  type KeyBinding as CmKeyBinding,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { closeBrackets, closeBracketsKeymap } from "@codemirror/autocomplete";
@@ -24,6 +25,8 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Icon } from "@/lib/icons";
 import type { IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { toCodeMirrorKey, type Keymap } from "@/lib/keymap";
+import { useKeymap } from "@/stores/useShortcut";
 
 // WHAT:  The one statement a run will send, and where it came from.
 // WHY:   PRD §4.3 — a tab holds a script; running the whole buffer when the caret
@@ -292,6 +295,25 @@ interface MutableRunHandler {
   current: (target: RunTarget) => void;
 }
 
+interface MutableRunAllHandler {
+  current: (() => void) | undefined;
+}
+
+// WHAT:  Run and Run all on the chords the user bound them to (Settings → Shortcuts).
+// WHY:   These two live inside CodeMirror, not on a window listener, because the
+//        editor must consume the key before its own Enter handling inserts a newline.
+// HOW:   Lives in a Compartment; a rebind reconfigures it without rebuilding the
+//        editor. An unbound action (empty chord) simply has no entry.
+// WHERE: src/lib/keymap.ts (toCodeMirrorKey), src/stores/useShortcut.ts (useKeymap)
+function runKeysFor(keys: Keymap, onRun: MutableRunHandler, onRunAll: MutableRunAllHandler): Extension {
+  const bindings: CmKeyBinding[] = [];
+  const run = toCodeMirrorKey(keys.run);
+  if (run !== null) bindings.push({ key: run, run: (view) => { onRun.current(targetOf(view.state)); return true; } });
+  const runAll = toCodeMirrorKey(keys["run-all"]);
+  if (runAll !== null) bindings.push({ key: runAll, run: (view) => { (onRunAll.current ?? (() => onRun.current(wholeDoc(view.state))))(); return true; } });
+  return keymap.of(bindings);
+}
+
 function wholeDoc(state: EditorState): RunTarget {
   return { text: state.doc.toString(), from: 0, to: state.doc.length, index: 0, total: 0, selected: false };
 }
@@ -459,6 +481,9 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
   const onRunAllRef = useRef(onRunAll);
   const onTargetRef = useRef(onTargetChange);
   const gutterCompartment = useRef(new Compartment());
+  const runKeysCompartment = useRef(new Compartment());
+  const keys = useKeymap();
+  const keysRef = useRef(keys);
   const runGutter = useRef<Extension | null>(null);
   const lastTarget = useRef<RunTarget | null>(null);
   const [completion, setCompletion] = useState<CompletionSnapshot | null>(null);
@@ -565,14 +590,13 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
         history(),
         bracketMatching(),
         closeBrackets(),
+        runKeysCompartment.current.of(runKeysFor(keysRef.current, onRunRef, onRunAllRef)),
         keymap.of([
           { key: "Escape", run: () => { if (completionRef.current === null) return false; hideCompletion(); return true; } },
           { key: "ArrowDown", run: () => moveCompletion(host, 1) },
           { key: "ArrowUp", run: () => moveCompletion(host, -1) },
           { key: "Enter", run: (view) => acceptCompletion(view) },
           { key: "Tab", run: (view) => acceptCompletion(view) },
-          { key: "Mod-Enter", run: (view) => { onRunRef.current(targetOf(view.state)); return true; } },
-          { key: "Mod-Shift-Enter", run: (view) => { (onRunAllRef.current ?? (() => onRunRef.current(wholeDoc(view.state))))(); return true; } },
           ...closeBracketsKeymap,
           ...defaultKeymap,
           ...historyKeymap,
@@ -614,6 +638,14 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     if (!view) return;
     view.dispatch({ effects: langCompartment.current.reconfigure(sqlConfig(engine, schema, defaultSchema)) });
   }, [engine, schema, defaultSchema]);
+
+  // A rebind in Settings reaches an open editor without remounting it.
+  useEffect(() => {
+    keysRef.current = keys;
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: runKeysCompartment.current.reconfigure(runKeysFor(keys, onRunRef, onRunAllRef)) });
+  }, [keys]);
 
   useEffect(() => {
     const view = viewRef.current;
