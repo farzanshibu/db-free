@@ -7,7 +7,7 @@ import { DENSITIES, formatCell, formatCount } from "@/lib/format";
 import { engineMeta, isObjectStorageEngine } from "@/lib/engines";
 import { pickSaveFile } from "@/lib/native";
 import { tableKey, useWorkspace } from "@/stores/workspace";
-import { DataGrid, type GridColumn, type StagedCell } from "./DataGrid";
+import { DataGrid, type CellEdit, type GridColumn, type StagedCell } from "./DataGrid";
 import type { LookupRow } from "@/components/global/ValueEditor";
 import { FILTER_OPS, FilterPopover } from "./FilterPopover";
 import { AppSelect, Check } from "@/components/global/Field";
@@ -318,40 +318,57 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
     }
   };
 
-  const onCellEdit = (rowIndex: number, colIndex: number, next: Value) => {
-    const column = columns[colIndex];
-    if (!column) return;
-    if (rowIndex >= rows.length) {
-      // Ghost row: the edit rewrites the staged insert itself (same id → replaced in place).
+  // WHAT:  Applies one or many cell edits (inline edit, paste, fill) as a batch.
+  // WHY:   A 50-cell paste must be one commit in direct mode and one staging
+  //        pass otherwise; and several edits to the same staged insert have to
+  //        merge, not overwrite each other from a stale `inserts` snapshot.
+  const onCellsEdit = (edits: readonly CellEdit[]) => {
+    const updates: StagedChange[] = [];
+    const insertEdits = new Map<number, Map<string, Value>>();
+    let blocked: string | null = null;
+    for (const { row: rowIndex, col: colIndex, value: next } of edits) {
+      const column = columns[colIndex];
+      if (!column) continue;
+      if (rowIndex >= rows.length) {
+        // Ghost row: the edit rewrites the staged insert itself (same id → replaced in place).
+        const byColumn = insertEdits.get(rowIndex) ?? new Map<string, Value>();
+        byColumn.set(column.name, next);
+        insertEdits.set(rowIndex, byColumn);
+        continue;
+      }
+      if (deletedRows.has(rowIndex)) {
+        blocked = "This row is staged for deletion. Undo the delete in Pending Changes first.";
+        continue;
+      }
+      const row = rows[rowIndex];
+      if (!row) continue;
+      if (pkColumns.length === 0) {
+        blocked = "This table has no primary key, so rows cannot be edited safely.";
+        break;
+      }
+      const old = row[colIndex] ?? { t: "null" };
+      const key = keyOf(row);
+      if (JSON.stringify(old) === JSON.stringify(next)) {
+        // Back to the original value: drop any staged edit for this cell instead of adding one.
+        const existing = pending.find((c) => c.kind === "update" && tableKey(c.table) === tableKey(table) && c.column === column.name && JSON.stringify(c.key) === JSON.stringify(key));
+        if (existing) unstageChange(connectionId, existing.id);
+        continue;
+      }
+      updates.push({ kind: "update", id: nextChangeId(), table, key, column: column.name, old, new: next });
+    }
+    for (const [rowIndex, byColumn] of insertEdits) {
       const insert = inserts[rowIndex - rows.length];
-      if (!insert) return;
+      if (!insert) continue;
       const values = columns.flatMap((col) => {
-        if (col.name === column.name) return [{ column: col.name, value: next }];
+        const edited = byColumn.get(col.name);
+        if (edited !== undefined) return [{ column: col.name, value: edited }];
         const existing = insert.values.find((v) => v.column === col.name);
         return existing ? [existing] : [];
       });
       stageChange(connectionId, { ...insert, values });
-      return;
     }
-    if (deletedRows.has(rowIndex)) {
-      showError("This row is staged for deletion. Undo the delete in Pending Changes first.");
-      return;
-    }
-    const row = rows[rowIndex];
-    if (!row) return;
-    if (pkColumns.length === 0) {
-      showError("This table has no primary key, so rows cannot be edited safely.");
-      return;
-    }
-    const old = row[colIndex] ?? { t: "null" };
-    const key = keyOf(row);
-    if (JSON.stringify(old) === JSON.stringify(next)) {
-      // Back to the original value: drop any staged edit for this cell instead of adding one.
-      const existing = pending.find((c) => c.kind === "update" && tableKey(c.table) === tableKey(table) && c.column === column.name && JSON.stringify(c.key) === JSON.stringify(key));
-      if (existing) unstageChange(connectionId, existing.id);
-      return;
-    }
-    void applyChanges([{ kind: "update", id: nextChangeId(), table, key, column: column.name, old, new: next }]);
+    if (blocked !== null) showError(blocked);
+    if (updates.length > 0) void applyChanges(updates);
   };
 
   const deleteSelected = () => {
@@ -680,7 +697,13 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
               onToggleAll={() => setSelectedRows((s) => (s.size === allRows.length ? new Set() : new Set(allRows.map((_, i) => i))))}
               onCellSelect={(row, col) => setCell({ row, col: pageColumn(col) })}
               selected={cell}
-              {...(editable ? { onCellEdit: (row: number, col: number, next: Value) => onCellEdit(row, pageColumn(col), next) } : {})}
+              {...(editable
+                ? {
+                    onCellEdit: (row: number, col: number, next: Value) => onCellsEdit([{ row, col: pageColumn(col), value: next }]),
+                    onCellsEdit: (edits: readonly CellEdit[]) => onCellsEdit(edits.map((e) => ({ ...e, col: pageColumn(e.col) }))),
+                  }
+                : {})}
+              onPasteNotice={(message) => showInfo(message)}
               staged={staged}
               deletedRows={deletedRows}
               insertedFrom={rows.length}

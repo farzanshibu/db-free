@@ -124,6 +124,7 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
             rowCount={current.result.rows.length}
             getRow={(i) => current.result.rows[i]}
             rowHeight={DENSITIES[density].rowHeight}
+            onCopied={(what) => showInfo(`${what} copied to the clipboard.`)}
           />
         )}
       </div>

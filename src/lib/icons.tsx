@@ -16,6 +16,7 @@ import {
   BinaryCodeIcon,
   Calendar03Icon,
   Cancel01Icon,
+  ClipboardPasteIcon,
   Clock01Icon,
   ComputerTerminal01Icon,
   Copy01Icon,
@@ -149,6 +150,7 @@ export type IconName =
   | "info"
   | "clock"
   | "copy"
+  | "clipboard"
   | "expand"
   | "collapse"
   | "function"
@@ -249,6 +251,7 @@ const GLYPHS: Record<IconName, IconSvgElement> = {
   info: InformationCircleIcon,
   clock: Clock01Icon,
   copy: Copy01Icon,
+  clipboard: ClipboardPasteIcon,
   expand: ArrowExpand01Icon,
   collapse: ArrowShrink01Icon,
   function: FunctionIcon,

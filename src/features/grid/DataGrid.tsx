@@ -1,9 +1,9 @@
-// SOT: data-grid, virtualized-grid, grid-cell-rendering, column-sort-header, column-resize, row-selection, inline-cell-edit, foreign-key-link, change-highlighting
-import { useEffect, useReducer, useRef, useState, type MouseEvent as ReactMouseEvent } from "react";
+// SOT: data-grid, virtualized-grid, grid-cell-rendering, column-sort-header, column-resize, row-selection, inline-cell-edit, foreign-key-link, change-highlighting, drag-select, grid-copy-paste
+import { useEffect, useReducer, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FilterRule, SortRule, Value } from "@/lib/bindings";
 import { cellClass, formatCell } from "@/lib/format";
-import { fieldKind } from "@/lib/fields";
+import { fieldKind, parseEdited } from "@/lib/fields";
 import { Icon, typeIcon } from "@/lib/icons";
 import { Check } from "@/components/global/Field";
 import { CellEditor, type LookupRow } from "@/components/global/ValueEditor";
@@ -12,6 +12,7 @@ import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu"
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { bounds, cellCount, clipboardText, inBounds, parseTsv, toTsv, type CellPos, type CellRange, type RangeBounds } from "./cellRange";
 
 export interface GridColumn {
   name: string;
@@ -25,6 +26,13 @@ export interface GridColumn {
 export interface StagedCell {
   value: Value;
   old: Value;
+}
+
+/// One cell write from a paste: grid coordinates and the parsed value.
+export interface CellEdit {
+  row: number;
+  col: number;
+  value: Value;
 }
 
 interface DataGridProps {
@@ -42,6 +50,11 @@ interface DataGridProps {
   onToggleAll?: () => void;
   /// Present = cells are editable (double-click). Receives the edited Value.
   onCellEdit?: (rowIndex: number, colIndex: number, next: Value) => void;
+  /// Batch form of onCellEdit for a paste: one call, so the owner stages or
+  /// commits every pasted cell together. Falls back to onCellEdit per cell.
+  onCellsEdit?: (edits: readonly CellEdit[]) => void;
+  /// Feedback for a paste (how many cells, or why nothing was pasted).
+  onPasteNotice?: (message: string) => void;
   /// Cells with a staged edit render highlighted with the staged value ("row:col" keys).
   staged?: ReadonlyMap<string, StagedCell>;
   /// Rows staged for deletion: red tint, struck through, not editable.
@@ -105,6 +118,10 @@ const HANDLE_WIDTH = 12;
 //        Column resize: a Resizer straddles each header's right edge; widths
 //        are keyed by column name so they survive a refetch, double-click
 //        restores the type-based estimate.
+//        Range selection: press and drag across cells (Shift+click or
+//        Shift+arrows extend, Ctrl+A selects all). Ctrl+C copies the range as
+//        TSV; Ctrl+V pastes TSV from the top-left cell of the range (a single
+//        value fills the whole range) when the owner accepts edits.
 // WHERE: src/features/grid/TableTab.tsx, src/features/editor/ResultsPane.tsx
 export function DataGrid({
   columns,
@@ -120,6 +137,8 @@ export function DataGrid({
   onToggleRow,
   onToggleAll,
   onCellEdit,
+  onCellsEdit,
+  onPasteNotice,
   staged,
   deletedRows,
   insertedFrom,
@@ -247,6 +266,166 @@ export function DataGrid({
     onCopied?.(what);
   };
 
+  // WHAT:  Rectangular cell range in grid coordinates, driven by press-drag.
+  // HOW:   mousedown sets the anchor, mouseenter while the button is held
+  //        moves the focus, a window mouseup ends the drag (the pointer may be
+  //        released outside the grid). A different column set drops the range.
+  const [range, setRange] = useState<CellRange | null>(null);
+  const dragging = useRef(false);
+  const columnKey = columns.map((c) => c.name).join("\u0000");
+  useEffect(() => {
+    setRange(null);
+  }, [columnKey]);
+  useEffect(() => {
+    const up = () => {
+      dragging.current = false;
+    };
+    window.addEventListener("mouseup", up);
+    return () => window.removeEventListener("mouseup", up);
+  }, []);
+
+  const canPaste = onCellsEdit !== undefined || onCellEdit !== undefined;
+  const rangeBounds: RangeBounds | null = range ? bounds(range) : null;
+
+  const startRange = (event: ReactMouseEvent, pos: CellPos) => {
+    if (event.button !== 0 || editing !== null) return;
+    parentRef.current?.focus({ preventScroll: true });
+    setRange((r) => (event.shiftKey && r ? { anchor: r.anchor, focus: pos } : { anchor: pos, focus: pos }));
+    dragging.current = true;
+  };
+  const extendRange = (pos: CellPos) => {
+    if (!dragging.current) return;
+    setRange((r) => (r && (r.focus.row !== pos.row || r.focus.col !== pos.col) ? { anchor: r.anchor, focus: pos } : r));
+  };
+
+  /// Scrolls the grid while a drag holds the pointer near an edge, so a range
+  /// can grow past what is on screen.
+  const autoScroll = (event: ReactMouseEvent) => {
+    const node = parentRef.current;
+    if (!dragging.current || !node) return;
+    const box = node.getBoundingClientRect();
+    const edge = 28;
+    const dy = event.clientY > box.bottom - edge ? 18 : event.clientY < box.top + HEADER_HEIGHT + edge ? -18 : 0;
+    const dx = event.clientX > box.right - edge ? 24 : event.clientX < box.left + gutter + edge ? -24 : 0;
+    if (dx !== 0 || dy !== 0) node.scrollBy(dx, dy);
+  };
+
+  const rangeText = (b: RangeBounds, withHeaders: boolean): string => {
+    const lines: string[][] = withHeaders ? [columns.slice(b.left, b.right + 1).map((c) => c.name)] : [];
+    for (let r = b.top; r <= b.bottom; r += 1) {
+      const row = getRow(r);
+      const line: string[] = [];
+      for (let c = b.left; c <= b.right; c += 1) line.push(clipboardText(staged?.get(`${r}:${c}`)?.value ?? row?.[c]));
+      lines.push(line);
+    }
+    return toTsv(lines);
+  };
+  const rangeLabel = (b: RangeBounds) => (cellCount(b) === 1 ? "Value" : `${b.bottom - b.top + 1} × ${b.right - b.left + 1} cells`);
+
+  // WHAT:  Writes clipboard TSV into the grid from the range's top-left cell.
+  // HOW:   A single value fills the whole range. Cells that cannot take a
+  //        value (past the last row/column, staged deletes, byte columns, rows
+  //        not loaded yet) are skipped; text is parsed per column type exactly
+  //        as the inline editor does.
+  const pasteText = (text: string, target: RangeBounds | null = rangeBounds) => {
+    if (!target || !canPaste) return;
+    const grid = parseTsv(text);
+    const first = grid[0];
+    if (first === undefined) return;
+    const single = grid.length === 1 && first.length === 1;
+    const height = single ? target.bottom - target.top + 1 : grid.length;
+    const width = single ? target.right - target.left + 1 : Math.max(...grid.map((r) => r.length));
+    const edits: CellEdit[] = [];
+    let skipped = 0;
+    for (let r = 0; r < height; r += 1) {
+      for (let c = 0; c < width; c += 1) {
+        const row = target.top + r;
+        const col = target.left + c;
+        const cellText = single ? first[0] : grid[r]?.[c];
+        const column = columns[col];
+        if (cellText === undefined || column === undefined || row >= rowCount) continue;
+        const current = staged?.get(`${row}:${col}`)?.value ?? getRow(row)?.[col];
+        if (current === undefined || deletedRows?.has(row) || fieldKind(column.typeName, current) === "bytes") {
+          skipped += 1;
+          continue;
+        }
+        edits.push({ row, col, value: parseEdited(cellText, column.typeName, current) });
+      }
+    }
+    if (edits.length === 0) {
+      onPasteNotice?.("Nothing to paste into here.");
+      return;
+    }
+    if (onCellsEdit) onCellsEdit(edits);
+    else for (const e of edits) onCellEdit?.(e.row, e.col, e.value);
+    setRange({
+      anchor: { row: target.top, col: target.left },
+      focus: { row: Math.min(rowCount - 1, target.top + height - 1), col: Math.min(columns.length - 1, target.left + width - 1) },
+    });
+    onPasteNotice?.(`Pasted ${edits.length} cell(s)${skipped > 0 ? `, skipped ${skipped}` : ""}.`);
+  };
+
+  /// Keyboard and clipboard events only belong to the grid when they come from
+  /// the grid itself: not from the inline editor, and not from a portalled
+  /// menu or dialog whose React events still bubble up through here.
+  const ownsEvent = (event: { target: EventTarget; currentTarget: HTMLElement }) => {
+    const t = event.target;
+    if (!(t instanceof HTMLElement) || !event.currentTarget.contains(t)) return false;
+    return editing === null && !t.isContentEditable && t.tagName !== "INPUT" && t.tagName !== "TEXTAREA";
+  };
+
+  const onGridCopy = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (!rangeBounds || !ownsEvent(event)) return;
+    event.preventDefault();
+    event.clipboardData.setData("text/plain", rangeText(rangeBounds, false));
+    onCopied?.(rangeLabel(rangeBounds));
+  };
+  const onGridPaste = (event: ReactClipboardEvent<HTMLDivElement>) => {
+    if (!rangeBounds || !canPaste || !ownsEvent(event)) return;
+    const text = event.clipboardData.getData("text/plain");
+    if (text.length === 0) return;
+    event.preventDefault();
+    pasteText(text);
+  };
+
+  const onGridKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!ownsEvent(event) || rowCount === 0 || columns.length === 0) return;
+    const mod = event.ctrlKey || event.metaKey;
+    if (mod && event.key.toLowerCase() === "a") {
+      event.preventDefault();
+      setRange({ anchor: { row: 0, col: 0 }, focus: { row: rowCount - 1, col: columns.length - 1 } });
+      return;
+    }
+    if (event.key === "Escape" && range) {
+      setRange(null);
+      return;
+    }
+    const step: Partial<Record<string, CellPos>> = { ArrowUp: { row: -1, col: 0 }, ArrowDown: { row: 1, col: 0 }, ArrowLeft: { row: 0, col: -1 }, ArrowRight: { row: 0, col: 1 } };
+    const move = step[event.key];
+    if (!move || !range) return;
+    event.preventDefault();
+    const focus = {
+      row: Math.min(rowCount - 1, Math.max(0, range.focus.row + move.row)),
+      col: Math.min(columns.length - 1, Math.max(0, range.focus.col + move.col)),
+    };
+    setRange(event.shiftKey ? { anchor: range.anchor, focus } : { anchor: focus, focus });
+    if (!event.shiftKey) onCellSelect?.(focus.row, focus.col);
+    rowVirtualizer.scrollToIndex(focus.row, { align: "auto" });
+    colVirtualizer.scrollToIndex(focus.col, { align: "auto" });
+  };
+
+  /// Excel-style outline: each range cell draws only the edges on the range border.
+  const rangeEdge = (b: RangeBounds, row: number, col: number): CSSProperties => {
+    const line = "var(--color-accent)";
+    const edges = [
+      row === b.top ? `inset 0 1px 0 ${line}` : null,
+      row === b.bottom ? `inset 0 -1px 0 ${line}` : null,
+      col === b.left ? `inset 1px 0 0 ${line}` : null,
+      col === b.right ? `inset -1px 0 0 ${line}` : null,
+    ].filter((e): e is string => e !== null);
+    return edges.length > 0 ? { boxShadow: edges.join(", ") } : {};
+  };
+
   /// Filter/sort entries are the same for a header and a cell; the cell adds the
   /// value-bound ones because it knows which value was clicked.
   const headerEntries = (column: GridColumn): MenuEntry[] => [
@@ -263,6 +442,7 @@ export function DataGrid({
           { id: "filter-not-null", label: `${column.name} is not NULL`, icon: "filter", group: "filter" },
         ] satisfies MenuEntry[])
       : []),
+    { id: "select-column", label: "Select column", icon: "columns", group: "copy", disabled: rowCount === 0 },
     { id: "copy-column", label: "Copy column name", icon: "copy", group: "copy" },
     { id: "fit-width", label: "Fit column to content", icon: "columns", group: "copy" },
     { id: "reset-width", label: "Reset column width", icon: "columns", group: "copy" },
@@ -275,7 +455,10 @@ export function DataGrid({
       else if (id === "sort-clear") onClearSort?.();
       else if (id === "filter-null") onFilter?.({ column: column.name, op: "is_null", value: "" });
       else if (id === "filter-not-null") onFilter?.({ column: column.name, op: "is_not_null", value: "" });
-      else if (id === "copy-column") copy(column.name, "Column name");
+      else if (id === "select-column") {
+        setRange({ anchor: { row: 0, col: index }, focus: { row: rowCount - 1, col: index } });
+        parentRef.current?.focus({ preventScroll: true });
+      } else if (id === "copy-column") copy(column.name, "Column name");
       else if (id === "fit-width") fitColumn(column, index);
       else if (id === "reset-width") resetColumn(column, index);
     });
@@ -286,7 +469,19 @@ export function DataGrid({
     const isNull = value?.t === "null";
     const short = text.length > 24 ? `${text.slice(0, 24)}…` : text;
     const filterable = onFilter !== undefined && !isNull;
+    // Right-clicking inside a multi-cell range keeps it (the menu acts on it);
+    // anywhere else the clicked cell becomes the range.
+    const keep = rangeBounds !== null && cellCount(rangeBounds) > 1 && inBounds(rangeBounds, rowIndex, colIndex);
+    const target: RangeBounds = keep ? rangeBounds : { top: rowIndex, bottom: rowIndex, left: colIndex, right: colIndex };
+    if (!keep) setRange({ anchor: { row: rowIndex, col: colIndex }, focus: { row: rowIndex, col: colIndex } });
     const entries: MenuEntry[] = [
+      ...(keep
+        ? ([
+            { id: "copy-range", label: `Copy ${rangeLabel(target)}  (Ctrl+C)`, icon: "copy" },
+            { id: "copy-range-headers", label: "Copy selection with headers", icon: "copy" },
+          ] satisfies MenuEntry[])
+        : []),
+      ...(canPaste ? ([{ id: "paste", label: "Paste  (Ctrl+V)", icon: "clipboard" }] satisfies MenuEntry[]) : []),
       { id: "copy-value", label: "Copy value", icon: "copy" },
       { id: "copy-row-json", label: "Copy row as JSON", icon: "braces" },
       { id: "copy-row-csv", label: "Copy row as CSV", icon: "rows" },
@@ -329,7 +524,13 @@ export function DataGrid({
     onCellSelect?.(rowIndex, colIndex);
     menu.open(event, entries, (id) => {
       const row = getRow(rowIndex);
-      if (id === "copy-value") copy(text, "Value");
+      if (id === "copy-range") copy(rangeText(target, false), rangeLabel(target));
+      else if (id === "copy-range-headers") copy(rangeText(target, true), rangeLabel(target));
+      else if (id === "paste") {
+        // The menu path has no paste event to read from, so it asks the
+        // Clipboard API; the webview may refuse, and Ctrl+V always works.
+        navigator.clipboard.readText().then((t) => { pasteText(t, target); }, () => onPasteNotice?.("Clipboard could not be read here. Use Ctrl+V."));
+      } else if (id === "copy-value") copy(text, "Value");
       else if (id === "copy-row-json") copy(JSON.stringify(Object.fromEntries(columns.map((c, i) => [c.name, row?.[i] === undefined ? null : formatCell(row[i]).text])), null, 2), "Row");
       else if (id === "copy-row-csv") copy(columns.map((_, i) => csvCell(row?.[i])).join(","), "Row");
       else if (id === "filter-eq") onFilter?.({ column: column.name, op: "eq", value: text });
@@ -361,7 +562,17 @@ export function DataGrid({
   const someSelected = selectable && selectedRows.size > 0 && !allSelected;
 
   return (
-    <ScrollArea ref={parentRef} orientation="horizontal" className="h-full w-full overflow-y-auto bg-background/60 font-mono text-[12px] select-none">
+    <ScrollArea
+      ref={parentRef}
+      orientation="horizontal"
+      tabIndex={0}
+      aria-multiselectable="true"
+      onKeyDown={onGridKey}
+      onCopy={onGridCopy}
+      onPaste={onGridPaste}
+      onMouseMove={autoScroll}
+      className="h-full w-full overflow-y-auto bg-background/60 font-mono text-[12px] select-none outline-none"
+    >
       <div style={{ width: totalWidth + gutter, height: totalHeight + HEADER_HEIGHT, position: "relative" }}>
         <div className="sticky top-0 z-20 flex border-b border-border/50 glass-header" style={{ height: HEADER_HEIGHT, width: totalWidth + gutter }}>
           {selectable ? (
@@ -466,9 +677,13 @@ export function DataGrid({
                     const linked = column?.linkTo !== undefined && onLinkOpen !== undefined && value !== undefined && value.t !== "null";
                     // One colour per cell: a change state wins over the value-kind syntax colour.
                     const tone = stagedCell !== undefined ? "font-medium text-warning" : isDeleted ? "text-danger" : isInserted ? "text-success" : formatted ? cellClass(formatted.kind) : "";
+                    const inRange = rangeBounds !== null && inBounds(rangeBounds, vr.index, vc.index);
+                    const pos = { row: vr.index, col: vc.index };
                     return (
                       <div
                         key={vc.key}
+                        onMouseDown={(e) => startRange(e, pos)}
+                        onMouseEnter={() => extendRange(pos)}
                         onClick={() => onCellSelect?.(vr.index, vc.index)}
                         onDoubleClick={() => {
                           if (editable) setEditing({ row: vr.index, col: vc.index });
@@ -480,9 +695,10 @@ export function DataGrid({
                           stagedCell !== undefined ? "border-l-2 border-l-warning bg-warning-soft" : "",
                           isSelected ? "ring-1 ring-accent ring-inset" : "",
                           isSelected && stagedCell === undefined ? "bg-accent/20" : "",
+                          inRange && !isSelected && stagedCell === undefined ? "bg-accent/15" : "",
                           isEditing ? "select-text" : "",
                         )}
-                        style={{ left: vc.start, width: vc.size }}
+                        style={{ left: vc.start, width: vc.size, ...(inRange ? rangeEdge(rangeBounds, vr.index, vc.index) : {}) }}
                         title={stagedCell !== undefined ? `${formatted?.text ?? ""}\nwas: ${formatCell(stagedCell.old).text}` : formatted?.text}
                       >
                         {isEditing && value !== undefined && onCellEdit ? (
