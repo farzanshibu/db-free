@@ -1,4 +1,4 @@
-// SOT: workspace-store, pages, tabs, restored-query-tabs, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
+// SOT: workspace-store, pages, tabs, restored-query-tabs, reopen-closed-tab, tab-cycling, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
 import { create } from "zustand";
 import type {
   AppError,
@@ -24,6 +24,7 @@ import { errorMessage, ipc, normalizeError } from "@/lib/ipc";
 import type { Density } from "@/lib/format";
 import type { EnginePreset } from "@/lib/engines";
 import { toast } from "@/components/ui/sonner";
+import { readStoredTabs, storable, writeStoredTabs } from "./tabPersistence";
 
 export type SidebarMode = "tables" | "objects" | "queries" | "dashboards" | "workflows" | "diagrams";
 
@@ -81,6 +82,8 @@ interface WorkspaceState {
   connecting: string | null;
   tabs: Tab[];
   activeTabId: string | null;
+  /// Most recently closed last; Reopen closed tab pops from the end.
+  closedTabs: Tab[];
   density: Density;
   savedQueries: SavedQuery[];
   documents: Record<DocumentKind, Document[]>;
@@ -128,6 +131,10 @@ interface WorkspaceState {
   /// Tab-bar context menu: drop every tab after this one.
   closeTabsToRight: (id: string) => void;
   closeAllTabs: () => void;
+  /// Brings back the last closed tab (a query tab with the text it had).
+  reopenClosedTab: () => void;
+  /// Ctrl+Tab / Ctrl+Shift+Tab: the next or previous tab, wrapping.
+  cycleTab: (step: 1 | -1) => void;
   activateTab: (id: string) => void;
   setDensity: (density: Density) => void;
   loadSavedQueries: () => Promise<void>;
@@ -168,17 +175,38 @@ function addTab(tabs: Tab[], tab: Tab): Tab[] {
   return tabs.some((t) => t.id === tab.id) ? tabs : [...tabs, tab];
 }
 
-// WHAT:  Drops the stored buffer behind every query tab in `closed`.
+/// How many closed tabs Reopen can walk back through.
+const CLOSED_LIMIT = 25;
+
+// WHAT:  Drops the stored buffer behind every query tab in `closed`, after
+//        copying its text into the closed-tab stack.
 // WHY:   A query tab is restored from its buffer at startup, so a tab the user
-//        closed has to take its buffer with it or it comes back tomorrow.
+//        closed has to take its buffer with it or it comes back tomorrow — but
+//        Reopen closed tab has to be able to bring the text back.
 // WHERE: src-tauri/src/store/buffers.rs
-function forgetBuffers(closed: readonly Tab[]): void {
-  for (const tab of closed) {
-    if (tab.kind !== "query") continue;
-    void ipc("delete_buffer", { id: tab.id }).catch(() => {
-      // The tab is gone from the UI either way; a failed cleanup is not worth a toast.
-    });
-  }
+function forgetBuffers(closed: readonly Tab[], keep: (tab: Tab) => void): void {
+  const queries = closed.filter((t) => t.kind === "query");
+  if (queries.length === 0) return;
+  void (async () => {
+    try {
+      const buffers = await ipc("list_buffers");
+      for (const tab of queries) {
+        const content = buffers.find((b) => b.id === tab.id)?.content;
+        if (content !== undefined) keep({ ...tab, seedSql: content });
+      }
+    } catch {
+      // Without the text a reopened query tab starts empty; nothing else is lost.
+    }
+    for (const tab of queries) {
+      void ipc("delete_buffer", { id: tab.id }).catch(() => {
+        // The tab is gone from the UI either way; a failed cleanup is not worth a toast.
+      });
+    }
+  })();
+}
+
+function pushClosed(stack: readonly Tab[], closed: readonly Tab[]): Tab[] {
+  return [...stack, ...closed.map(storable)].slice(-CLOSED_LIMIT);
 }
 
 export const useWorkspace = create<WorkspaceState>()((set, get) => ({
@@ -199,6 +227,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   connecting: null,
   tabs: [],
   activeTabId: null,
+  closedTabs: [],
   density: readDensity(),
   savedQueries: [],
   documents: { dashboard: [], workflow: [], diagram: [] },
@@ -221,13 +250,26 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
         ipc("list_buffers"),
       ]);
       const known = new Set(connections.map((c) => c.id));
-      const restored: Tab[] = buffers.flatMap((b) => {
+      const fromBuffers: Tab[] = buffers.flatMap((b) => {
         const connectionId = b.connectionId;
         if (connectionId === null || !known.has(connectionId) || b.content.trim().length === 0) return [];
         return [{ id: b.id, kind: "query" as const, connectionId, title: b.title.length > 0 ? b.title : "Query" }];
       });
-      queryCounter = restored.length;
-      set({ connections, sessions, settings, savedQueries, ready: true, tabs: restored, activeTabId: restored[restored.length - 1]?.id ?? null });
+      // Every other kind comes back from the stored tab list, in the order it
+      // was left in; query tabs only when their buffer still has text.
+      const stored = readStoredTabs();
+      const buffered = new Map(fromBuffers.map((t) => [t.id, t]));
+      const kept = stored.tabs.flatMap((t): Tab[] => {
+        if (t.kind === "query") {
+          const tab = buffered.get(t.id);
+          return tab ? [tab] : [];
+        }
+        return t.connectionId === null || known.has(t.connectionId) ? [t] : [];
+      });
+      const restored = [...kept, ...fromBuffers.filter((t) => !kept.some((k) => k.id === t.id))];
+      queryCounter = restored.filter((t) => t.kind === "query").length;
+      const active = restored.some((t) => t.id === stored.active) ? stored.active : (restored[restored.length - 1]?.id ?? null);
+      set({ connections, sessions, settings, savedQueries, ready: true, tabs: restored, activeTabId: active });
       const live = sessions[0];
       if (live !== undefined) {
         set({ activeConnectionId: live, page: { kind: "workspace" } });
@@ -452,38 +494,77 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   },
 
   closeTab: (id) => {
-    forgetBuffers(get().tabs.filter((t) => t.id === id));
+    const closed = get().tabs.filter((t) => t.id === id);
+    forgetBuffers(closed, rememberClosed);
     set((s) => {
       const index = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       const fallback = tabs[Math.max(0, index - 1)] ?? tabs[0];
-      return { tabs, activeTabId: s.activeTabId === id ? (fallback?.id ?? null) : s.activeTabId };
+      return { tabs, activeTabId: s.activeTabId === id ? (fallback?.id ?? null) : s.activeTabId, closedTabs: pushClosed(s.closedTabs, closed) };
     });
   },
 
   closeOtherTabs: (id) => {
-    forgetBuffers(get().tabs.filter((t) => t.id !== id));
-    set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: s.tabs.some((t) => t.id === id) ? id : null }));
+    const closed = get().tabs.filter((t) => t.id !== id);
+    forgetBuffers(closed, rememberClosed);
+    set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: s.tabs.some((t) => t.id === id) ? id : null, closedTabs: pushClosed(s.closedTabs, closed) }));
   },
 
   closeTabsToRight: (id) => {
     const at = get().tabs.findIndex((t) => t.id === id);
     if (at < 0) return;
-    forgetBuffers(get().tabs.slice(at + 1));
+    const closed = get().tabs.slice(at + 1);
+    forgetBuffers(closed, rememberClosed);
     set((s) => {
       const index = s.tabs.findIndex((t) => t.id === id);
       if (index < 0) return {};
       const tabs = s.tabs.slice(0, index + 1);
-      return { tabs, activeTabId: tabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : id };
+      return { tabs, activeTabId: tabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : id, closedTabs: pushClosed(s.closedTabs, closed) };
     });
   },
 
   closeAllTabs: () => {
-    forgetBuffers(get().tabs);
-    set({ tabs: [], activeTabId: null });
+    const closed = get().tabs;
+    forgetBuffers(closed, rememberClosed);
+    set((s) => ({ tabs: [], activeTabId: null, closedTabs: pushClosed(s.closedTabs, closed) }));
   },
 
-  activateTab: (id) => set({ activeTabId: id, page: { kind: "workspace" } }),
+  // WHAT:  Ctrl+Shift+T. A query tab comes back as a new tab seeded with the
+  //        text it had (its buffer was deleted on close); every other kind
+  //        reopens as it was, unless its connection has since been deleted.
+  reopenClosedTab: () => {
+    const { closedTabs, connections } = get();
+    const tab = closedTabs[closedTabs.length - 1];
+    if (!tab) return;
+    set({ closedTabs: closedTabs.slice(0, -1) });
+    if (tab.connectionId !== null && !connections.some((c) => c.id === tab.connectionId)) return;
+    if (tab.kind === "query") {
+      get().openQuery(tab.connectionId, tab.seedSql, tab.title);
+      return;
+    }
+    set((s) => ({ tabs: addTab(s.tabs, tab), page: { kind: "workspace" } }));
+    get().activateTab(tab.id);
+  },
+
+  cycleTab: (step) => {
+    const { tabs, activeTabId } = get();
+    if (tabs.length === 0) return;
+    const at = tabs.findIndex((t) => t.id === activeTabId);
+    const next = tabs[(at + step + tabs.length) % tabs.length];
+    if (next) get().activateTab(next.id);
+  },
+
+  // WHAT:  Activating a tab whose connection is not live connects it first.
+  // WHY:   Tabs are restored at startup before any session exists; clicking
+  //        one should open it, not show "Not connected".
+  activateTab: (id) => {
+    const tab = get().tabs.find((t) => t.id === id);
+    set({ activeTabId: id, page: { kind: "workspace" } });
+    if (tab && tab.connectionId !== null) {
+      if (!get().sessions.includes(tab.connectionId)) void get().connect(tab.connectionId);
+      else if (get().activeConnectionId !== tab.connectionId) set({ activeConnectionId: tab.connectionId });
+    }
+  },
 
   setDensity: (density) => {
     try {
@@ -573,3 +654,20 @@ export function useTabConnection(tab: Tab | null): ConnectionSummary | null {
 export function usePendingCount(connectionId: string | null): number {
   return useWorkspace((s) => (connectionId ? (s.pendingChanges[connectionId]?.length ?? 0) : 0));
 }
+
+// WHAT:  Fills in the text of a closed query tab once its buffer has been read.
+// HOW:   Matched by id, so a stack entry pushed synchronously on close gets
+//        its seed a moment later.
+function rememberClosed(tab: Tab): void {
+  useWorkspace.setState((s) => ({ closedTabs: s.closedTabs.map((t) => (t.id === tab.id ? tab : t)) }));
+}
+
+// WHAT:  Writes the open tabs whenever the list or the active tab changes.
+// WHY:   A restart puts the workspace back the way it was (tabPersistence.ts).
+// HOW:   Only after bootstrap: writing the empty initial list would wipe the
+//        stored one before it had been read.
+useWorkspace.subscribe((state, previous) => {
+  if (!state.ready) return;
+  if (state.tabs === previous.tabs && state.activeTabId === previous.activeTabId) return;
+  writeStoredTabs(state.tabs, state.activeTabId);
+});

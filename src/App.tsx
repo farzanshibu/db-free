@@ -1,4 +1,4 @@
-// SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars
+// SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars, tab-shortcuts
 import { useEffect } from "react";
 import { useActiveConnection, useActiveTab, useTabConnection, useWorkspace } from "@/stores/workspace";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -30,6 +30,7 @@ import { toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { EmptyState } from "@/components/global/EmptyState";
 import { RunShortcut } from "@/components/global/Kbd";
+import { useShortcut } from "@/stores/useShortcut";
 
 /// Stacks used until the settings load (they match globals.css).
 const UI_FONT_FALLBACK = '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -65,6 +66,22 @@ export function App() {
   // falls back to the active connection for a tab whose own has been deleted.
   const tabConnection = useTabConnection(tab);
   const changesOpen = useWorkspace((s) => s.changesPanelOpen);
+  const closeTab = useWorkspace((s) => s.closeTab);
+  const reopenClosedTab = useWorkspace((s) => s.reopenClosedTab);
+  const cycleTab = useWorkspace((s) => s.cycleTab);
+  const openQuery = useWorkspace((s) => s.openQuery);
+
+  // WHAT:  Browser-style tab keys: new, close, reopen closed, next / previous.
+  useShortcut("new-query", () => {
+    const id = tab?.connectionId ?? connection?.id;
+    if (id !== undefined) openQuery(id);
+  });
+  useShortcut("close-tab", () => {
+    if (tab) closeTab(tab.id);
+  });
+  useShortcut("reopen-tab", reopenClosedTab);
+  useShortcut("next-tab", () => cycleTab(1));
+  useShortcut("prev-tab", () => cycleTab(-1));
 
   useEffect(() => {
     void bootstrap();

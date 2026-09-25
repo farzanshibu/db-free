@@ -23,6 +23,8 @@ export function TabBar() {
   const closeOthers = useWorkspace((s) => s.closeOtherTabs);
   const closeToRight = useWorkspace((s) => s.closeTabsToRight);
   const closeAll = useWorkspace((s) => s.closeAllTabs);
+  const reopen = useWorkspace((s) => s.reopenClosedTab);
+  const canReopen = useWorkspace((s) => s.closedTabs.length > 0);
   const menu = useContextMenu();
 
   const tabEntries = (tab: Tab, index: number): MenuEntry[] => [
@@ -31,6 +33,7 @@ export function TabBar() {
     { id: "close-right", label: "Close to the right", icon: "chevron-right", disabled: index >= tabs.length - 1 },
     { id: "close-all", label: "Close all", icon: "trash", danger: true, group: "all" },
     { id: "duplicate", label: "New query tab", icon: "plus", group: "new", disabled: tab.connectionId === null },
+    { id: "reopen", label: "Reopen closed tab", icon: "history", group: "new", disabled: !canReopen },
   ];
 
   return (
@@ -50,6 +53,7 @@ export function TabBar() {
                 else if (id === "close-right") closeToRight(tab.id);
                 else if (id === "close-all") closeAll();
                 else if (id === "duplicate" && tab.connectionId !== null) openQuery(tab.connectionId);
+                else if (id === "reopen") reopen();
               })
             }
           />
