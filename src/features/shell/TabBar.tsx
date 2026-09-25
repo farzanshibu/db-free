@@ -24,11 +24,17 @@ export function TabBar() {
   const closeToRight = useWorkspace((s) => s.closeTabsToRight);
   const closeAll = useWorkspace((s) => s.closeAllTabs);
   const reopen = useWorkspace((s) => s.reopenClosedTab);
+  const splitTabId = useWorkspace((s) => s.splitTabId);
+  const openToSide = useWorkspace((s) => s.openToSide);
+  const closeSplit = useWorkspace((s) => s.closeSplit);
   const canReopen = useWorkspace((s) => s.closedTabs.length > 0);
   const menu = useContextMenu();
 
   const tabEntries = (tab: Tab, index: number): MenuEntry[] => [
     { id: "close", label: "Close", icon: "x" },
+    tab.id === splitTabId
+      ? { id: "unsplit", label: "Close split", icon: "columns", group: "split" }
+      : { id: "split", label: "Open to the side", icon: "columns", group: "split", disabled: tabs.length < 2 },
     { id: "close-others", label: "Close others", icon: "x", disabled: tabs.length < 2 },
     { id: "close-right", label: "Close to the right", icon: "chevron-right", disabled: index >= tabs.length - 1 },
     { id: "close-all", label: "Close all", icon: "trash", danger: true, group: "all" },
@@ -44,6 +50,7 @@ export function TabBar() {
             key={tab.id}
             tab={tab}
             active={tab.id === activeTabId}
+            side={tab.id === splitTabId}
             onActivate={() => activateTab(tab.id)}
             onClose={() => closeTab(tab.id)}
             onContextMenu={(e) =>
@@ -54,6 +61,8 @@ export function TabBar() {
                 else if (id === "close-all") closeAll();
                 else if (id === "duplicate" && tab.connectionId !== null) openQuery(tab.connectionId);
                 else if (id === "reopen") reopen();
+                else if (id === "split") openToSide(tab.id);
+                else if (id === "unsplit") closeSplit();
               })
             }
           />
@@ -94,7 +103,7 @@ export function TabBar() {
   );
 }
 
-function tabPresentation(tab: Tab): { label: string; icon: IconName } {
+export function tabPresentation(tab: Tab): { label: string; icon: IconName } {
   switch (tab.kind) {
     case "table":
       return { label: tab.table.name, icon: "table" };
@@ -119,7 +128,7 @@ function tabPresentation(tab: Tab): { label: string; icon: IconName } {
   }
 }
 
-function TabItem({ tab, active, onActivate, onClose, onContextMenu }: { tab: Tab; active: boolean; onActivate: () => void; onClose: () => void; onContextMenu: (event: ReactMouseEvent) => void }) {
+function TabItem({ tab, active, side, onActivate, onClose, onContextMenu }: { tab: Tab; active: boolean; side: boolean; onActivate: () => void; onClose: () => void; onContextMenu: (event: ReactMouseEvent) => void }) {
   const docName = useWorkspace((s) => (tab.kind === "document" ? s.documents[tab.documentKind].find((d) => d.id === tab.documentId)?.name : undefined));
   const base = tabPresentation(tab);
   const label = docName ?? base.label;
@@ -147,7 +156,9 @@ function TabItem({ tab, active, onActivate, onClose, onContextMenu }: { tab: Tab
         "after:pointer-events-none after:absolute after:inset-x-1.5 after:bottom-0 after:h-0.5 after:rounded-full after:transition-colors",
         active
           ? "bg-surface-secondary/70 text-foreground after:bg-accent"
-          : "text-muted after:bg-transparent hover:bg-surface-secondary/35 hover:text-foreground",
+          : side
+            ? "bg-surface-secondary/45 text-foreground after:bg-accent/45"
+            : "text-muted after:bg-transparent hover:bg-surface-secondary/35 hover:text-foreground",
       )}
     >
       <Icon name={base.icon} size={12.5} className={cn("shrink-0", active ? "text-accent" : "text-muted")} />

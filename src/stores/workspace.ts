@@ -1,4 +1,4 @@
-// SOT: workspace-store, pages, tabs, restored-query-tabs, reopen-closed-tab, tab-cycling, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
+// SOT: workspace-store, pages, tabs, restored-query-tabs, reopen-closed-tab, tab-cycling, split-tab-state, sidebar-mode, active-connection, catalog-cache, foreign-key-cache, objects-cache, session-info-cache, settings-cache, pending-changes, saved-queries-cache, documents-cache, ui-toasts
 import { create } from "zustand";
 import type {
   AppError,
@@ -84,6 +84,8 @@ interface WorkspaceState {
   activeTabId: string | null;
   /// Most recently closed last; Reopen closed tab pops from the end.
   closedTabs: Tab[];
+  /// The tab shown in the side pane of a split view; never the active tab.
+  splitTabId: string | null;
   density: Density;
   savedQueries: SavedQuery[];
   documents: Record<DocumentKind, Document[]>;
@@ -135,6 +137,11 @@ interface WorkspaceState {
   reopenClosedTab: () => void;
   /// Ctrl+Tab / Ctrl+Shift+Tab: the next or previous tab, wrapping.
   cycleTab: (step: 1 | -1) => void;
+  /// Shows a tab in the side pane; the main pane moves to a neighbour if it was that tab.
+  openToSide: (id: string) => void;
+  closeSplit: () => void;
+  /// Exchanges the main and side tabs.
+  swapSplit: () => void;
   activateTab: (id: string) => void;
   setDensity: (density: Density) => void;
   loadSavedQueries: () => Promise<void>;
@@ -228,6 +235,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   tabs: [],
   activeTabId: null,
   closedTabs: [],
+  splitTabId: null,
   density: readDensity(),
   savedQueries: [],
   documents: { dashboard: [], workflow: [], diagram: [] },
@@ -330,6 +338,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       objectsCache: withoutPrefix(s.objectsCache, `${id}:`),
       tabs: s.tabs.filter((t) => t.connectionId !== id),
       activeTabId: s.tabs.find((t) => t.id === s.activeTabId)?.connectionId === id ? null : s.activeTabId,
+      splitTabId: s.tabs.find((t) => t.id === s.splitTabId)?.connectionId === id ? null : s.splitTabId,
       activeConnectionId: s.activeConnectionId === id ? null : s.activeConnectionId,
       pendingChanges: withoutKey(s.pendingChanges, id),
     }));
@@ -362,6 +371,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       sessionInfos: withoutKey(s.sessionInfos, id),
       objectsCache: withoutPrefix(s.objectsCache, `${id}:`),
       tabs: s.tabs.filter((t) => t.connectionId !== id),
+      splitTabId: s.tabs.find((t) => t.id === s.splitTabId)?.connectionId === id ? null : s.splitTabId,
     }));
   },
 
@@ -500,14 +510,16 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       const index = s.tabs.findIndex((t) => t.id === id);
       const tabs = s.tabs.filter((t) => t.id !== id);
       const fallback = tabs[Math.max(0, index - 1)] ?? tabs[0];
-      return { tabs, activeTabId: s.activeTabId === id ? (fallback?.id ?? null) : s.activeTabId, closedTabs: pushClosed(s.closedTabs, closed) };
+      const splitTabId = s.splitTabId === id ? null : s.splitTabId;
+      const activeTabId = s.activeTabId === id ? (tabs.filter((t) => t.id !== splitTabId)[Math.max(0, index - 1)]?.id ?? fallback?.id ?? null) : s.activeTabId;
+      return { tabs, activeTabId, splitTabId: activeTabId === splitTabId ? null : splitTabId, closedTabs: pushClosed(s.closedTabs, closed) };
     });
   },
 
   closeOtherTabs: (id) => {
     const closed = get().tabs.filter((t) => t.id !== id);
     forgetBuffers(closed, rememberClosed);
-    set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: s.tabs.some((t) => t.id === id) ? id : null, closedTabs: pushClosed(s.closedTabs, closed) }));
+    set((s) => ({ tabs: s.tabs.filter((t) => t.id === id), activeTabId: s.tabs.some((t) => t.id === id) ? id : null, splitTabId: null, closedTabs: pushClosed(s.closedTabs, closed) }));
   },
 
   closeTabsToRight: (id) => {
@@ -519,14 +531,16 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       const index = s.tabs.findIndex((t) => t.id === id);
       if (index < 0) return {};
       const tabs = s.tabs.slice(0, index + 1);
-      return { tabs, activeTabId: tabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : id, closedTabs: pushClosed(s.closedTabs, closed) };
+      const activeTabId = tabs.some((t) => t.id === s.activeTabId) ? s.activeTabId : id;
+      const splitTabId = tabs.some((t) => t.id === s.splitTabId) && s.splitTabId !== activeTabId ? s.splitTabId : null;
+      return { tabs, activeTabId, splitTabId, closedTabs: pushClosed(s.closedTabs, closed) };
     });
   },
 
   closeAllTabs: () => {
     const closed = get().tabs;
     forgetBuffers(closed, rememberClosed);
-    set((s) => ({ tabs: [], activeTabId: null, closedTabs: pushClosed(s.closedTabs, closed) }));
+    set((s) => ({ tabs: [], activeTabId: null, splitTabId: null, closedTabs: pushClosed(s.closedTabs, closed) }));
   },
 
   // WHAT:  Ctrl+Shift+T. A query tab comes back as a new tab seeded with the
@@ -546,6 +560,23 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
     get().activateTab(tab.id);
   },
 
+  openToSide: (id) => {
+    const { tabs, activeTabId } = get();
+    if (!tabs.some((t) => t.id === id)) return;
+    if (activeTabId === id) {
+      const index = tabs.findIndex((t) => t.id === id);
+      const neighbour = tabs[index - 1] ?? tabs[index + 1];
+      if (!neighbour) return;
+      set({ splitTabId: id, activeTabId: neighbour.id });
+      return;
+    }
+    set({ splitTabId: id });
+  },
+
+  closeSplit: () => set({ splitTabId: null }),
+
+  swapSplit: () => set((s) => (s.splitTabId === null || s.activeTabId === null ? {} : { splitTabId: s.activeTabId, activeTabId: s.splitTabId })),
+
   cycleTab: (step) => {
     const { tabs, activeTabId } = get();
     if (tabs.length === 0) return;
@@ -559,6 +590,8 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   //        one should open it, not show "Not connected".
   activateTab: (id) => {
     const tab = get().tabs.find((t) => t.id === id);
+    // Picking the tab in the side pane brings it to the main one.
+    if (id === get().splitTabId) set((s) => ({ splitTabId: s.activeTabId !== id ? s.activeTabId : null }));
     set({ activeTabId: id, page: { kind: "workspace" } });
     if (tab && tab.connectionId !== null) {
       if (!get().sessions.includes(tab.connectionId)) void get().connect(tab.connectionId);

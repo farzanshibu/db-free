@@ -1,35 +1,22 @@
 // SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars, tab-shortcuts
 import { useEffect } from "react";
-import { useActiveConnection, useActiveTab, useTabConnection, useWorkspace } from "@/stores/workspace";
+import { useActiveConnection, useActiveTab, useWorkspace } from "@/stores/workspace";
 import { ipc, normalizeError } from "@/lib/ipc";
-import { isKeyValueEngine } from "@/lib/engines";
 import { fontStack } from "@/lib/fonts";
 import { IconRail } from "@/features/shell/IconRail";
 import { Sidebar } from "@/features/shell/Sidebar";
 import { TabBar } from "@/features/shell/TabBar";
+import { TabArea } from "@/features/shell/TabView";
 import { ConnectionsPage } from "@/features/connections/ConnectionsPage";
 import { ConnectionPicker } from "@/features/connections/ConnectionPicker";
 import { ConnectionForm } from "@/features/connections/ConnectionForm";
 import { SettingsPage } from "@/features/settings/SettingsPage";
 import { CapabilityMatrixPage } from "@/features/engines/CapabilityMatrixPage";
-import { QueryPane } from "@/features/editor/QueryPane";
-import { TableTab } from "@/features/grid/TableTab";
-import { KeyTab } from "@/features/keys/KeyTab";
-import { HistoryTab } from "@/features/history/HistoryTab";
-import { TransferTab } from "@/features/transfer/TransferTab";
-import { ErdTab } from "@/features/diagrams/ErdTab";
-import { DocumentTab } from "@/features/documents/DocumentTab";
-import { ChatTab } from "@/features/chat/ChatTab";
-import { ObjectTab } from "@/features/objects/ObjectTab";
-import { AdminTab } from "@/features/admin/AdminTab";
-import { ToolTab } from "@/features/tools/ToolTab";
 import { PendingChangesPanel } from "@/features/changes/PendingChangesPanel";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { Toaster } from "@/components/global/Toaster";
 import { toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { EmptyState } from "@/components/global/EmptyState";
-import { RunShortcut } from "@/components/global/Kbd";
 import { useShortcut } from "@/stores/useShortcut";
 
 /// Stacks used until the settings load (they match globals.css).
@@ -62,9 +49,6 @@ export function App() {
   const connection = useActiveConnection();
   const connected = useWorkspace((s) => (connection ? s.sessions.includes(connection.id) : false));
   const tab = useActiveTab();
-  // The tab's own connection, not the selected one — see useTabConnection. It
-  // falls back to the active connection for a tab whose own has been deleted.
-  const tabConnection = useTabConnection(tab);
   const changesOpen = useWorkspace((s) => s.changesPanelOpen);
   const closeTab = useWorkspace((s) => s.closeTab);
   const reopenClosedTab = useWorkspace((s) => s.reopenClosedTab);
@@ -195,29 +179,7 @@ export function App() {
             <TabBar />
             <div className="flex min-h-0 flex-1">
               <div className="min-w-0 flex-1">
-                {tab === null ? (
-                  <EmptyState icon="table" title="Pick a table" body="Select a table on the left to browse it, or open a query tab. Run with" action={<RunShortcut />} />
-                ) : tab.kind === "table" ? (
-                  isKeyValueEngine((tabConnection ?? connection).engine) ? <KeyTab key={tab.id} connectionId={tab.connectionId} table={tab.table} /> : <TableTab key={`${tab.id}:${tab.filterKey}`} connectionId={tab.connectionId} table={tab.table} initialFilters={tab.initialFilters} />
-                ) : tab.kind === "query" ? (
-                  <QueryPane key={tab.id} tabId={tab.id} title={tab.title} connection={tabConnection ?? connection} seedSql={tab.seedSql} />
-                ) : tab.kind === "history" ? (
-                  <HistoryTab key={tab.id} connectionId={tab.connectionId} />
-                ) : tab.kind === "transfer" ? (
-                  <TransferTab key={tab.id} connectionId={tab.connectionId} />
-                ) : tab.kind === "erd" ? (
-                  <ErdTab key={tab.id} connectionId={tab.connectionId} schema={tab.schema} />
-                ) : tab.kind === "chat" ? (
-                  <ChatTab key={tab.id} connectionId={tab.connectionId} />
-                ) : tab.kind === "object" ? (
-                  <ObjectTab key={tab.id} connectionId={tab.connectionId} reference={tab.reference} />
-                ) : tab.kind === "admin" ? (
-                  <AdminTab key={tab.id} connectionId={tab.connectionId} />
-                ) : tab.kind === "tool" ? (
-                  <ToolTab key={tab.id} connectionId={tab.connectionId} tool={tab.tool} />
-                ) : (
-                  <DocumentTab key={tab.id} kind={tab.documentKind} documentId={tab.documentId} connectionId={tab.connectionId} />
-                )}
+                <TabArea tab={tab} />
               </div>
               {changesOpen ? <PendingChangesPanel connectionId={connection.id} /> : null}
             </div>
