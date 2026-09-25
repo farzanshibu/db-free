@@ -1818,6 +1818,19 @@ impl Integration for MysqlIntegration {
         self.tx_open.load(Ordering::Acquire)
     }
 
+    async fn explain_tree(&self, sql: &str) -> AppResult<Option<crate::model::PlanNode>> {
+        // A prepared statement, unlike `run`: it refuses a script instead of
+        // running its second statement un-EXPLAINed.
+        let explain = format!("EXPLAIN FORMAT=JSON {}", crate::integrations::plan::explain_target(sql));
+        let row = sqlx::query(&explain).persistent(false).fetch_one(&self.pool).await?;
+        let doc = match decode_meta_cell(&row, 0) {
+            Value::Json(doc) => doc,
+            Value::Text(text) => serde_json::from_str::<serde_json::Value>(&text).map_err(AppError::driver)?,
+            _ => return Ok(None),
+        };
+        Ok(crate::integrations::plan::from_mysql_json(&doc))
+    }
+
     async fn close(&self) {
         // The pool waits for every checked-out connection; the pinned one has
         // to go back first, and it goes back rolled back.

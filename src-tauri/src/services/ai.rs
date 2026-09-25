@@ -361,6 +361,15 @@ pub async fn explain(ctx: &SessionCtx, req: &AiRequest<'_>, sql: &str, max_rows:
             }
         }
     }
+    // The visual plan is a bonus on top of the text: an engine without a
+    // structured EXPLAIN, or one that rejects it, still returns the text plan.
+    let plan_tree = match ctx.integration.explain_tree(sql).await {
+        Ok(tree) => tree,
+        Err(err) => {
+            log::debug!("structured plan unavailable: {err}");
+            None
+        }
+    };
     let explanation = if req.settings.provider == AiProvider::None {
         None
     } else {
@@ -378,7 +387,7 @@ pub async fn explain(ctx: &SessionCtx, req: &AiRequest<'_>, sql: &str, max_rows:
         let raw = complete(req, &system, &prompt, None).await?;
         Some(strip_think_blocks(&raw))
     };
-    Ok(PlanReport { plan, explanation })
+    Ok(PlanReport { plan, explanation, plan_tree })
 }
 
 fn cell_text(v: &Value) -> String {

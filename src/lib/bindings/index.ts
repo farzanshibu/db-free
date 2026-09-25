@@ -97,6 +97,7 @@ export type * from "./ObjectsRequest";
 export type * from "./PageQuery";
 export type * from "./PermissionDecision";
 export type * from "./PermissionRequest";
+export type * from "./PlanNode";
 export type * from "./PlanReport";
 export type * from "./QueryOutcome";
 export type * from "./RangeQueryCommand";

@@ -1115,6 +1115,22 @@ impl Integration for SqliteIntegration {
         self.tx_open.load(Ordering::Acquire)
     }
 
+    async fn explain_tree(&self, sql: &str) -> AppResult<Option<crate::model::PlanNode>> {
+        // `prepare`, not a batch: it refuses a second statement instead of
+        // running it un-EXPLAINed.
+        let explain = format!("EXPLAIN QUERY PLAN {}", crate::integrations::plan::explain_target(sql));
+        let rows = self
+            .blocking(move |conn| {
+                let mut stmt = conn.prepare(&explain)?;
+                let rows = stmt
+                    .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?, row.get::<_, String>(3)?)))?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                Ok(rows)
+            })
+            .await?;
+        Ok(crate::integrations::plan::from_sqlite_rows(&rows))
+    }
+
     async fn cancel(&self, run_id: &str) {
         let Ok(mut runs) = self.runs.lock() else { return };
         if runs.active.as_deref() == Some(run_id) {
@@ -1249,6 +1265,20 @@ mod tests {
             ssl_mode: SslMode::Disable,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None }
+    }
+
+    #[tokio::test]
+    async fn explain_tree_reads_the_query_plan_and_refuses_scripts() {
+        let dir = std::env::temp_dir().join(format!("db-free-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("plan.db").to_string_lossy().into_owned();
+        let db = connect(&resolved(&path, false)).await.unwrap_or_else(|e| panic!("{e}"));
+        db.execute("CREATE TABLE t (a int)", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        let tree = db.explain_tree("SELECT * FROM t WHERE a = 1;").await.unwrap_or_else(|e| panic!("{e}"));
+        let label = tree.map(|t| t.label).unwrap_or_default();
+        assert!(label.contains("SCAN"), "{label}");
+        assert!(db.explain_tree("SELECT 1; DROP TABLE t").await.is_err(), "the second statement must not run");
+        assert!(db.execute("SELECT * FROM t", 10).await.is_ok(), "t is still there");
     }
 
     #[tokio::test]

@@ -46,6 +46,7 @@ pub mod objectdb;
 pub mod oracle;
 pub mod orientdb;
 pub mod pinecone;
+pub mod plan;
 pub mod postgres;
 pub mod prometheus;
 pub mod qdrant;
@@ -284,6 +285,16 @@ pub trait Integration: Send + Sync {
     }
     fn in_transaction(&self) -> bool {
         false
+    }
+
+    // WHAT:  The plan of `sql` as a tree (label, cost, rows per operator), for
+    //        the visual plan. None = this engine has no structured EXPLAIN the
+    //        adapter reads; the text plan is still shown.
+    // HOW:   Runs the engine's own structured EXPLAIN (never ANALYZE: that would
+    //        execute the statement) and parses it in integrations/plan.rs.
+    // WHERE: src-tauri/src/services/ai.rs (`explain`)
+    async fn explain_tree(&self, _sql: &str) -> AppResult<Option<crate::model::PlanNode>> {
+        Ok(None)
     }
     /// Foreign keys visible to the session (ER diagram, FK traversal). Empty when unsupported.
     async fn foreign_keys(&self) -> AppResult<Vec<ForeignKey>> {

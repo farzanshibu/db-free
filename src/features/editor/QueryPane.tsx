@@ -21,6 +21,7 @@ import { cn } from "@/lib/cn";
 import { SqlEditor, type RunTarget } from "./SqlEditor";
 import { bindParams, findParams, paramLiteral, type ParamMode, type ParamValue } from "@/lib/params";
 import { ResultsPane } from "./ResultsPane";
+import { PlanTree } from "./PlanTree";
 import { HistoryPanel } from "./HistoryPanel";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -45,6 +46,7 @@ const ROW_CAPS = [
 ] satisfies readonly { value: string; label: string }[];
 
 type TxMode = "auto" | "manual";
+type PlanView = "tree" | "text";
 
 function defaultRowCap(max: number | undefined): (typeof ROW_CAPS)[number]["value"] {
   const wanted = String(max ?? 1000);
@@ -110,6 +112,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const [lastError, setLastError] = useState<string | null>(null);
   const [plan, setPlan] = useState<PlanReport | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
+  const [planView, setPlanView] = useState<PlanView>("tree");
   const saveTimer = useRef<number | null>(null);
   /// A Run that stopped to ask for parameter values, and the values last used
   /// (kept per tab so the next Run pre-fills them).
@@ -805,13 +808,28 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
               <div className="flex h-full min-h-0 flex-col">
                 <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/40 glass-header px-3 text-xs">
                   <span className="font-semibold text-foreground tracking-tight">Execution plan</span>
+                  {plan.planTree !== null ? (
+                    <Segmented<PlanView>
+                      label="Plan view"
+                      value={planView}
+                      options={[
+                        { value: "tree", label: "Tree" },
+                        { value: "text", label: "Text" },
+                      ]}
+                      onChange={setPlanView}
+                    />
+                  ) : null}
                   <span className="ml-auto">
                     <Button variant="ghost" size="icon-sm" aria-label="Close plan" onClick={() => setPlan(null)}><Icon name="x" /></Button>
                   </span>
                 </div>
                 <div className="grid min-h-0 flex-1 grid-cols-2 gap-0">
                   <ScrollArea className="overflow-x-auto border-r border-border/40 p-3">
-                    <pre className="selectable font-mono text-[11px] text-foreground">{plan.plan}</pre>
+                    {plan.planTree !== null && planView === "tree" ? (
+                      <PlanTree root={plan.planTree} />
+                    ) : (
+                      <pre className="selectable font-mono text-[11px] text-foreground">{plan.plan}</pre>
+                    )}
                   </ScrollArea>
                   <ScrollArea className="selectable p-3 text-xs whitespace-pre-wrap text-muted">{plan.explanation ?? "Enable an AI provider in Settings to get a plain-language explanation of this plan."}</ScrollArea>
                 </div>

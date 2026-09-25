@@ -1,4 +1,4 @@
-// SOT: export-model, import-model, transfer-format, ai-model
+// SOT: export-model, import-model, transfer-format, ai-model, plan-node, plan-report
 
 use crate::model::TableRef;
 use serde::{Deserialize, Serialize};
@@ -64,4 +64,28 @@ pub struct AiReply {
 pub struct PlanReport {
     pub plan: String,
     pub explanation: Option<String>,
+    /// The same plan as a tree, for engines whose adapter can read a
+    /// structured EXPLAIN (Postgres, MySQL/MariaDB, SQLite). None elsewhere:
+    /// the UI then shows only the text.
+    #[serde(default)]
+    pub plan_tree: Option<PlanNode>,
+}
+
+// WHAT:  One operator of an execution plan (scan, join, sort…) and its inputs.
+// WHY:   A plan read as a tree, with a bar per node sized by cost, shows where
+//        the time goes faster than the engine's indented text.
+// HOW:   `cost` is the engine's own cumulative estimate for the subtree (its
+//        units differ per engine, so only relative sizes mean anything);
+//        `actual_ms` is filled only when the plan came from an EXPLAIN ANALYZE.
+// WHERE: src-tauri/src/integrations/plan.rs (parsers), src/features/editor/PlanTree.tsx
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct PlanNode {
+    pub label: String,
+    pub detail: Option<String>,
+    pub cost: Option<f64>,
+    pub rows: Option<f64>,
+    pub actual_ms: Option<f64>,
+    pub children: Vec<PlanNode>,
 }
