@@ -74,7 +74,7 @@
   --surface-hover: oklch(1 0 0 / 0.05);
 
   /* Floating layers: popovers, menus, dialogs. */
-  --overlay: oklch(0.16 0.008 var(--accent-hue) / 0.88);
+  --overlay: oklch(0.08 0.004 var(--accent-hue));
   --overlay-foreground: var(--foreground);
   /* Solid lifted surface for small floating text layers (editor tooltips,
      panels): translucent glass lets code bleed through behind the popup. */
@@ -364,9 +364,9 @@
 }
 
 @utility glass-modal {
-  background: oklch(0.145 0.008 var(--accent-hue) / 0.85);
-  backdrop-filter: blur(32px) saturate(200%);
-  -webkit-backdrop-filter: blur(32px) saturate(200%);
+  /* Opaque: a menu or popover over a data grid must not let the rows show
+     through, so floating layers are solid black rather than frosted glass. */
+  background: oklch(0.08 0.004 var(--accent-hue));
   border: 1px solid oklch(1 0 0 / 0.12);
   /* A floating layer still has to separate from what it covers; this is an
      ambient shadow, not a raised edge. */
