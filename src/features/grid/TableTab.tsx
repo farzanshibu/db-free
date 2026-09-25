@@ -1,32 +1,31 @@
 // SOT: table-tab, table-toolbar, page-based-browsing, sort-state, export-copy, full-table-export, file-download, row-inspector, inspector-collapse, insert-row-flow, delete-rows-flow, cell-edit-staging, foreign-key-traversal, staged-row-mapping
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { CellValue, ColumnInfo, FilterOp, FilterRule, ForeignKey, SortRule, StagedChange, TablePage, TableRef, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
-import { downloadTextFile, exportFilename, plainValue, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
-import { DENSITIES, formatCell, formatCount } from "@/lib/format";
+import { downloadTextFile, exportFilename, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
+import { DENSITIES, formatCount } from "@/lib/format";
+import { readStored, writeStored } from "@/lib/storage";
 import { engineMeta, isObjectStorageEngine } from "@/lib/engines";
 import { pickSaveFile } from "@/lib/native";
 import { tableKey, useWorkspace } from "@/stores/workspace";
 import { DataGrid, type CellEdit, type GridColumn, type StagedCell } from "./DataGrid";
 import type { LookupRow } from "@/components/global/ValueEditor";
 import { FILTER_OPS, FilterPopover } from "./FilterPopover";
-import { AppSelect, Check } from "@/components/global/Field";
+import { ColumnsPopover } from "./ColumnsPopover";
+import { nextSort } from "./clientRows";
+import { RecordInspector, cellText, sqlLiteral, useInspectorCollapsed } from "./RecordInspector";
+import { AppSelect } from "@/components/global/Field";
 import { FormValueField } from "@/components/global/ValueEditor";
-import { JsonViewer } from "@/components/global/JsonViewer";
 import { IconButton } from "@/components/global/Button";
 import { EmptyState } from "@/components/global/EmptyState";
-import { Segmented } from "@/components/global/Field";
-import { Resizer } from "@/components/global/Resizer";
 import { Icon } from "@/lib/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { SearchInput } from "@/components/ui/input";
 
 const PAGE_SIZES = [
   { value: "50", label: "50 rows" },
@@ -55,14 +54,6 @@ const EMPTY_FKS: ForeignKey[] = [];
 const NULL_VALUE: Value = { t: "null" };
 type InsertChange = Extract<StagedChange, { kind: "insert" }>;
 
-const INSPECTOR_WIDTH_KEY = "db-free:inspector-width";
-const INSPECTOR_COLLAPSED_KEY = "db-free:inspector-collapsed";
-const INSPECTOR_MIN = 260;
-const INSPECTOR_MAX = 650;
-const INSPECTOR_DEFAULT = 384;
-/// Dragging the splitter narrower than this folds the inspector into its rail.
-const INSPECTOR_FOLD_AT = 200;
-
 /// Rows offered when picking a foreign-key value, and how many of the referenced
 /// row's own columns are shown beside the id.
 const LOOKUP_LIMIT = 50;
@@ -77,15 +68,6 @@ const MAX_EXPORT_ROWS = 500_000;
 const GROUP_SEP = "\u0003";
 const ENTRY_SEP = "\u0002";
 const FIELD_SEP = "\u0001";
-
-// localStorage can throw (blocked site data); a missing value just means "default".
-function readStored(key: string): string | null {
-  try {
-    return localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
 
 interface TableViewState {
   sort: SortRule[];
@@ -122,14 +104,6 @@ function writeTableState(key: string, state: TableViewState): void {
 
 function isFilterOp(value: string): value is FilterOp {
   return value in FILTER_OPS;
-}
-
-function writeStored(key: string, value: string): void {
-  try {
-    localStorage.setItem(key, value);
-  } catch {
-    // ignore
-  }
 }
 
 // WHAT:  One open table: toolbar (insert, refresh, filter, sort, export, delete),
@@ -176,10 +150,7 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
   const [cell, setCell] = useState<{ row: number; col: number } | null>(null);
   const [insertOpen, setInsertOpen] = useState(false);
   const [inspectorTab, setInspectorTab] = useState<string>(settings?.inspectorTabs[0] ?? "fields");
-  // Folded inspector = narrow rail; the selection survives so it reopens on the same cell.
-  const [inspectorCollapsed, setInspectorCollapsed] = useState<boolean>(() => readStored(INSPECTOR_COLLAPSED_KEY) === "1");
-  const toggleInspector = useCallback(() => setInspectorCollapsed((c) => !c), []);
-  useEffect(() => writeStored(INSPECTOR_COLLAPSED_KEY, inspectorCollapsed ? "1" : "0"), [inspectorCollapsed]);
+  const [inspectorCollapsed, setInspectorCollapsed, toggleInspector] = useInspectorCollapsed();
 
   const editable = engineMeta(engine).commandLanguage === "SQL" && !readOnly;
   const limit = Number(pageSize);
@@ -460,12 +431,7 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
 
   const toggleSort = (column: string) => {
     setPageIndex(0);
-    setSort((current) => {
-      const existing = current.find((s) => s.column === column);
-      if (!existing) return [{ column, desc: false }];
-      if (!existing.desc) return [{ column, desc: true }];
-      return [];
-    });
+    setSort((current) => nextSort(current, column));
   };
 
   const copyAs = async (format: ExportFormat) => {
@@ -781,210 +747,9 @@ function InsertRowModal({ open, onClose, columns, onSubmit }: { open: boolean; o
   );
 }
 
-// WHAT:  Record inspector with Fields / JSON / SQL tabs (order from settings).
-//        Folds into a narrow rail from the toolbar button, the header chevron,
-//        or by dragging the splitter past the minimum width; the rail expands
-//        it again. Width and folded state persist in localStorage.
-function RecordInspector({ columns, row, column, value, table, tabs, activeTab, onTab, collapsed, onToggle, onClose }: { columns: readonly ColumnInfo[]; row: readonly Value[]; column: ColumnInfo; value: Value; table: TableRef; tabs: readonly string[]; activeTab: string; onTab: (t: string) => void; collapsed: boolean; onToggle: () => void; onClose: () => void }) {
-  const current = tabs.includes(activeTab) ? activeTab : (tabs[0] ?? "fields");
-  const record = Object.fromEntries(columns.map((c, i) => [c.name, plainValue(row[i])]));
-  const insertSql = `INSERT INTO ${table.schema ? `"${table.schema}".` : ""}"${table.name}" (${columns.map((c) => `"${c.name}"`).join(", ")})\nVALUES (${row.map((v) => sqlLiteral(v)).join(", ")});`;
-  const [width, setWidth] = useState<number>(() => {
-    const saved = Number(readStored(INSPECTOR_WIDTH_KEY));
-    return Number.isFinite(saved) && saved > 0 ? Math.max(INSPECTOR_MIN, Math.min(INSPECTOR_MAX, saved)) : INSPECTOR_DEFAULT;
-  });
-  // Mirrors `width` so a drag can decide to fold without a side effect inside a state updater.
-  const widthRef = useRef(width);
-
-  const handleResize = useCallback(
-    (delta: number) => {
-      const next = widthRef.current - delta;
-      if (next < INSPECTOR_FOLD_AT) {
-        onToggle();
-        return;
-      }
-      const clamped = Math.max(INSPECTOR_MIN, Math.min(INSPECTOR_MAX, next));
-      widthRef.current = clamped;
-      setWidth(clamped);
-      writeStored(INSPECTOR_WIDTH_KEY, String(clamped));
-    },
-    [onToggle],
-  );
-
-  if (collapsed) {
-    return (
-      <aside className="flex w-9 shrink-0 flex-col items-center gap-1 border-l border-border/40 glass-sidebar py-1.5 select-none">
-        <IconButton icon="chevron-left" label="Expand inspector" onClick={onToggle} size={13} className="size-6 min-w-6" />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="sm"
-              aria-label={`Expand inspector for ${column.name}`}
-              onClick={onToggle}
-              className="h-auto min-h-0 w-6 min-w-0 flex-1 overflow-hidden rounded-md px-0 py-2 font-mono text-[11px] whitespace-nowrap text-muted [writing-mode:vertical-rl] rotate-180 hover:text-foreground"
-            >
-              {column.name}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {column.name} · {column.dataType}
-          </TooltipContent>
-        </Tooltip>
-        <Button variant="ghost" size="icon-sm" aria-label="Close inspector" onClick={onClose}><Icon name="x" /></Button>
-      </aside>
-    );
-  }
-
-  return (
-    <aside className="relative flex shrink-0 flex-col border-l border-border/40 glass-sidebar select-none" style={{ width }}>
-      <Resizer direction="horizontal" onResize={handleResize} className="absolute -left-1 top-0 bottom-0" />
-      <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header text-xs">
-        <span className="truncate font-semibold text-foreground tracking-tight">{column.name}</span>
-        <Badge size="sm" variant="soft" className="font-mono text-[10px]">
-          {column.dataType}
-        </Badge>
-        <span className="ml-auto flex items-center gap-0.5">
-          <IconButton icon="chevron-right" label="Collapse inspector" onClick={onToggle} size={13} className="size-6 min-w-6" />
-          <Button variant="ghost" size="icon-sm" aria-label="Close inspector" onClick={onClose}><Icon name="x" /></Button>
-        </span>
-      </div>
-      <div className="px-3 py-2">
-        <Segmented label="Inspector tab" value={current} onChange={onTab} options={tabs.map((t) => ({ value: t, label: t.toUpperCase() }))} />
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        {current === "fields" ? (
-          <dl className="px-3 pb-3 text-xs">
-            {columns.map((c, i) => (
-              <div key={c.name} className={`flex flex-col gap-0.5 border-b border-separator py-1.5 ${c.name === column.name ? "text-foreground" : "text-muted"}`}>
-                <dt className="flex items-center gap-1.5 font-medium"><Icon name={c.primaryKey ? "key" : "text"} size={11} />{c.name}<span className="ml-auto font-mono text-[10px]">{c.dataType}</span></dt>
-                {row[i]?.t === "json" ? <JsonViewer bare value={row[i].v} defaultDepth={1} className="pl-3" /> : <dd className="selectable truncate font-mono">{cellText(row[i])}</dd>}
-              </div>
-            ))}
-          </dl>
-        ) : current === "json" ? (
-          <JsonViewer value={record} className="p-3" />
-        ) : current === "sql" ? (
-          <pre className="selectable p-3 font-mono text-[11px] leading-relaxed break-all whitespace-pre-wrap text-foreground">{insertSql}</pre>
-        ) : (
-          <pre className="selectable p-3 font-mono text-[11px] whitespace-pre-wrap text-foreground">{inspectorBody(value)}</pre>
-        )}
-      </ScrollArea>
-    </aside>
-  );
-}
-
-function inspectorBody(value: Value): string {
-  switch (value.t) {
-    case "json":
-      return JSON.stringify(value.v, null, 2);
-    case "bytes":
-      return hexDump(value.v);
-    case "null":
-    case "bool":
-    case "int":
-    case "float":
-    case "decimal":
-    case "text":
-    case "date_time":
-    case "unsupported":
-      return formatCell(value).text;
-  }
-}
-
-function hexDump(base64: string): string {
-  let binary = "";
-  try {
-    binary = atob(base64);
-  } catch {
-    return base64;
-  }
-  const lines: string[] = [];
-  for (let i = 0; i < binary.length; i += 16) {
-    const chunk = binary.slice(i, i + 16);
-    const hex = Array.from(chunk, (ch) => ch.charCodeAt(0).toString(16).padStart(2, "0")).join(" ");
-    const ascii = Array.from(chunk, (ch) => (ch.charCodeAt(0) >= 32 && ch.charCodeAt(0) < 127 ? ch : ".")).join("");
-    lines.push(`${i.toString(16).padStart(8, "0")}  ${hex.padEnd(47)}  ${ascii}`);
-  }
-  return lines.join("\n");
-}
-
 /// Auto-refresh choices, in seconds; 0 is off.
 const REFRESH_INTERVALS = [0, 5, 10, 30, 60, 300] as const;
 const REFRESH_LABEL: Record<number, string> = { 0: "Off", 5: "5 seconds", 10: "10 seconds", 30: "30 seconds", 60: "1 minute", 300: "5 minutes" };
-
-// WHAT:  Column visibility: a searchable checklist over the page's columns.
-// WHY:   Wide tables are read one slice at a time; hiding the rest beats
-//        scrolling past it. Hiding is per open tab, not persisted, because it
-//        answers "what am I looking at right now".
-function ColumnsPopover({ columns, hidden, onChange }: { columns: readonly ColumnInfo[]; hidden: ReadonlySet<string>; onChange: (next: ReadonlySet<string>) => void }) {
-  const [search, setSearch] = useState("");
-  const needle = search.trim().toLowerCase();
-  const shown = columns.filter((c) => needle.length === 0 || c.name.toLowerCase().includes(needle));
-  const toggle = (name: string) => {
-    const next = new Set(hidden);
-    if (next.has(name)) next.delete(name);
-    else next.add(name);
-    onChange(next);
-  };
-  return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button size="xs" variant={hidden.size > 0 ? "soft" : "toolbar"}>
-          <Icon name="columns" size={12} />
-          {hidden.size > 0 ? `${columns.length - hidden.size}/${columns.length}` : "Columns"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[260px] p-2">
-          <SearchInput value={search} onChange={setSearch} aria-label="Search columns" placeholder="Search…" autoFocus className="glass-input h-7 rounded-lg w-full text-xs" />
-          <ScrollArea hideScrollBar className="mt-2 max-h-64">
-            <ul className="flex flex-col gap-0.5">
-              {shown.map((c) => (
-                <li key={c.name}>
-                  <span className="flex w-full items-center gap-2 rounded-md px-1 py-0.5 text-[12px] hover:bg-surface-secondary/60">
-                    <Check label={c.name} checked={!hidden.has(c.name)} onChange={() => toggle(c.name)} />
-                  </span>
-                </li>
-              ))}
-            </ul>
-          </ScrollArea>
-          <div className="mt-2 flex justify-end gap-1.5 border-t border-border/40 pt-2">
-            <Button size="sm" variant="tertiary" className="h-6 min-h-6 px-2 text-[11px]" onClick={() => onChange(new Set(columns.map((c) => c.name)))}>
-              Hide all
-            </Button>
-            <Button size="sm" variant="tertiary" className="h-6 min-h-6 px-2 text-[11px]" onClick={() => onChange(new Set())}>
-              Show all
-            </Button>
-          </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
-function cellText(value: Value | undefined): string {
-  if (value === undefined) return "";
-  return value.t === "json" ? JSON.stringify(value.v) : value.t === "null" ? "NULL" : formatCell(value).text;
-}
-
-function sqlLiteral(value: Value | undefined): string {
-  if (value === undefined || value.t === "null") return "NULL";
-  switch (value.t) {
-    case "bool":
-      return value.v ? "TRUE" : "FALSE";
-    case "int":
-    case "float":
-      return String(value.v);
-    case "decimal":
-      return value.v;
-    case "json":
-      return `'${JSON.stringify(value.v).replace(/'/g, "''")}'`;
-    case "text":
-    case "bytes":
-    case "date_time":
-    case "unsupported":
-      return `'${value.v.replace(/'/g, "''")}'`;
-  }
-}
 
 // WHAT:  Rows as INSERT statements, ready to paste into a query tab.
 // WHY:   Copying a row to another environment is the usual reason to copy one;

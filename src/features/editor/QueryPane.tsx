@@ -80,6 +80,8 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const [loaded, setLoaded] = useState(false);
   const [running, setRunning] = useState(false);
   const [outcome, setOutcome] = useState<QueryOutcome | null>(null);
+  // The script behind `outcome`; the results pane reads it to decide whether rows are editable.
+  const [outcomeSql, setOutcomeSql] = useState("");
   const [rowCap, setRowCap] = useState<(typeof ROW_CAPS)[number]["value"]>(() => defaultRowCap(settings?.maxQueryRows));
   const [confirm, setConfirm] = useState<{ statements: string[]; script: string } | null>(null);
   const [spans, setSpans] = useState<readonly StatementSpan[]>([]);
@@ -220,6 +222,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
           schema: schemaFilter,
         });
         setOutcome(result);
+        setOutcomeSql(script);
         setLastError(null);
       } catch (raw) {
         const error: AppError = normalizeError(raw);
@@ -720,7 +723,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                 </div>
               </div>
             ) : (
-              <ResultsPane outcome={outcome} />
+              <ResultsPane outcome={outcome} connectionId={connection.id} sql={outcomeSql} />
             )}
           </div>
         </div>

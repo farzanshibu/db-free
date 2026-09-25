@@ -1,6 +1,6 @@
 // SOT: filter-builder, filter-popover, filter-operators
 import { useState } from "react";
-import type { ColumnInfo, FilterOp, FilterRule } from "@/lib/bindings";
+import type { FilterOp, FilterRule } from "@/lib/bindings";
 import { AppSelect, Field } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
 import { Icon } from "@/lib/icons";
@@ -28,7 +28,8 @@ export const FILTER_OPS = {
 const OP_OPTIONS = keysOf(FILTER_OPS).map((op) => ({ value: op, label: FILTER_OPS[op].label }));
 
 interface FilterPopoverProps {
-  columns: readonly ColumnInfo[];
+  /// Only the names are read, so a table page and a query result both fit.
+  columns: readonly { name: string }[];
   filters: readonly FilterRule[];
   onApply: (filters: FilterRule[]) => void;
 }

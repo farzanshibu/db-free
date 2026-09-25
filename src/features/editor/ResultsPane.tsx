@@ -1,10 +1,10 @@
 // SOT: results-pane, statement-tabs, query-result-grid, result-row-total, result-export, file-download
 import { useState } from "react";
 import type { QueryOutcome } from "@/lib/bindings";
-import { DENSITIES, formatCount, formatMs } from "@/lib/format";
+import { formatCount, formatMs } from "@/lib/format";
 import { downloadTextFile, exportFilename, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
 import { useWorkspace } from "@/stores/workspace";
-import { DataGrid } from "@/features/grid/DataGrid";
+import { ResultGrid } from "./ResultGrid";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
@@ -22,8 +22,27 @@ function rowSummary(shown: number, total: number | null, truncated: boolean): st
   return `${formatCount(shown)} of ${formatCount(total)} rows`;
 }
 
-export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
-  const density = useWorkspace((s) => s.density);
+/// One number per outcome object, so per-result view state (filters, sort,
+/// edits) starts clean when a new run replaces the outcome.
+const outcomeIds = new WeakMap<QueryOutcome, number>();
+let outcomeCounter = 0;
+function outcomeId(outcome: QueryOutcome): number {
+  const known = outcomeIds.get(outcome);
+  if (known !== undefined) return known;
+  outcomeCounter += 1;
+  outcomeIds.set(outcome, outcomeCounter);
+  return outcomeCounter;
+}
+
+interface ResultsPaneProps {
+  outcome: QueryOutcome | null;
+  /// The connection and the exact script that produced `outcome`: they decide
+  /// whether the rows can be edited in place (see ResultGrid).
+  connectionId: string;
+  sql: string;
+}
+
+export function ResultsPane({ outcome, connectionId, sql }: ResultsPaneProps) {
   const showInfo = useWorkspace((s) => s.showInfo);
   const [active, setActive] = useState(0);
 
@@ -119,13 +138,7 @@ export function ResultsPane({ outcome }: { outcome: QueryOutcome | null }) {
         ) : current.result.columns.length === 0 ? (
           <EmptyState title="Empty result" body="The statement returned no rows." />
         ) : (
-          <DataGrid
-            columns={current.result.columns.map((c) => ({ name: c.name, typeName: c.typeName }))}
-            rowCount={current.result.rows.length}
-            getRow={(i) => current.result.rows[i]}
-            rowHeight={DENSITIES[density].rowHeight}
-            onCopied={(what) => showInfo(`${what} copied to the clipboard.`)}
-          />
+          <ResultGrid key={`${outcomeId(outcome)}:${index}`} connectionId={connectionId} sql={sql} result={current.result} single={statements.length === 1} />
         )}
       </div>
     </div>
