@@ -1,4 +1,4 @@
-// SOT: query-pane, run-query-flow, run-at-cursor-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, save-sql-file-flow, ai-assist-flow, explain-flow, format-sql
+// SOT: query-pane, query-params-prompt, run-query-flow, run-at-cursor-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, save-sql-file-flow, ai-assist-flow, explain-flow, format-sql
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format as formatSql } from "sql-formatter";
 import type { AgentEvent, AppError, ConnectionSummary, PlanReport, QueryOutcome, StatementSpan } from "@/lib/bindings";
@@ -16,6 +16,7 @@ import { RunShortcut } from "@/components/global/Kbd";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { SqlEditor, type RunTarget } from "./SqlEditor";
+import { bindParams, findParams, paramLiteral, type ParamMode, type ParamValue } from "@/lib/params";
 import { ResultsPane } from "./ResultsPane";
 import { HistoryPanel } from "./HistoryPanel";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
@@ -100,6 +101,10 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const [plan, setPlan] = useState<PlanReport | null>(null);
   const [planBusy, setPlanBusy] = useState(false);
   const saveTimer = useRef<number | null>(null);
+  /// A Run that stopped to ask for parameter values, and the values last used
+  /// (kept per tab so the next Run pre-fills them).
+  const [paramPrompt, setParamPrompt] = useState<{ script: string; names: string[]; then: "run" | "run-confirmed" | "explain" } | null>(null);
+  const [paramValues, setParamValues] = useState<Record<string, ParamValue>>({});
 
   const [editorHeight, setEditorHeight] = useState<number>(() => {
     try {
@@ -194,8 +199,16 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   //        to run. Whatever is sent is what history logs and what the destructive
   //        gate quotes back, so the confirmation re-runs that exact text.
   const run = useCallback(
-    async (script: string, confirmDestructive: boolean) => {
+    async (script: string, confirmDestructive: boolean, bound = false) => {
       if (running || script.trim().length === 0) return;
+      // Placeholders are filled in first; the prompt calls back with `bound`.
+      if (!bound) {
+        const names = findParams(script, isSql);
+        if (names.length > 0) {
+          setParamPrompt({ script, names, then: confirmDestructive ? "run-confirmed" : "run" });
+          return;
+        }
+      }
       setRunning(true);
       setConfirm(null);
       try {
@@ -218,7 +231,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
         setHistoryKey((k) => k + 1);
       }
     },
-    [connection.id, rowCap, running, schemaFilter, showError],
+    [connection.id, isSql, rowCap, running, schemaFilter, showError],
   );
 
   const runCurrent = useCallback(() => {
@@ -365,9 +378,16 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
     }
   };
 
-  const explain = async () => {
-    const script = target?.text ?? sql;
+  const explain = async (bound?: string) => {
+    const script = bound ?? target?.text ?? sql;
     if (script.trim().length === 0) return;
+    if (bound === undefined) {
+      const names = findParams(script, isSql);
+      if (names.length > 0) {
+        setParamPrompt({ script, names, then: "explain" });
+        return;
+      }
+    }
     setPlanBusy(true);
     try {
       // The same statement Run would send: a plan for a whole script is not one.
@@ -756,10 +776,26 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
           </DialogBody>
           <DialogFooter>
             <Button variant="tertiary" onClick={() => setConfirm(null)}>Cancel</Button>
-            <Button variant="danger" onClick={() => void run(confirm?.script ?? sql, true)}>Run anyway</Button>
+            <Button variant="danger" onClick={() => void run(confirm?.script ?? sql, true, true)}>Run anyway</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {paramPrompt ? (
+        <ParamsDialog
+          names={paramPrompt.names}
+          initial={paramValues}
+          onCancel={() => setParamPrompt(null)}
+          onRun={(values) => {
+            const pending = paramPrompt;
+            setParamValues((prev) => ({ ...prev, ...values }));
+            setParamPrompt(null);
+            const filled = bindParams(pending.script, isSql, values);
+            if (pending.then === "explain") void explain(filled);
+            else void run(filled, pending.then === "run-confirmed", true);
+          }}
+        />
+      ) : null}
       {aiBusy ? <span className="sr-only"><Spinner size="sm" /></span> : null}
     </div>
   );
@@ -785,4 +821,53 @@ function buildNamespace(
     }
   }
   return out;
+}
+
+const PARAM_MODES = [
+  { value: "auto", label: "Auto" },
+  { value: "text", label: "Text" },
+  { value: "raw", label: "Raw SQL" },
+] satisfies readonly { value: ParamMode; label: string }[];
+
+// WHAT:  Asks for every placeholder in the script before it runs, pre-filled
+//        with the values this tab used last, and previews each literal.
+// WHERE: src/lib/params.ts
+function ParamsDialog({ names, initial, onCancel, onRun }: { names: readonly string[]; initial: Readonly<Record<string, ParamValue>>; onCancel: () => void; onRun: (values: Record<string, ParamValue>) => void }) {
+  const [values, setValues] = useState<Record<string, ParamValue>>(() => Object.fromEntries(names.map((n) => [n, initial[n] ?? { value: "", mode: "auto" }])));
+  const set = (name: string, next: Partial<ParamValue>) => setValues((prev) => ({ ...prev, [name]: { value: prev[name]?.value ?? "", mode: prev[name]?.mode ?? "auto", ...next } }));
+  return (
+    <Dialog open onOpenChange={(open) => !open && onCancel()}>
+      <DialogContent className="sm:max-w-[560px]">
+        <DialogHeader>
+          <DialogTitle>Query parameters</DialogTitle>
+        </DialogHeader>
+        <DialogBody className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto">
+          <p className="text-xs text-muted">Auto leaves numbers, TRUE/FALSE and NULL bare and quotes everything else. Raw SQL is inserted as typed.</p>
+          <form
+            id="query-params"
+            className="flex flex-col gap-3"
+            onSubmit={(event) => {
+              event.preventDefault();
+              onRun(values);
+            }}
+          >
+            {names.map((name, i) => {
+              const param = values[name] ?? { value: "", mode: "auto" };
+              return (
+                <div key={name} className="flex items-end gap-2">
+                  <Field label={name} value={param.value} onChange={(value) => set(name, { value })} autoFocus={i === 0} mono className="min-w-0 flex-1" />
+                  <AppSelect<ParamMode> ariaLabel={`${name} type`} value={param.mode} options={PARAM_MODES} onChange={(mode) => set(name, { mode })} className="w-28" />
+                  <code className="mb-2 w-28 truncate font-mono text-[11px] text-muted" title={paramLiteral(param)}>{paramLiteral(param)}</code>
+                </div>
+              );
+            })}
+          </form>
+        </DialogBody>
+        <DialogFooter>
+          <Button variant="tertiary" onClick={onCancel}>Cancel</Button>
+          <Button type="submit" form="query-params">Run</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
