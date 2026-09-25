@@ -13,8 +13,10 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use futures::StreamExt;
 use sqlx::mysql::{MySql, MySqlConnectOptions, MySqlPool, MySqlPoolOptions, MySqlRow, MySqlSslMode};
+use sqlx::pool::PoolConnection;
 use sqlx::{Column, Decode, Either, Executor, Row, TypeInfo, ValueRef};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,6 +35,16 @@ pub struct MysqlIntegration {
     engine: Engine,
     database: Option<String>,
     running: RunningIds,
+    /// The connection a manual transaction is pinned to (see `begin_transaction`).
+    tx: tokio::sync::Mutex<Option<Pinned>>,
+    /// Mirrors `tx.is_some()` without waiting on a run that holds the lock.
+    tx_open: AtomicBool,
+}
+
+/// A pooled connection held out of the pool for a manual transaction.
+struct Pinned {
+    conn: PoolConnection<MySql>,
+    id: u64,
 }
 
 const SYSTEM_DATABASES: [&str; 4] = ["information_schema", "performance_schema", "mysql", "sys"];
@@ -76,7 +88,14 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .connect_with(opts)
         .await?;
     let engine = s.engine;
-    Ok(Arc::new(MysqlIntegration { pool, engine, database, running: RunningIds::default() }))
+    Ok(Arc::new(MysqlIntegration {
+        pool,
+        engine,
+        database,
+        running: RunningIds::default(),
+        tx: tokio::sync::Mutex::new(None),
+        tx_open: AtomicBool::new(false),
+    }))
 }
 
 // WHAT:  "8.4.0" → "MySQL 8.4.0"; "11.4.2-MariaDB-ubu2404" → "MariaDB 11.4.2-MariaDB-ubu2404".
@@ -290,10 +309,33 @@ impl MysqlIntegration {
     // WHERE: `cancel` below, src-tauri/src/guard/mod.rs (step 9)
     async fn run_tracked(&self, run_id: String, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
         let mut conn = self.pool.acquire().await?;
-        let id: String = sqlx::query_scalar("SELECT CAST(CONNECTION_ID() AS CHAR)").fetch_one(&mut *conn).await?;
-        let id = id.trim().parse::<u64>().map_err(AppError::driver)?;
+        let id = Self::connection_id(&mut conn).await?;
         let _tracked = Tracked::new(&self.running, run_id, id);
         run_on(&mut *conn, sql, max_rows, decode_cell).await
+    }
+
+    async fn connection_id(conn: &mut PoolConnection<MySql>) -> AppResult<u64> {
+        let id: String = sqlx::query_scalar("SELECT CAST(CONNECTION_ID() AS CHAR)").fetch_one(&mut **conn).await?;
+        id.trim().parse::<u64>().map_err(AppError::driver)
+    }
+
+    // WHAT:  COMMIT or ROLLBACK the manual transaction and release its connection.
+    // HOW:   The transaction is over either way, so the connection is let go
+    //        regardless; after an error it is closed rather than pooled.
+    async fn end_transaction(&self, statement: &str) -> AppResult<()> {
+        let mut guard = self.tx.lock().await;
+        let Some(mut pinned) = guard.take() else {
+            return Err(AppError::invalid_input("No transaction is open."));
+        };
+        self.tx_open.store(false, Ordering::Release);
+        // Through `run_on`: `raw_sql(..).execute(&mut conn)` trips sqlx's
+        // "Executor is not general enough" inside a Send async-trait future.
+        let result = run_on(&mut *pinned.conn, statement, 0, decode_cell).await;
+        if result.is_err() {
+            pinned.conn.close_on_drop();
+        }
+        result?;
+        Ok(())
     }
 }
 
@@ -1721,6 +1763,13 @@ impl Integration for MysqlIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        if self.tx_open.load(Ordering::Acquire) {
+            let mut guard = self.tx.lock().await;
+            if let Some(pinned) = guard.as_mut() {
+                let _tracked = crate::integrations::current_run_id().map(|id| Tracked::new(&self.running, id, pinned.id));
+                return run_on(&mut *pinned.conn, sql, max_rows, decode_cell).await;
+            }
+        }
         match crate::integrations::current_run_id() {
             Some(run_id) => self.run_tracked(run_id, sql, max_rows).await,
             None => self.run(sql, max_rows).await,
@@ -1740,7 +1789,43 @@ impl Integration for MysqlIntegration {
         Some((format!("USE {}", quote_ident_for(self.engine(), namespace)), 1))
     }
 
+    fn manual_transactions(&self) -> bool {
+        true
+    }
+
+    async fn begin_transaction(&self) -> AppResult<()> {
+        let mut guard = self.tx.lock().await;
+        if guard.is_some() {
+            return Err(AppError::invalid_input("A transaction is already open."));
+        }
+        let mut conn = self.pool.acquire().await?;
+        let id = Self::connection_id(&mut conn).await?;
+        run_on(&mut *conn, "START TRANSACTION", 0, decode_cell).await?;
+        *guard = Some(Pinned { conn, id });
+        self.tx_open.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    async fn commit_transaction(&self) -> AppResult<()> {
+        self.end_transaction("COMMIT").await
+    }
+
+    async fn rollback_transaction(&self) -> AppResult<()> {
+        self.end_transaction("ROLLBACK").await
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.tx_open.load(Ordering::Acquire)
+    }
+
     async fn close(&self) {
+        // The pool waits for every checked-out connection; the pinned one has
+        // to go back first, and it goes back rolled back.
+        if self.tx_open.load(Ordering::Acquire) {
+            if let Err(err) = self.end_transaction("ROLLBACK").await {
+                log::warn!("rollback on close failed: {err}");
+            }
+        }
         self.pool.close().await;
     }
 

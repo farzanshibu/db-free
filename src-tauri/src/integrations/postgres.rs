@@ -14,8 +14,10 @@ use base64::Engine as _;
 use futures::StreamExt;
 use serde_json::Value as JsonValue;
 use sqlx::postgres::{PgConnectOptions, PgPool, PgPoolOptions, PgRow, PgSslMode, PgValueFormat};
-use sqlx::{Column, Either, Executor, Row, TypeInfo, ValueRef};
+use sqlx::pool::PoolConnection;
+use sqlx::{Column, Either, Executor, Postgres, Row, TypeInfo, ValueRef};
 use std::collections::BTreeMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -33,6 +35,16 @@ pub struct PostgresIntegration {
     pool: PgPool,
     database: String,
     running: RunningPids,
+    /// The connection a manual transaction is pinned to (see `begin_transaction`).
+    tx: tokio::sync::Mutex<Option<Pinned>>,
+    /// Mirrors `tx.is_some()` without waiting on a run that holds the lock.
+    tx_open: AtomicBool,
+}
+
+/// A pooled connection held out of the pool for a manual transaction.
+struct Pinned {
+    conn: PoolConnection<Postgres>,
+    pid: i32,
 }
 
 const DEFAULT_DATABASE: &str = "postgres";
@@ -77,7 +89,13 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .acquire_timeout(Duration::from_secs(15))
         .connect_with(opts)
         .await?;
-    Ok(Arc::new(PostgresIntegration { pool, database, running: RunningPids::default() }))
+    Ok(Arc::new(PostgresIntegration {
+        pool,
+        database,
+        running: RunningPids::default(),
+        tx: tokio::sync::Mutex::new(None),
+        tx_open: AtomicBool::new(false),
+    }))
 }
 
 // WHAT:  Decodes a cell from the simple-query (text format) protocol.
@@ -159,6 +177,27 @@ impl PostgresIntegration {
         let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await?;
         let _tracked = Tracked::new(&self.running, run_id, pid);
         run_on(&mut *conn, sql, max_rows).await
+    }
+
+    // WHAT:  COMMIT or ROLLBACK the manual transaction and release its connection.
+    // HOW:   The transaction is over either way — a failed COMMIT has already
+    //        rolled back on the server — so the connection is let go regardless;
+    //        after an error it is closed rather than pooled, since its state is
+    //        no longer known.
+    async fn end_transaction(&self, statement: &str) -> AppResult<()> {
+        let mut guard = self.tx.lock().await;
+        let Some(mut pinned) = guard.take() else {
+            return Err(AppError::invalid_input("No transaction is open."));
+        };
+        self.tx_open.store(false, Ordering::Release);
+        // Through `run_on`: `raw_sql(..).execute(&mut conn)` trips sqlx's
+        // "Executor is not general enough" inside a Send async-trait future.
+        let result = run_on(&mut *pinned.conn, statement, 0).await;
+        if result.is_err() {
+            pinned.conn.close_on_drop();
+        }
+        result?;
+        Ok(())
     }
 }
 
@@ -401,6 +440,13 @@ impl Integration for PostgresIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        if self.tx_open.load(Ordering::Acquire) {
+            let mut guard = self.tx.lock().await;
+            if let Some(pinned) = guard.as_mut() {
+                let _tracked = crate::integrations::current_run_id().map(|id| Tracked::new(&self.running, id, pinned.pid));
+                return run_on(&mut *pinned.conn, sql, max_rows).await;
+            }
+        }
         match crate::integrations::current_run_id() {
             Some(run_id) => self.run_tracked(run_id, sql, max_rows).await,
             None => self.run(sql, max_rows).await,
@@ -419,7 +465,43 @@ impl Integration for PostgresIntegration {
         Some((format!("SET search_path TO {}", quote_ident(namespace)), 1))
     }
 
+    fn manual_transactions(&self) -> bool {
+        true
+    }
+
+    async fn begin_transaction(&self) -> AppResult<()> {
+        let mut guard = self.tx.lock().await;
+        if guard.is_some() {
+            return Err(AppError::invalid_input("A transaction is already open."));
+        }
+        let mut conn = self.pool.acquire().await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await?;
+        run_on(&mut *conn, "BEGIN", 0).await?;
+        *guard = Some(Pinned { conn, pid });
+        self.tx_open.store(true, Ordering::Release);
+        Ok(())
+    }
+
+    async fn commit_transaction(&self) -> AppResult<()> {
+        self.end_transaction("COMMIT").await
+    }
+
+    async fn rollback_transaction(&self) -> AppResult<()> {
+        self.end_transaction("ROLLBACK").await
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.tx_open.load(Ordering::Acquire)
+    }
+
     async fn close(&self) {
+        // The pool waits for every checked-out connection; the pinned one has
+        // to go back first, and it goes back rolled back.
+        if self.tx_open.load(Ordering::Acquire) {
+            if let Err(err) = self.end_transaction("ROLLBACK").await {
+                log::warn!("rollback on close failed: {err}");
+            }
+        }
         self.pool.close().await;
     }
 

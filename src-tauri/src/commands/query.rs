@@ -1,9 +1,11 @@
-// SOT: query-commands, ipc-execute, ipc-history, ipc-buffers, ipc-split-script, ipc-save-sql-file, ipc-cancel-query
+// SOT: query-commands, ipc-execute, ipc-history, ipc-buffers, ipc-split-script, ipc-save-sql-file, ipc-cancel-query, ipc-transactions
 
 use crate::error::AppResult;
 use crate::guard;
 use crate::model::{EditorBuffer, HistoryEntry, HistoryOrigin, QueryOutcome, StatementSpan};
+use crate::commands::connections::SessionRequest;
 use crate::services;
+use crate::services::query::TransactionStep;
 use crate::state::AppState;
 use serde::Deserialize;
 use std::path::Path;
@@ -97,6 +99,36 @@ pub async fn execute_query(state: State<'_, AppState>, req: ExecuteQueryRequest)
 // HOW:   Trips the token the block is racing (step 9); the block then asks the
 //        adapter to cancel server-side and logs the run as cancelled.
 // WHERE: src-tauri/src/state.rs (QueryRuns), src-tauri/src/guard/mod.rs
+// WHAT:  The editor's Manual mode: BEGIN / COMMIT / ROLLBACK on the session's
+//        pinned connection. Each answers whether a transaction is open after it.
+// WHY:   Session lane, not statement lane: these run no user-authored SQL, so
+//        there is nothing to classify. A read-only connection may still BEGIN —
+//        every write inside it is still stopped by the block's step 5.
+// WHERE: src-tauri/src/services/query.rs (`transaction`), integrations/mod.rs
+#[tauri::command]
+pub async fn begin_transaction(state: State<'_, AppState>, req: SessionRequest) -> AppResult<bool> {
+    guard::session(&state, &req.connection_id, |ctx| async move {
+        services::query::transaction(&ctx, TransactionStep::Begin).await
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn commit_transaction(state: State<'_, AppState>, req: SessionRequest) -> AppResult<bool> {
+    guard::session(&state, &req.connection_id, |ctx| async move {
+        services::query::transaction(&ctx, TransactionStep::Commit).await
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn rollback_transaction(state: State<'_, AppState>, req: SessionRequest) -> AppResult<bool> {
+    guard::session(&state, &req.connection_id, |ctx| async move {
+        services::query::transaction(&ctx, TransactionStep::Rollback).await
+    })
+    .await
+}
+
 #[tauri::command]
 pub async fn cancel_query(state: State<'_, AppState>, req: CancelQueryRequest) -> AppResult<bool> {
     guard::local("cancel_query", async { Ok(state.query_runs().cancel(&req.run_id)) }).await

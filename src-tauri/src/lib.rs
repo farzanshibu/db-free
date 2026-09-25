@@ -97,6 +97,9 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::backup::restore_database,
             commands::backup::cancel_backup,
             commands::query::cancel_query,
+            commands::query::begin_transaction,
+            commands::query::commit_transaction,
+            commands::query::rollback_transaction,
         ])
         .run(tauri::generate_context!())?;
     Ok(())

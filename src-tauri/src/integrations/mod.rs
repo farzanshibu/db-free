@@ -199,6 +199,11 @@ pub struct SessionInfo {
     pub database: Option<String>,
     /// Every database the server exposes, for the sidebar switcher.
     pub databases: Vec<String>,
+    /// The editor may offer Manual (BEGIN … COMMIT/ROLLBACK) mode. Reported
+    /// here rather than in `Capabilities` because it is a property of the
+    /// adapter's session handling, not of the family's static profile.
+    #[serde(default)]
+    pub manual_transactions: bool,
 }
 
 tokio::task_local! {
@@ -251,6 +256,35 @@ pub trait Integration: Send + Sync {
     //        HTTP engines, where dropping the request is the cancel.
     // WHERE: src-tauri/src/guard/mod.rs (step 9 calls it)
     async fn cancel(&self, _run_id: &str) {}
+
+    // ---- manual transactions ---------------------------------------------------
+    // WHAT:  The editor's Manual mode: BEGIN once, run statements, then COMMIT or
+    //        ROLLBACK from the toolbar.
+    // WHY:   A pooled session runs each `execute` on whichever connection is free,
+    //        so a `BEGIN` typed into the editor lands on one connection and the
+    //        next statement on another. A manual transaction needs one connection
+    //        pinned for its whole life, and only the adapter owns its pool.
+    // HOW:   While a transaction is open, `execute` runs on the pinned connection;
+    //        everything else (grid pages, catalog reads) keeps using the pool and
+    //        so does not see uncommitted work. `close` must end the transaction
+    //        (rolling back) before it closes the pool. Declared by
+    //        `manual_transactions`, which the UI reads from `SessionInfo`.
+    // WHERE: src-tauri/src/commands/query.rs (begin/commit/rollback), src/features/editor/QueryPane.tsx
+    fn manual_transactions(&self) -> bool {
+        false
+    }
+    async fn begin_transaction(&self) -> AppResult<()> {
+        Err(AppError::invalid_input("This engine has no manual transactions."))
+    }
+    async fn commit_transaction(&self) -> AppResult<()> {
+        Err(AppError::invalid_input("This engine has no manual transactions."))
+    }
+    async fn rollback_transaction(&self) -> AppResult<()> {
+        Err(AppError::invalid_input("This engine has no manual transactions."))
+    }
+    fn in_transaction(&self) -> bool {
+        false
+    }
     /// Foreign keys visible to the session (ER diagram, FK traversal). Empty when unsupported.
     async fn foreign_keys(&self) -> AppResult<Vec<ForeignKey>> {
         Ok(Vec::new())
@@ -496,6 +530,7 @@ pub async fn describe(integration: &dyn Integration) -> AppResult<SessionInfo> {
         server_version: integration.server_version().await.unwrap_or(None),
         database: integration.current_database(),
         databases: integration.databases().await.unwrap_or_default(),
+        manual_transactions: integration.manual_transactions(),
     })
 }
 

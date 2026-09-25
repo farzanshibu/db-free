@@ -12,4 +12,10 @@ database: string | null,
 /**
  * Every database the server exposes, for the sidebar switcher.
  */
-databases: Array<string>, };
+databases: Array<string>, 
+/**
+ * The editor may offer Manual (BEGIN … COMMIT/ROLLBACK) mode. Reported
+ * here rather than in `Capabilities` because it is a property of the
+ * adapter's session handling, not of the family's static profile.
+ */
+manualTransactions: boolean, };

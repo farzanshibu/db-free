@@ -14,6 +14,7 @@ use rusqlite::fallible_iterator::FallibleIterator;
 use rusqlite::types::ValueRef;
 use rusqlite::{params, Connection, InterruptHandle, OpenFlags};
 use std::collections::HashSet;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 impl From<rusqlite::Error> for AppError {
@@ -35,6 +36,11 @@ pub struct SqliteIntegration {
     /// Aborts whatever statement the connection is running (the Stop button).
     interrupt: Arc<InterruptHandle>,
     runs: Arc<Mutex<Runs>>,
+    /// Outside autocommit, as last seen. SQLite has one connection, so a manual
+    /// transaction needs no pinning — only a flag readable without waiting for
+    /// the connection lock a running statement holds. Refreshed after every
+    /// `execute` too, since a `BEGIN`/`COMMIT` typed in the editor moves it.
+    tx_open: Arc<AtomicBool>,
 }
 
 // WHAT:  Which Stop-able run holds the connection, and which are queued behind it.
@@ -80,6 +86,7 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         path,
         interrupt,
         runs: Arc::new(Mutex::new(Runs::default())),
+        tx_open: Arc::new(AtomicBool::new(false)),
     }))
 }
 
@@ -124,6 +131,62 @@ impl SqliteIntegration {
         })
         .await
         .map_err(AppError::internal)?
+    }
+
+    async fn execute_run(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        let sql = sql.to_string();
+        let Some(run_id) = crate::integrations::current_run_id() else {
+            return self.blocking(move |conn| run_batch(conn, &sql, max_rows)).await;
+        };
+        // The id is read here: the blocking pool runs the closure on another
+        // thread, outside the block's task-local scope.
+        if let Ok(mut runs) = self.runs.lock() {
+            runs.queued.insert(run_id.clone());
+        }
+        let runs = Arc::clone(&self.runs);
+        self.blocking(move |conn| {
+            let stopped = runs.lock().map(|mut r| {
+                r.queued.remove(&run_id);
+                let stopped = r.cancelled.remove(&run_id);
+                if !stopped {
+                    r.active = Some(run_id.clone());
+                }
+                stopped
+            });
+            if stopped.unwrap_or(false) {
+                return Err(AppError::cancelled("Cancelled by user"));
+            }
+            let out = run_batch(conn, &sql, max_rows);
+            if let Ok(mut r) = runs.lock() {
+                r.active = None;
+            }
+            out
+        })
+        .await
+    }
+
+    async fn refresh_tx_flag(&self) {
+        let flag = Arc::clone(&self.tx_open);
+        let seen = self.blocking(move |conn| Ok(!conn.is_autocommit())).await;
+        if let Ok(open) = seen {
+            flag.store(open, Ordering::Release);
+        }
+    }
+
+    // WHAT:  BEGIN / COMMIT / ROLLBACK for the editor's Manual mode.
+    // HOW:   `needs_open` turns "no transaction is active" into the same
+    //        message the pooled adapters give, instead of SQLite's own.
+    async fn transaction_statement(&self, statement: &'static str, needs_open: bool) -> AppResult<()> {
+        let result = self
+            .blocking(move |conn| {
+                if conn.is_autocommit() == needs_open {
+                    return Err(AppError::invalid_input(if needs_open { "No transaction is open." } else { "A transaction is already open." }));
+                }
+                conn.execute_batch(statement).map_err(AppError::from)
+            })
+            .await;
+        self.refresh_tx_flag().await;
+        result
     }
 }
 
@@ -1027,35 +1090,29 @@ impl Integration for SqliteIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        let sql = sql.to_string();
-        let Some(run_id) = crate::integrations::current_run_id() else {
-            return self.blocking(move |conn| run_batch(conn, &sql, max_rows)).await;
-        };
-        // The id is read here: the blocking pool runs the closure on another
-        // thread, outside the block's task-local scope.
-        if let Ok(mut runs) = self.runs.lock() {
-            runs.queued.insert(run_id.clone());
-        }
-        let runs = Arc::clone(&self.runs);
-        self.blocking(move |conn| {
-            let stopped = runs.lock().map(|mut r| {
-                r.queued.remove(&run_id);
-                let stopped = r.cancelled.remove(&run_id);
-                if !stopped {
-                    r.active = Some(run_id.clone());
-                }
-                stopped
-            });
-            if stopped.unwrap_or(false) {
-                return Err(AppError::cancelled("Cancelled by user"));
-            }
-            let out = run_batch(conn, &sql, max_rows);
-            if let Ok(mut r) = runs.lock() {
-                r.active = None;
-            }
-            out
-        })
-        .await
+        let result = self.execute_run(sql, max_rows).await;
+        self.refresh_tx_flag().await;
+        result
+    }
+
+    fn manual_transactions(&self) -> bool {
+        true
+    }
+
+    async fn begin_transaction(&self) -> AppResult<()> {
+        self.transaction_statement("BEGIN", false).await
+    }
+
+    async fn commit_transaction(&self) -> AppResult<()> {
+        self.transaction_statement("COMMIT", true).await
+    }
+
+    async fn rollback_transaction(&self) -> AppResult<()> {
+        self.transaction_statement("ROLLBACK", true).await
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.tx_open.load(Ordering::Acquire)
     }
 
     async fn cancel(&self, run_id: &str) {
@@ -1192,6 +1249,37 @@ mod tests {
             ssl_mode: SslMode::Disable,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None }
+    }
+
+    #[tokio::test]
+    async fn manual_transaction_rolls_back_and_commits() {
+        let dir = std::env::temp_dir().join(format!("db-free-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("tx.db").to_string_lossy().into_owned();
+        let db = connect(&resolved(&path, false)).await.unwrap_or_else(|e| panic!("{e}"));
+        let count = |rows: Vec<StatementResult>| match rows.first() {
+            Some(StatementResult::Rows { result }) => result.rows.first().and_then(|r| r.first()).cloned(),
+            _ => None,
+        };
+        db.execute("CREATE TABLE t (a int)", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        assert!(db.manual_transactions());
+        assert!(!db.in_transaction());
+        assert!(db.commit_transaction().await.is_err(), "nothing to commit yet");
+
+        db.begin_transaction().await.unwrap_or_else(|e| panic!("{e}"));
+        assert!(db.in_transaction());
+        assert!(db.begin_transaction().await.is_err(), "one transaction at a time");
+        db.execute("INSERT INTO t VALUES (1)", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        db.rollback_transaction().await.unwrap_or_else(|e| panic!("{e}"));
+        assert!(!db.in_transaction());
+        let rows = db.execute("SELECT count(*) FROM t", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(count(rows), Some(Value::Int(0)), "rollback discards the insert");
+
+        db.begin_transaction().await.unwrap_or_else(|e| panic!("{e}"));
+        db.execute("INSERT INTO t VALUES (2)", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        db.commit_transaction().await.unwrap_or_else(|e| panic!("{e}"));
+        let rows = db.execute("SELECT count(*) FROM t", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(count(rows), Some(Value::Int(1)));
     }
 
     #[tokio::test]

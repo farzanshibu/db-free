@@ -1,4 +1,4 @@
-// SOT: query-pane, query-params-prompt, run-query-flow, run-at-cursor-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, save-sql-file-flow, ai-assist-flow, explain-flow, format-sql
+// SOT: query-pane, query-params-prompt, stop-query-flow, manual-transaction-toolbar, run-query-flow, run-at-cursor-flow, destructive-confirm-flow, buffer-autosave, save-query-flow, save-sql-file-flow, ai-assist-flow, explain-flow, format-sql
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { format as formatSql } from "sql-formatter";
 import type { AgentEvent, AppError, ConnectionSummary, PlanReport, QueryOutcome, StatementSpan } from "@/lib/bindings";
@@ -9,7 +9,9 @@ import { Markdown } from "@/features/chat/Markdown";
 import { pickSqlSavePath } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
 import { useShortcut } from "@/stores/useShortcut";
-import { AppSelect, Field } from "@/components/global/Field";
+import { AppSelect, Field, Segmented } from "@/components/global/Field";
+import { useTransactions } from "@/stores/transactions";
+import { Badge } from "@/components/ui/badge";
 import { EnvDot } from "@/components/global/Badge";
 import { IconButton } from "@/components/global/Button";
 import { Resizer } from "@/components/global/Resizer";
@@ -41,6 +43,8 @@ const ROW_CAPS = [
   { value: "100000", label: "100,000 rows" },
   { value: "none", label: "No limit" },
 ] satisfies readonly { value: string; label: string }[];
+
+type TxMode = "auto" | "manual";
 
 function defaultRowCap(max: number | undefined): (typeof ROW_CAPS)[number]["value"] {
   const wanted = String(max ?? 1000);
@@ -111,6 +115,13 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   /// (kept per tab so the next Run pre-fills them).
   const [paramPrompt, setParamPrompt] = useState<{ script: string; names: string[]; then: "run" | "run-confirmed" | "explain" } | null>(null);
   const [paramValues, setParamValues] = useState<Record<string, ParamValue>>({});
+  /// Manual transaction mode: per tab, but the transaction itself is the connection's.
+  const txCapable = info?.manualTransactions === true;
+  const manual = useTransactions((s) => s.manual[tabId] === true) && txCapable;
+  const txOpen = useTransactions((s) => s.open[connection.id] === true);
+  const setTxOpen = useTransactions((s) => s.setOpen);
+  const setManual = useTransactions((s) => s.setManual);
+  const [txBusy, setTxBusy] = useState(false);
 
   const [editorHeight, setEditorHeight] = useState<number>(() => {
     try {
@@ -220,6 +231,9 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
       const runId = crypto.randomUUID();
       runIdRef.current = runId;
       try {
+        // Manual mode opens the transaction on the first Run after a Commit or
+        // Rollback, so every statement until the next one is inside it.
+        if (manual && !txOpen) setTxOpen(connection.id, await ipc("begin_transaction", { connectionId: connection.id }));
         const result = await ipc("execute_query", {
           connectionId: connection.id,
           sql: script,
@@ -246,8 +260,27 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
         setHistoryKey((k) => k + 1);
       }
     },
-    [connection.id, isSql, rowCap, running, schemaFilter, showError, showInfo],
+    [connection.id, isSql, manual, rowCap, running, schemaFilter, setTxOpen, showError, showInfo, txOpen],
   );
+
+  // WHAT:  Commit / Rollback for Manual mode.
+  // HOW:   Both answer whether a transaction is still open; a failed COMMIT
+  //        has ended it anyway, so an error also reads as "closed".
+  // WHERE: src-tauri/src/services/query.rs (`transaction`)
+  const endTransaction = async (commit: boolean) => {
+    setTxBusy(true);
+    try {
+      const req = { connectionId: connection.id };
+      setTxOpen(connection.id, commit ? await ipc("commit_transaction", req) : await ipc("rollback_transaction", req));
+      showInfo(commit ? "Transaction committed." : "Transaction rolled back.");
+    } catch (raw) {
+      setTxOpen(connection.id, false);
+      showError(normalizeError(raw));
+    } finally {
+      setTxBusy(false);
+      setHistoryKey((k) => k + 1);
+    }
+  };
 
   // WHAT:  Stops the run in flight.
   // WHY:   A runaway query otherwise holds the tab until the block's timeout.
@@ -678,6 +711,39 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
               )}
           </PopoverContent>
         </Popover>
+        {txCapable ? (
+          // WHAT:  Auto-commit / Manual. In Manual the first Run opens a
+          //        transaction that stays open until Commit or Rollback.
+          // WHY:   Auto cannot be picked back while one is open: leaving it
+          //        open behind an Auto label is how work gets lost.
+          <div className="flex items-center gap-1.5">
+            <Segmented<TxMode>
+              label="Transaction mode"
+              value={manual ? "manual" : "auto"}
+              options={[
+                { value: "auto", label: "Auto-commit", disabled: txOpen },
+                { value: "manual", label: "Manual" },
+              ]}
+              onChange={(mode) => setManual(tabId, mode === "manual")}
+            />
+            {txOpen ? (
+              <>
+                <Badge variant="warning" className="gap-1">
+                  <Icon name="lock" size={10} />
+                  Transaction open
+                </Badge>
+                <Button size="sm" variant="soft" className="rounded-lg liquid-hover" pending={txBusy} disabled={running} onClick={() => void endTransaction(true)}>
+                  <Icon name="check" size={12} />
+                  Commit
+                </Button>
+                <Button size="sm" variant="ghost" className="rounded-lg text-danger hover:bg-danger-soft liquid-hover" disabled={running || txBusy} onClick={() => void endTransaction(false)}>
+                  <Icon name="refresh" size={12} />
+                  Rollback
+                </Button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           {/* WHAT:  Live-connection dot beside the database picker, so a connected
               tab shows green at full opacity and a stale one dims to 35%. */}

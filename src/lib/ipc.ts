@@ -147,6 +147,9 @@ interface CommandMap {
   restore_database: { req: RestoreRequest; res: BackupReport };
   cancel_backup: { req: BackupRunRequest; res: null };
   cancel_query: { req: CancelQueryRequest; res: boolean };
+  begin_transaction: { req: SessionRequest; res: boolean };
+  commit_transaction: { req: SessionRequest; res: boolean };
+  rollback_transaction: { req: SessionRequest; res: boolean };
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;

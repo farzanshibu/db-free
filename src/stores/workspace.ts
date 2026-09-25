@@ -26,6 +26,7 @@ import type { EnginePreset } from "@/lib/engines";
 import type { SettingsSection } from "@/lib/settingsSections";
 import { toast } from "@/components/ui/sonner";
 import { readStoredTabs, storable, writeStoredTabs } from "./tabPersistence";
+import { confirmLeavingTransaction, useTransactions } from "./transactions";
 
 export type SidebarMode = "tables" | "objects" | "queries" | "dashboards" | "workflows" | "diagrams";
 
@@ -322,6 +323,7 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
     await get().refreshConnections();
     if (id !== null && get().sessions.includes(id)) {
       await ipc("disconnect", { id });
+      useTransactions.getState().forget(id);
       set((s) => ({
         sessions: s.sessions.filter((x) => x !== id),
         catalogs: withoutKey(s.catalogs, id),
@@ -368,7 +370,9 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   },
 
   disconnect: async (id) => {
+    if (!confirmLeavingTransaction(id, "Disconnecting rolls it back.")) return;
     await ipc("disconnect", { id });
+    useTransactions.getState().forget(id);
     set((s) => ({
       sessions: s.sessions.filter((x) => x !== id),
       catalogs: withoutKey(s.catalogs, id),
@@ -389,7 +393,9 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   },
 
   switchDatabase: async (id, database) => {
+    if (!confirmLeavingTransaction(id, "Switching database reconnects and rolls it back.")) return;
     const ok = await get().connect(id, database);
+    if (ok) useTransactions.getState().forget(id);
     if (ok) {
       set((s) => ({
         tabs: s.tabs.filter((t) => !(t.connectionId === id && (t.kind === "table" || t.kind === "erd" || t.kind === "object"))),
@@ -509,6 +515,9 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
 
   closeTab: (id) => {
     const closed = get().tabs.filter((t) => t.id === id);
+    // The last query tab on a connection is the last Commit button for its transaction.
+    const last = closed.find((t) => t.kind === "query" && !get().tabs.some((o) => o.id !== t.id && o.kind === "query" && o.connectionId === t.connectionId));
+    if (last?.connectionId && !confirmLeavingTransaction(last.connectionId,"Closing its last query tab leaves it open until you disconnect.")) return;
     forgetBuffers(closed, rememberClosed);
     set((s) => {
       const index = s.tabs.findIndex((t) => t.id === id);

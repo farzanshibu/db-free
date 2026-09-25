@@ -1,4 +1,4 @@
-// SOT: query-service, sql-execution, query-namespace, query-total-rows
+// SOT: query-service, sql-execution, query-namespace, query-total-rows, manual-transactions
 
 use crate::error::AppResult;
 use crate::guard::destructive::{classify, StatementKind};
@@ -70,6 +70,33 @@ async fn count_total(ctx: &SessionCtx, prelude: &Prelude, sql: &str, statements:
             None
         }
     }
+}
+
+/// One step of the editor's Manual transaction mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransactionStep {
+    Begin,
+    Commit,
+    Rollback,
+}
+
+// WHAT:  Opens, commits or rolls back the session's manual transaction and
+//        answers whether one is open afterwards.
+// WHY:   The toolbar redraws from the answer, so it cannot drift from what the
+//        adapter holds even when a step fails half-way (a failed COMMIT still
+//        ends the transaction).
+// WHERE: src-tauri/src/integrations/mod.rs (`begin_transaction` …)
+pub async fn transaction(ctx: &SessionCtx, step: TransactionStep) -> AppResult<bool> {
+    let integration = &ctx.integration;
+    if !integration.manual_transactions() {
+        return Err(crate::error::AppError::invalid_input("This engine has no manual transactions."));
+    }
+    let result = match step {
+        TransactionStep::Begin => integration.begin_transaction().await,
+        TransactionStep::Commit => integration.commit_transaction().await,
+        TransactionStep::Rollback => integration.rollback_transaction().await,
+    };
+    result.map(|()| integration.in_transaction())
 }
 
 /// No `AS` before the alias: Oracle rejects it on a derived table.
