@@ -25,6 +25,7 @@ export type * from "./BackupRequest";
 export type * from "./BackupRunRequest";
 export type * from "./BackupSupport";
 export type * from "./BufferIdRequest";
+export type * from "./CancelQueryRequest";
 export type * from "./Capabilities";
 export type * from "./CatalogRequest";
 export type * from "./CellValue";

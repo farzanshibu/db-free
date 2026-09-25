@@ -80,6 +80,9 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const [sql, setSql] = useState(seedSql ?? "");
   const [loaded, setLoaded] = useState(false);
   const [running, setRunning] = useState(false);
+  /// Names the run in flight so Stop can reach it (`cancel_query`).
+  const runIdRef = useRef<string | null>(null);
+  const [stopping, setStopping] = useState(false);
   const [outcome, setOutcome] = useState<QueryOutcome | null>(null);
   // The script behind `outcome`; the results pane reads it to decide whether rows are editable.
   const [outcomeSql, setOutcomeSql] = useState("");
@@ -214,6 +217,8 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
       }
       setRunning(true);
       setConfirm(null);
+      const runId = crypto.randomUUID();
+      runIdRef.current = runId;
       try {
         const result = await ipc("execute_query", {
           connectionId: connection.id,
@@ -221,22 +226,45 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
           confirmDestructive,
           maxRows: rowCap === "none" ? null : Number(rowCap),
           schema: schemaFilter,
+          runId,
         });
         setOutcome(result);
         setOutcomeSql(script);
         setLastError(null);
       } catch (raw) {
         const error: AppError = normalizeError(raw);
-        setLastError(error.message);
-        if (error.kind === "destructive_confirmation_required") setConfirm({ statements: error.statements, script });
-        else showError(error);
+        if (error.kind === "cancelled") showInfo("Query stopped.");
+        else {
+          setLastError(error.message);
+          if (error.kind === "destructive_confirmation_required") setConfirm({ statements: error.statements, script });
+          else showError(error);
+        }
       } finally {
+        runIdRef.current = null;
+        setStopping(false);
         setRunning(false);
         setHistoryKey((k) => k + 1);
       }
     },
-    [connection.id, isSql, rowCap, running, schemaFilter, showError],
+    [connection.id, isSql, rowCap, running, schemaFilter, showError, showInfo],
   );
+
+  // WHAT:  Stops the run in flight.
+  // WHY:   A runaway query otherwise holds the tab until the block's timeout.
+  // HOW:   The block races the run against this; the pending `execute_query`
+  //        then rejects with a `cancelled` error, which `run` reports quietly.
+  // WHERE: src-tauri/src/guard/mod.rs (step 9), src-tauri/src/commands/query.rs
+  const stop = useCallback(async () => {
+    const runId = runIdRef.current;
+    if (runId === null) return;
+    setStopping(true);
+    try {
+      await ipc("cancel_query", { runId });
+    } catch (raw) {
+      setStopping(false);
+      showError(normalizeError(raw));
+    }
+  }, [showError]);
 
   const runCurrent = useCallback(() => {
     void run(target?.text ?? sql, false);
@@ -421,19 +449,27 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
-        <Button
-          size="sm"
-          pending={running}
-          onClick={runCurrent}
-          disabled={!loaded || empty}
-          className="gap-2 rounded-lg pr-1.5 font-semibold liquid-hover"
-        >
-          <Icon name="play" size={12} />
-          {runLabel}
-          {/* The chord lives inside the button: one control, not a button with a
-              loose hint parked next to it. */}
-          <RunShortcut className="bg-accent-foreground/15 text-accent-foreground/85" />
-        </Button>
+        {running ? (
+          // While a run is in flight, Run becomes Stop in the same spot, so the
+          // hand that started it finds the way out without looking.
+          <Button size="sm" variant="danger" pending={stopping} onClick={() => void stop()} className="gap-2 rounded-lg font-semibold liquid-hover">
+            <Icon name="stop" size={12} />
+            Stop
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            onClick={runCurrent}
+            disabled={!loaded || empty}
+            className="gap-2 rounded-lg pr-1.5 font-semibold liquid-hover"
+          >
+            <Icon name="play" size={12} />
+            {runLabel}
+            {/* The chord lives inside the button: one control, not a button with a
+                loose hint parked next to it. */}
+            <RunShortcut className="bg-accent-foreground/15 text-accent-foreground/85" />
+          </Button>
+        )}
         {spans.length > 1 ? (
           <Button
             size="sm"

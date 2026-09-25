@@ -32,6 +32,7 @@ pub struct MysqlIntegration {
     pool: MySqlPool,
     engine: Engine,
     database: Option<String>,
+    running: RunningIds,
 }
 
 const SYSTEM_DATABASES: [&str; 4] = ["information_schema", "performance_schema", "mysql", "sys"];
@@ -75,7 +76,7 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .connect_with(opts)
         .await?;
     let engine = s.engine;
-    Ok(Arc::new(MysqlIntegration { pool, engine, database }))
+    Ok(Arc::new(MysqlIntegration { pool, engine, database, running: RunningIds::default() }))
 }
 
 // WHAT:  "8.4.0" → "MySQL 8.4.0"; "11.4.2-MariaDB-ubu2404" → "MariaDB 11.4.2-MariaDB-ubu2404".
@@ -277,35 +278,54 @@ impl MysqlIntegration {
         max_rows: usize,
         decode: fn(&MySqlRow, usize) -> Value,
     ) -> AppResult<Vec<StatementResult>> {
-        let mut stream = (&self.pool).fetch_many(sqlx::raw_sql(sql));
-        let mut out = Vec::new();
-        let mut current: Option<ResultSet> = None;
-        while let Some(item) = stream.next().await {
-            match item? {
-                Either::Right(row) => {
-                    let set = current.get_or_insert_with(|| ResultSet {
-                        columns: columns_of(&row),
-                        rows: Vec::new(),
-                        truncated: false,
-                    });
-                    if set.rows.len() < max_rows {
-                        let width = set.columns.len();
-                        set.rows.push((0..width).map(|i| decode(&row, i)).collect());
-                    } else {
-                        set.truncated = true;
-                    }
-                }
-                Either::Left(done) => match current.take() {
-                    Some(result) => out.push(StatementResult::Rows { result }),
-                    None => out.push(StatementResult::Affected { rows_affected: done.rows_affected() }),
-                },
-            }
-        }
-        if let Some(result) = current.take() {
-            out.push(StatementResult::Rows { result });
-        }
-        Ok(out)
+        run_on(&self.pool, sql, max_rows, decode).await
     }
+
+    // WHAT:  `execute` for a run the user can Stop: pins one pooled connection
+    //        and remembers its thread id under the run id until it returns.
+    // WHY:   Dropping the future does not stop the server; `KILL QUERY <id>`
+    //        from a second connection does, and it needs the first one's id.
+    // HOW:   The id is read as text: MySQL and MariaDB disagree on its integer
+    //        type, and text decodes the same on both.
+    // WHERE: `cancel` below, src-tauri/src/guard/mod.rs (step 9)
+    async fn run_tracked(&self, run_id: String, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        let mut conn = self.pool.acquire().await?;
+        let id: String = sqlx::query_scalar("SELECT CAST(CONNECTION_ID() AS CHAR)").fetch_one(&mut *conn).await?;
+        let id = id.trim().parse::<u64>().map_err(AppError::driver)?;
+        let _tracked = Tracked::new(&self.running, run_id, id);
+        run_on(&mut *conn, sql, max_rows, decode_cell).await
+    }
+}
+
+/// Server thread ids of the Stop-able runs in flight, keyed by run id.
+type RunningIds = std::sync::Mutex<std::collections::HashMap<String, u64>>;
+
+// WHAT:  Holds a run's thread id in the registry for exactly as long as it lives.
+// WHY:   The block drops a stopped run's future; Drop is the only exit that
+//        also covers that path, so a stale id is never KILLed later.
+struct Tracked<'a> {
+    running: &'a RunningIds,
+    run_id: String,
+}
+
+impl<'a> Tracked<'a> {
+    fn new(running: &'a RunningIds, run_id: String, id: u64) -> Self {
+        if let Ok(mut map) = running.lock() {
+            map.insert(run_id.clone(), id);
+        }
+        Tracked { running, run_id }
+    }
+}
+
+impl Drop for Tracked<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.running.lock() {
+            map.remove(&self.run_id);
+        }
+    }
+}
+
+impl MysqlIntegration {
 
     // WHAT:  First result set (columns + rows) of one of the adapter's own metadata queries.
     async fn query_set(&self, sql: &str) -> AppResult<ResultSet> {
@@ -323,6 +343,48 @@ impl MysqlIntegration {
     async fn query_rows(&self, sql: &str) -> AppResult<Vec<Vec<Value>>> {
         Ok(self.query_set(sql).await?.rows)
     }
+}
+
+// WHAT:  Runs `sql` through the text protocol and groups rows per statement.
+// HOW:   sqlx yields Right(row) per row and Left(result) when a statement ends.
+//        Generic over the executor so the pool and a pinned connection share it.
+async fn run_on<'c, E>(
+    executor: E,
+    sql: &'c str,
+    max_rows: usize,
+    decode: fn(&MySqlRow, usize) -> Value,
+) -> AppResult<Vec<StatementResult>>
+where
+    E: Executor<'c, Database = MySql>,
+{
+    let mut stream = executor.fetch_many(sqlx::raw_sql(sql));
+    let mut out = Vec::new();
+    let mut current: Option<ResultSet> = None;
+    while let Some(item) = stream.next().await {
+        match item? {
+            Either::Right(row) => {
+                let set = current.get_or_insert_with(|| ResultSet {
+                    columns: columns_of(&row),
+                    rows: Vec::new(),
+                    truncated: false,
+                });
+                if set.rows.len() < max_rows {
+                    let width = set.columns.len();
+                    set.rows.push((0..width).map(|i| decode(&row, i)).collect());
+                } else {
+                    set.truncated = true;
+                }
+            }
+            Either::Left(done) => match current.take() {
+                Some(result) => out.push(StatementResult::Rows { result }),
+                None => out.push(StatementResult::Affected { rows_affected: done.rows_affected() }),
+            },
+        }
+    }
+    if let Some(result) = current.take() {
+        out.push(StatementResult::Rows { result });
+    }
+    Ok(out)
 }
 
 // ============================================================================
@@ -1659,7 +1721,19 @@ impl Integration for MysqlIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        self.run(sql, max_rows).await
+        match crate::integrations::current_run_id() {
+            Some(run_id) => self.run_tracked(run_id, sql, max_rows).await,
+            None => self.run(sql, max_rows).await,
+        }
+    }
+
+    async fn cancel(&self, run_id: &str) {
+        let id = self.running.lock().ok().and_then(|map| map.get(run_id).copied());
+        let Some(id) = id else { return };
+        // `id` is the server's own integer, never user text: safe to inline.
+        if let Err(err) = sqlx::raw_sql(&format!("KILL QUERY {id}")).execute(&self.pool).await {
+            log::warn!("KILL QUERY {id} failed: {err}");
+        }
     }
 
     fn use_namespace(&self, namespace: &str) -> Option<(String, usize)> {

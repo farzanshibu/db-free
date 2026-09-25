@@ -1,4 +1,4 @@
-// SOT: query-commands, ipc-execute, ipc-history, ipc-buffers, ipc-split-script, ipc-save-sql-file
+// SOT: query-commands, ipc-execute, ipc-history, ipc-buffers, ipc-split-script, ipc-save-sql-file, ipc-cancel-query
 
 use crate::error::AppResult;
 use crate::guard;
@@ -21,6 +21,17 @@ pub struct ExecuteQueryRequest {
     pub max_rows: Option<u32>,
     /// Schema / keyspace the editor's picker is on, applied for this run only.
     pub schema: Option<String>,
+    /// Names this run so `cancel_query` can stop it. Omitted = not stoppable.
+    #[serde(default)]
+    #[ts(optional)]
+    pub run_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct CancelQueryRequest {
+    pub run_id: String,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -73,10 +84,22 @@ pub async fn execute_query(state: State<'_, AppState>, req: ExecuteQueryRequest)
             connection_id: &req.connection_id,
             sql: &req.sql,
             confirm_destructive: req.confirm_destructive,
+            run_id: req.run_id.as_deref(),
         },
         |ctx| async move { services::query::execute(&ctx, &sql, max_rows, schema.as_deref()).await },
     )
     .await
+}
+
+// WHAT:  Stops a running `execute_query` by the run id the editor gave it.
+// WHY:   The Stop button. Answers whether a run was still there to stop; one
+//        that already finished is not an error — Stop and completion race.
+// HOW:   Trips the token the block is racing (step 9); the block then asks the
+//        adapter to cancel server-side and logs the run as cancelled.
+// WHERE: src-tauri/src/state.rs (QueryRuns), src-tauri/src/guard/mod.rs
+#[tauri::command]
+pub async fn cancel_query(state: State<'_, AppState>, req: CancelQueryRequest) -> AppResult<bool> {
+    guard::local("cancel_query", async { Ok(state.query_runs().cancel(&req.run_id)) }).await
 }
 
 #[tauri::command]

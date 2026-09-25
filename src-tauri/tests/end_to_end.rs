@@ -69,7 +69,7 @@ fn temp_dir(tag: &str) -> std::path::PathBuf {
 async fn run_sql(f: &Fixture, sql: &str, confirm: bool) -> Result<Vec<StatementResult>, AppError> {
     guard::statement(
         &f.state,
-        guard::StatementRequest { connection_id: &f.id, sql, confirm_destructive: confirm },
+        guard::StatementRequest { connection_id: &f.id, sql, confirm_destructive: confirm, run_id: None },
         |ctx| async move {
             let statements = ctx.integration.execute(sql, 1_000).await?;
             Ok(db_free_lib::model::QueryOutcome { statements, total_rows: None, elapsed_ms: 0 })

@@ -40,7 +40,7 @@ pub async fn run_workflow(state: State<'_, AppState>, req: RunWorkflowRequest) -
         let sql = step.sql.clone();
         let outcome = guard::statement(
             &state,
-            guard::StatementRequest { connection_id: &connection_id, sql: &step.sql, confirm_destructive: true },
+            guard::StatementRequest { connection_id: &connection_id, sql: &step.sql, confirm_destructive: true, run_id: None },
             |ctx| async move { services::query::execute(&ctx, &sql, 1_000, None).await },
         )
         .await;

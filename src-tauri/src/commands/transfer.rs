@@ -77,7 +77,7 @@ pub async fn import_file(state: State<'_, AppState>, req: ImportRequest) -> AppR
     let script_for_run = script.clone();
     guard::statement(
         &state,
-        guard::StatementRequest { connection_id: &req.connection_id, sql: &script, confirm_destructive: false },
+        guard::StatementRequest { connection_id: &req.connection_id, sql: &script, confirm_destructive: false, run_id: None },
         |ctx| async move { services::query::execute(&ctx, &script_for_run, 10, None).await },
     )
     .await?;

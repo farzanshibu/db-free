@@ -9,6 +9,7 @@ use crate::store::Store;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use tokio::sync::RwLock;
+use tokio_util::sync::CancellationToken;
 
 // WHAT:  Everything a command can reach: the local store, live integration sessions,
 //        and the master key provider.
@@ -28,6 +29,56 @@ pub struct AppState {
     /// Turns that are running right now, so the UI can answer a permission
     /// prompt or stop one. Keyed by run id; removed when the run ends.
     agent_runs: RwLock<HashMap<String, Arc<RunControl>>>,
+    /// Editor runs that can be stopped right now (`cancel_query`).
+    query_runs: QueryRuns,
+}
+
+// WHAT:  The Stop button's registry: one cancellation token per in-flight run.
+// WHY:   A query otherwise runs until the block's timeout. The UI names its run
+//        (`ExecuteQueryRequest::run_id`) so a second command can reach it.
+// HOW:   The block registers the id before the handler starts and finishes it
+//        when the handler returns, win or lose; `cancel` trips the token the
+//        block is racing. A cancel for an id that is not running (finished, or
+//        never started) is a no-op rather than an error: Stop and completion
+//        race by nature.
+// WHERE: src-tauri/src/guard/mod.rs (step 9), src-tauri/src/commands/query.rs (cancel_query)
+#[derive(Default)]
+pub struct QueryRuns {
+    runs: Mutex<HashMap<String, CancellationToken>>,
+}
+
+impl QueryRuns {
+    /// Token the block races the handler against. Re-registering an id hands
+    /// back a fresh token; the old run can no longer be stopped by that name.
+    pub fn register(&self, run_id: &str) -> CancellationToken {
+        let token = CancellationToken::new();
+        if let Ok(mut runs) = self.runs.lock() {
+            runs.insert(run_id.to_string(), token.clone());
+        }
+        token
+    }
+
+    /// True when a running run was told to stop.
+    pub fn cancel(&self, run_id: &str) -> bool {
+        let token = self.runs.lock().ok().and_then(|runs| runs.get(run_id).cloned());
+        match token {
+            Some(token) => {
+                token.cancel();
+                true
+            }
+            None => false,
+        }
+    }
+
+    pub fn finish(&self, run_id: &str) {
+        if let Ok(mut runs) = self.runs.lock() {
+            runs.remove(run_id);
+        }
+    }
+
+    pub fn is_running(&self, run_id: &str) -> bool {
+        self.runs.lock().map(|runs| runs.contains_key(run_id)).unwrap_or(false)
+    }
 }
 
 impl AppState {
@@ -39,7 +90,12 @@ impl AppState {
             master_key: OnceLock::new(),
             agent_chats: RwLock::new(HashMap::new()),
             agent_runs: RwLock::new(HashMap::new()),
+            query_runs: QueryRuns::default(),
         }
+    }
+
+    pub fn query_runs(&self) -> &QueryRuns {
+        &self.query_runs
     }
 
     pub fn with_store<T>(&self, f: impl FnOnce(&Store) -> AppResult<T>) -> AppResult<T> {
@@ -104,5 +160,32 @@ impl AppState {
 
     pub async fn run_control(&self, run_id: &str) -> Option<Arc<RunControl>> {
         self.agent_runs.read().await.get(run_id).cloned()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cancel_trips_the_registered_token_only() {
+        let runs = QueryRuns::default();
+        let a = runs.register("a");
+        let b = runs.register("b");
+        assert!(runs.cancel("a"));
+        assert!(a.is_cancelled());
+        assert!(!b.is_cancelled(), "Stop on one tab must not stop another");
+    }
+
+    #[test]
+    fn cancel_after_finish_is_a_no_op() {
+        let runs = QueryRuns::default();
+        let token = runs.register("a");
+        assert!(runs.is_running("a"));
+        runs.finish("a");
+        assert!(!runs.is_running("a"));
+        assert!(!runs.cancel("a"), "a finished run has nothing to stop");
+        assert!(!token.is_cancelled());
+        assert!(!runs.cancel("never-started"));
     }
 }

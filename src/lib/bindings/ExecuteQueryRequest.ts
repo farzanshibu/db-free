@@ -8,4 +8,8 @@ maxRows: number | null,
 /**
  * Schema / keyspace the editor's picker is on, applied for this run only.
  */
-schema: string | null, };
+schema: string | null, 
+/**
+ * Names this run so `cancel_query` can stop it. Omitted = not stoppable.
+ */
+runId?: string, };

@@ -19,6 +19,7 @@ import type {
   BackupRunRequest,
   BackupSupport,
   BufferIdRequest,
+  CancelQueryRequest,
   CatalogRequest,
   ChangePreview,
   ChangesRequest,
@@ -145,6 +146,7 @@ interface CommandMap {
   backup_database: { req: BackupRequest; res: BackupReport };
   restore_database: { req: RestoreRequest; res: BackupReport };
   cancel_backup: { req: BackupRunRequest; res: null };
+  cancel_query: { req: CancelQueryRequest; res: boolean };
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;
@@ -202,6 +204,7 @@ export function errorMessage(error: AppError): string {
     case "read_only":
     case "invalid_input":
     case "timeout":
+    case "cancelled":
     case "driver":
     case "store":
     case "crypto":

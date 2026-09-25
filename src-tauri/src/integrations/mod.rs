@@ -201,6 +201,26 @@ pub struct SessionInfo {
     pub databases: Vec<String>,
 }
 
+tokio::task_local! {
+    /// The Stop-able run the current task belongs to; set by the block around
+    /// the handler of a statement request that named one.
+    static RUN_ID: Option<String>;
+}
+
+// WHAT:  Runs `fut` with `run_id` visible to `current_run_id()` inside it.
+// WHY:   The trait's `execute` signature is shared by 45 adapters and every
+//        service; a task-local carries the id to the few adapters that can
+//        cancel server-side without threading it through all of them.
+// WHERE: src-tauri/src/guard/mod.rs (step 9)
+pub async fn with_run_id<F: std::future::Future>(run_id: Option<String>, fut: F) -> F::Output {
+    RUN_ID.scope(run_id, fut).await
+}
+
+/// The run id the block set for this task, if any.
+pub fn current_run_id() -> Option<String> {
+    RUN_ID.try_with(Clone::clone).ok().flatten()
+}
+
 #[async_trait]
 pub trait Integration: Send + Sync {
     fn engine(&self) -> Engine;
@@ -220,6 +240,17 @@ pub trait Integration: Send + Sync {
     async fn fetch_page(&self, table: &TableRef, query: &PageQuery) -> AppResult<ResultSet>;
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>>;
     async fn close(&self);
+    // WHAT:  Stops run `run_id` on the server, if the engine can.
+    // WHY:   The block stops waiting the moment the user presses Stop, but
+    //        dropping the future only abandons the client side: the server can
+    //        keep working (and holding locks) until the statement finishes.
+    // HOW:   `execute` learns its run id from `current_run_id()`; an adapter that
+    //        can cancel remembers what it needs (a backend pid, an interrupt
+    //        handle) under that id. The default does nothing, which leaves the
+    //        dropped future as the only cancel — fine for request-per-statement
+    //        HTTP engines, where dropping the request is the cancel.
+    // WHERE: src-tauri/src/guard/mod.rs (step 9 calls it)
+    async fn cancel(&self, _run_id: &str) {}
     /// Foreign keys visible to the session (ER diagram, FK traversal). Empty when unsupported.
     async fn foreign_keys(&self) -> AppResult<Vec<ForeignKey>> {
         Ok(Vec::new())

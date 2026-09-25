@@ -32,6 +32,7 @@ impl From<sqlx::Error> for AppError {
 pub struct PostgresIntegration {
     pool: PgPool,
     database: String,
+    running: RunningPids,
 }
 
 const DEFAULT_DATABASE: &str = "postgres";
@@ -76,7 +77,7 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .acquire_timeout(Duration::from_secs(15))
         .connect_with(opts)
         .await?;
-    Ok(Arc::new(PostgresIntegration { pool, database }))
+    Ok(Arc::new(PostgresIntegration { pool, database, running: RunningPids::default() }))
 }
 
 // WHAT:  Decodes a cell from the simple-query (text format) protocol.
@@ -142,38 +143,89 @@ fn columns_of(row: &PgRow) -> Vec<ColumnMeta> {
 }
 
 impl PostgresIntegration {
-    // WHAT:  Runs `sql` through the simple protocol and groups rows per statement.
-    // HOW:   sqlx yields Right(row) per row and Left(result) when a statement ends.
     async fn run(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        let mut stream = (&self.pool).fetch_many(sqlx::raw_sql(sql));
-        let mut out = Vec::new();
-        let mut current: Option<ResultSet> = None;
-        while let Some(item) = stream.next().await {
-            match item? {
-                Either::Right(row) => {
-                    let set = current.get_or_insert_with(|| ResultSet {
-                        columns: columns_of(&row),
-                        rows: Vec::new(),
-                        truncated: false,
-                    });
-                    if set.rows.len() < max_rows {
-                        let width = set.columns.len();
-                        set.rows.push((0..width).map(|i| decode_cell(&row, i)).collect());
-                    } else {
-                        set.truncated = true;
-                    }
-                }
-                Either::Left(done) => match current.take() {
-                    Some(result) => out.push(StatementResult::Rows { result }),
-                    None => out.push(StatementResult::Affected { rows_affected: done.rows_affected() }),
-                },
-            }
-        }
-        if let Some(result) = current.take() {
-            out.push(StatementResult::Rows { result });
-        }
-        Ok(out)
+        run_on(&self.pool, sql, max_rows).await
     }
+
+    // WHAT:  `execute` for a run the user can Stop: pins one pooled connection
+    //        and remembers its backend pid under the run id until it returns.
+    // WHY:   Dropping the future does not stop Postgres; `pg_cancel_backend`
+    //        from a second connection does, and it needs the pid of the first.
+    // HOW:   One extra round trip (`pg_backend_pid()`) per Stop-able run; runs
+    //        without an id (grid pages, catalog reads) skip it entirely.
+    // WHERE: `cancel` below, src-tauri/src/guard/mod.rs (step 9)
+    async fn run_tracked(&self, run_id: String, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        let mut conn = self.pool.acquire().await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await?;
+        let _tracked = Tracked::new(&self.running, run_id, pid);
+        run_on(&mut *conn, sql, max_rows).await
+    }
+}
+
+/// Backend pids of the Stop-able runs in flight, keyed by run id.
+type RunningPids = std::sync::Mutex<std::collections::HashMap<String, i32>>;
+
+// WHAT:  Holds a run's pid in the registry for exactly as long as the run lives.
+// WHY:   The block drops a stopped run's future; a Drop impl is the only exit
+//        that also covers that path, so no stale pid can be cancelled later
+//        (by then the backend is serving someone else's statement).
+struct Tracked<'a> {
+    running: &'a RunningPids,
+    run_id: String,
+}
+
+impl<'a> Tracked<'a> {
+    fn new(running: &'a RunningPids, run_id: String, pid: i32) -> Self {
+        if let Ok(mut map) = running.lock() {
+            map.insert(run_id.clone(), pid);
+        }
+        Tracked { running, run_id }
+    }
+}
+
+impl Drop for Tracked<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.running.lock() {
+            map.remove(&self.run_id);
+        }
+    }
+}
+
+// WHAT:  Runs `sql` through the simple protocol and groups rows per statement.
+// HOW:   sqlx yields Right(row) per row and Left(result) when a statement ends.
+//        Generic over the executor so the pool and a pinned connection share it.
+async fn run_on<'c, E>(executor: E, sql: &'c str, max_rows: usize) -> AppResult<Vec<StatementResult>>
+where
+    E: Executor<'c, Database = sqlx::Postgres>,
+{
+    let mut stream = executor.fetch_many(sqlx::raw_sql(sql));
+    let mut out = Vec::new();
+    let mut current: Option<ResultSet> = None;
+    while let Some(item) = stream.next().await {
+        match item? {
+            Either::Right(row) => {
+                let set = current.get_or_insert_with(|| ResultSet {
+                    columns: columns_of(&row),
+                    rows: Vec::new(),
+                    truncated: false,
+                });
+                if set.rows.len() < max_rows {
+                    let width = set.columns.len();
+                    set.rows.push((0..width).map(|i| decode_cell(&row, i)).collect());
+                } else {
+                    set.truncated = true;
+                }
+            }
+            Either::Left(done) => match current.take() {
+                Some(result) => out.push(StatementResult::Rows { result }),
+                None => out.push(StatementResult::Affected { rows_affected: done.rows_affected() }),
+            },
+        }
+    }
+    if let Some(result) = current.take() {
+        out.push(StatementResult::Rows { result });
+    }
+    Ok(out)
 }
 
 // WHAT:  What this family offers the object explorer and the tool tabs.
@@ -349,7 +401,18 @@ impl Integration for PostgresIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        self.run(sql, max_rows).await
+        match crate::integrations::current_run_id() {
+            Some(run_id) => self.run_tracked(run_id, sql, max_rows).await,
+            None => self.run(sql, max_rows).await,
+        }
+    }
+
+    async fn cancel(&self, run_id: &str) {
+        let pid = self.running.lock().ok().and_then(|map| map.get(run_id).copied());
+        let Some(pid) = pid else { return };
+        if let Err(err) = sqlx::query("SELECT pg_cancel_backend($1)").bind(pid).execute(&self.pool).await {
+            log::warn!("pg_cancel_backend({pid}) failed: {err}");
+        }
     }
 
     fn use_namespace(&self, namespace: &str) -> Option<(String, usize)> {

@@ -20,6 +20,8 @@ pub enum AppError {
     DestructiveConfirmationRequired { message: String, statements: Vec<String> },
     InvalidInput { message: String },
     Timeout { message: String },
+    /// The user pressed Stop (`cancel_query`) while the run was in flight.
+    Cancelled { message: String },
     Driver { message: String },
     Store { message: String },
     Crypto { message: String },
@@ -46,6 +48,9 @@ impl AppError {
     pub fn timeout(message: impl Into<String>) -> Self {
         Self::Timeout { message: message.into() }
     }
+    pub fn cancelled(message: impl Into<String>) -> Self {
+        Self::Cancelled { message: message.into() }
+    }
     pub fn driver(message: impl fmt::Display) -> Self {
         Self::Driver { message: message.to_string() }
     }
@@ -70,6 +75,7 @@ impl AppError {
             | Self::DestructiveConfirmationRequired { message, .. }
             | Self::InvalidInput { message }
             | Self::Timeout { message }
+            | Self::Cancelled { message }
             | Self::Driver { message }
             | Self::Store { message }
             | Self::Crypto { message }

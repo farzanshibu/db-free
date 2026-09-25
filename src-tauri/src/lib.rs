@@ -96,6 +96,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::backup::backup_database,
             commands::backup::restore_database,
             commands::backup::cancel_backup,
+            commands::query::cancel_query,
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -193,6 +194,7 @@ mod export_bindings {
             crate::model::BackupReport::export_all(&cfg),
             // Only reachable through the event stream, so it needs naming here.
             crate::model::BackupEvent::export_all(&cfg),
+            crate::commands::query::CancelQueryRequest::export_all(&cfg),
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

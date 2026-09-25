@@ -12,7 +12,8 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use rusqlite::fallible_iterator::FallibleIterator;
 use rusqlite::types::ValueRef;
-use rusqlite::{params, Connection, OpenFlags};
+use rusqlite::{params, Connection, InterruptHandle, OpenFlags};
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 impl From<rusqlite::Error> for AppError {
@@ -31,6 +32,22 @@ pub struct SqliteIntegration {
     file_name: String,
     /// Path as given by the connection; used to size the file and its WAL on disk.
     path: String,
+    /// Aborts whatever statement the connection is running (the Stop button).
+    interrupt: Arc<InterruptHandle>,
+    runs: Arc<Mutex<Runs>>,
+}
+
+// WHAT:  Which Stop-able run holds the connection, and which are queued behind it.
+// WHY:   One connection serves every run, so an interrupt must only fire while
+//        the run being stopped is the one executing. A queued run cannot be
+//        interrupted — its blocking task starts later no matter what — so it is
+//        marked instead and refuses to start.
+// WHERE: src-tauri/src/integrations/mod.rs (`cancel`, `current_run_id`)
+#[derive(Default)]
+struct Runs {
+    active: Option<String>,
+    queued: HashSet<String>,
+    cancelled: HashSet<String>,
 }
 
 pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
@@ -56,7 +73,14 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| path.clone());
-    Ok(Arc::new(SqliteIntegration { conn: Arc::new(Mutex::new(connection)), file_name, path }))
+    let interrupt = Arc::new(connection.get_interrupt_handle());
+    Ok(Arc::new(SqliteIntegration {
+        conn: Arc::new(Mutex::new(connection)),
+        file_name,
+        path,
+        interrupt,
+        runs: Arc::new(Mutex::new(Runs::default())),
+    }))
 }
 
 fn decode_cell(value: ValueRef<'_>, decl_type: &str) -> Value {
@@ -1004,7 +1028,43 @@ impl Integration for SqliteIntegration {
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
         let sql = sql.to_string();
-        self.blocking(move |conn| run_batch(conn, &sql, max_rows)).await
+        let Some(run_id) = crate::integrations::current_run_id() else {
+            return self.blocking(move |conn| run_batch(conn, &sql, max_rows)).await;
+        };
+        // The id is read here: the blocking pool runs the closure on another
+        // thread, outside the block's task-local scope.
+        if let Ok(mut runs) = self.runs.lock() {
+            runs.queued.insert(run_id.clone());
+        }
+        let runs = Arc::clone(&self.runs);
+        self.blocking(move |conn| {
+            let stopped = runs.lock().map(|mut r| {
+                r.queued.remove(&run_id);
+                let stopped = r.cancelled.remove(&run_id);
+                if !stopped {
+                    r.active = Some(run_id.clone());
+                }
+                stopped
+            });
+            if stopped.unwrap_or(false) {
+                return Err(AppError::cancelled("Cancelled by user"));
+            }
+            let out = run_batch(conn, &sql, max_rows);
+            if let Ok(mut r) = runs.lock() {
+                r.active = None;
+            }
+            out
+        })
+        .await
+    }
+
+    async fn cancel(&self, run_id: &str) {
+        let Ok(mut runs) = self.runs.lock() else { return };
+        if runs.active.as_deref() == Some(run_id) {
+            self.interrupt.interrupt();
+        } else if runs.queued.contains(run_id) {
+            runs.cancelled.insert(run_id.to_string());
+        }
     }
 
     async fn close(&self) {}

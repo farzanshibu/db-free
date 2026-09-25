@@ -34,9 +34,10 @@ use destructive::{classify, StatementKind};
 //   7  bounds                       page limit / row cap outside range (clamped, not rejected; an
 //                                   absent row cap is "No limit", not a default)
 //   8  timeout                      handler exceeds the request's deadline
-//   9  history log                  — records SQL on success and error
-//  10  timing enrichment            — elapsed_ms attached to the outcome
-//  11  native-tool gate             backup / restore with the engine's own tools
+//   9  cancellation                 the user pressed Stop on this run (`cancel_query`)
+//  10  history log                  — records SQL on success and error
+//  11  timing enrichment            — elapsed_ms attached to the outcome
+//  12  native-tool gate             backup / restore with the engine's own tools
 //                                   (pg_dump, mysqldump, …): connection unknown;
 //                                   a restore on a read-only connection; a restore
 //                                   the caller did not confirm
@@ -47,6 +48,9 @@ pub const MAX_PAGE_LIMIT: u32 = 1_000;
 /// a bigger number — see `clamp_result_rows`.
 pub const MAX_RESULT_ROWS: u32 = 1_000_000;
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(300);
+/// How long a stopped run gets to unwind after the adapter's server-side
+/// cancel before the block drops it anyway (see step 9).
+pub const CANCEL_GRACE: Duration = Duration::from_secs(2);
 
 pub struct SessionCtx {
     pub connection: ConnectionSummary,
@@ -84,9 +88,11 @@ pub struct StatementRequest<'a> {
     pub connection_id: &'a str,
     pub sql: &'a str,
     pub confirm_destructive: bool,
+    /// Names the run so `cancel_query` can stop it (step 9). None = not stoppable.
+    pub run_id: Option<&'a str>,
 }
 
-// WHAT:  Requests that execute user-authored SQL. Adds steps 4–6 and 9–10.
+// WHAT:  Requests that execute user-authored SQL. Adds steps 4–6 and 9–11.
 pub async fn statement<F, Fut>(
     state: &AppState,
     req: StatementRequest<'_>,
@@ -134,12 +140,44 @@ where
     // 8 — timeout
     let started = ctx.started;
     let connection_id = ctx.connection.id.clone();
-    let result = tokio::time::timeout(DEFAULT_TIMEOUT, handler(ctx))
-        .await
-        .map_err(|_| AppError::timeout("The query timed out."))
-        .and_then(|inner| inner);
+    let integration = Arc::clone(&ctx.integration);
+    let run_id = req.run_id.map(str::to_string);
+    let work = tokio::time::timeout(
+        DEFAULT_TIMEOUT,
+        crate::integrations::with_run_id(run_id.clone(), handler(ctx)),
+    );
 
-    // 9 — history log (success and error alike)
+    // 9 — cancellation
+    // WHAT:  Races the handler against the run's Stop token.
+    // WHY:   Without it a runaway query holds the tab (and the server) until the
+    //        timeout. Dropping the future alone abandons only the client side, so
+    //        the adapter is asked to cancel on the server too.
+    // HOW:   The handler is pinned outside the race so it survives it: after a
+    //        Stop it gets CANCEL_GRACE to unwind the server-side cancel cleanly
+    //        (a pooled connection comes back idle, not mid-statement) before it
+    //        is dropped regardless.
+    // WHERE: src-tauri/src/state.rs (QueryRuns), integrations/mod.rs (`cancel`)
+    let result = match &run_id {
+        None => work.await,
+        Some(id) => {
+            let token = state.query_runs().register(id);
+            tokio::pin!(work);
+            let outcome = tokio::select! {
+                done = &mut work => done,
+                () = token.cancelled() => {
+                    integration.cancel(id).await;
+                    let _ = tokio::time::timeout(CANCEL_GRACE, &mut work).await;
+                    Ok(Err(AppError::cancelled("Cancelled by user")))
+                }
+            };
+            state.query_runs().finish(id);
+            outcome
+        }
+    }
+    .map_err(|_| AppError::timeout("The query timed out."))
+    .and_then(|inner| inner);
+
+    // 10 — history log (success and error alike)
     let elapsed_ms = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
     let (status, error, row_count) = match &result {
         Ok(outcome) => (HistoryStatus::Ok, None, Some(outcome.row_count())),
@@ -160,7 +198,7 @@ where
         log::warn!("history log failed: {err}");
     }
 
-    // 10 — timing enrichment
+    // 11 — timing enrichment
     result.map(|mut outcome| {
         outcome.elapsed_ms = elapsed_ms;
         outcome
@@ -191,7 +229,7 @@ pub enum ToolAccess {
     Replace { confirmed: bool },
 }
 
-// WHAT:  Step 11 — the gate for backup / restore runs.
+// WHAT:  Step 12 — the gate for backup / restore runs.
 // WHY:   A restore runs no SQL the classifier could read (it is pg_restore or
 //        mysql fed a file), yet it is the most destructive thing the app can
 //        do. It gets the same two answers as a destructive statement: never on
@@ -285,13 +323,42 @@ mod tests {
     async fn run(state: &AppState, id: &str, sql: &str, confirm: bool) -> AppResult<QueryOutcome> {
         statement(
             state,
-            StatementRequest { connection_id: id, sql, confirm_destructive: confirm },
+            StatementRequest { connection_id: id, sql, confirm_destructive: confirm, run_id: None },
             |ctx| async move {
                 let statements = ctx.integration.execute(sql, 10).await?;
                 Ok(QueryOutcome { statements, total_rows: None, elapsed_ms: 0 })
             },
         )
         .await
+    }
+
+    #[tokio::test]
+    async fn stop_cancels_a_running_statement_and_logs_it() {
+        let (state, id) = state_with_sqlite(false).await;
+        // Counts to a billion: long enough that only a cancel ends it in time.
+        let sql = "WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 1000000000) SELECT count(*) FROM n";
+        let running = statement(
+            &state,
+            StatementRequest { connection_id: &id, sql, confirm_destructive: false, run_id: Some("run-1") },
+            |ctx| async move {
+                let statements = ctx.integration.execute(sql, 10).await?;
+                Ok(QueryOutcome { statements, total_rows: None, elapsed_ms: 0 })
+            },
+        );
+        let stop = async {
+            while !state.query_runs().is_running("run-1") {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            assert!(state.query_runs().cancel("run-1"));
+        };
+        let started = Instant::now();
+        let (result, ()) = tokio::join!(running, stop);
+        assert!(matches!(result, Err(AppError::Cancelled { .. })), "{result:?}");
+        assert!(started.elapsed() < Duration::from_secs(10), "the stop did not end the run");
+        assert!(!state.query_runs().is_running("run-1"), "a finished run leaves the registry");
+        let history = state.with_store(|s| s.list_history(Some(&id), None, 10)).unwrap_or_default();
+        assert_eq!(history.first().and_then(|h| h.error.clone()).as_deref(), Some("Cancelled by user"));
     }
 
     #[tokio::test]

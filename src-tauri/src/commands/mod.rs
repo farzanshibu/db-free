@@ -85,10 +85,11 @@ pub enum CommandName {
     BackupDatabase,
     RestoreDatabase,
     CancelBackup,
+    CancelQuery,
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 57] = [
+    pub const ALL: [CommandName; 58] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -146,6 +147,7 @@ impl CommandName {
         CommandName::BackupDatabase,
         CommandName::RestoreDatabase,
         CommandName::CancelBackup,
+        CommandName::CancelQuery,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -207,6 +209,7 @@ impl CommandName {
             CommandName::BackupDatabase => "backup_database",
             CommandName::RestoreDatabase => "restore_database",
             CommandName::CancelBackup => "cancel_backup",
+            CommandName::CancelQuery => "cancel_query",
         }
     }
 }
@@ -260,7 +263,8 @@ mod tests {
             | CommandName::SaveBuffer
             | CommandName::DeleteBuffer
             | CommandName::SplitScript
-            | CommandName::SaveSqlFile => "query",
+            | CommandName::SaveSqlFile
+            | CommandName::CancelQuery => "query",
             CommandName::GetSettings | CommandName::SaveSettings => "settings",
             CommandName::ListSavedQueries
             | CommandName::SaveSavedQuery

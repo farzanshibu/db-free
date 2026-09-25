@@ -37,6 +37,7 @@ import {
   MoreHorizontalIcon,
   PencilEdit02Icon,
   PlayIcon,
+  StopIcon,
   PlugSocketIcon,
   PlusSignIcon,
   RefreshIcon,
@@ -201,7 +202,8 @@ export type IconName =
   | "brain"
   | "exchange"
   | "transfer"
-  | "rss";
+  | "rss"
+  | "stop";
 
 // WHAT:  App icon vocabulary → Hugeicons (stroke-rounded, free set). Call sites
 //        stay `<Icon name="table" />`; swap a glyph here, not in features.
@@ -303,6 +305,7 @@ const GLYPHS: Record<IconName, IconSvgElement> = {
   exchange: Exchange01Icon,
   transfer: ArrowDataTransferHorizontalIcon,
   rss: RssIcon,
+  stop: StopIcon,
 };
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name" | "strokeWidth"> {
