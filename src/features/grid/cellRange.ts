@@ -109,3 +109,77 @@ export function parseTsv(text: string): string[][] {
   }
   return rows;
 }
+
+export interface RangeStats {
+  cells: number;
+  /// Cells holding something other than NULL.
+  filled: number;
+  /// Cells that are numbers (int, float, decimal); sum/avg/min/max cover only these.
+  numeric: number;
+  sum: number;
+  min: number | null;
+  max: number | null;
+  /// True when the range was larger than STATS_CELL_LIMIT and only its start was read.
+  partial: boolean;
+}
+
+/// Cells read per stats pass. A Ctrl+A over a million rows would otherwise
+/// walk every cell on each selection change.
+export const STATS_CELL_LIMIT = 250_000;
+
+// WHAT:  Count / sum / average / min / max over a selected range.
+// WHY:   "What is the total of these?" is the first question after selecting
+//        a column of amounts; copying to a spreadsheet to find out is a detour.
+// HOW:   Only number-typed values are aggregated; text that looks numeric is
+//        not, because the grid cannot tell a price from a zip code. Rows not
+//        loaded yet count as cells but not as values.
+// WHERE: src/features/grid/DataGrid.tsx (status strip under the grid)
+export function rangeStats(b: RangeBounds, valueAt: (row: number, col: number) => Value | undefined): RangeStats {
+  const out: RangeStats = { cells: cellCount(b), filled: 0, numeric: 0, sum: 0, min: null, max: null, partial: false };
+  let read = 0;
+  for (let r = b.top; r <= b.bottom; r += 1) {
+    for (let c = b.left; c <= b.right; c += 1) {
+      read += 1;
+      if (read > STATS_CELL_LIMIT) {
+        out.partial = true;
+        return out;
+      }
+      const value = valueAt(r, c);
+      if (value === undefined || value.t === "null") continue;
+      out.filled += 1;
+      const n = numberOf(value);
+      if (n === null) continue;
+      out.numeric += 1;
+      out.sum += n;
+      out.min = out.min === null ? n : Math.min(out.min, n);
+      out.max = out.max === null ? n : Math.max(out.max, n);
+    }
+  }
+  return out;
+}
+
+function numberOf(value: Value): number | null {
+  switch (value.t) {
+    case "int":
+    case "float":
+      return Number.isFinite(value.v) ? value.v : null;
+    case "decimal": {
+      const n = Number(value.v);
+      return Number.isFinite(n) ? n : null;
+    }
+    case "null":
+    case "bool":
+    case "text":
+    case "bytes":
+    case "json":
+    case "date_time":
+    case "unsupported":
+      return null;
+  }
+}
+
+/// A stat for display: integers stay exact, fractions get at most 6 places.
+export function formatStat(n: number): string {
+  if (Number.isInteger(n)) return n.toLocaleString("en-US");
+  return n.toLocaleString("en-US", { maximumFractionDigits: 6 });
+}

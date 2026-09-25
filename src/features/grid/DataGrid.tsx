@@ -1,5 +1,5 @@
-// SOT: data-grid, virtualized-grid, grid-cell-rendering, column-sort-header, column-resize, row-selection, inline-cell-edit, foreign-key-link, change-highlighting, drag-select, grid-copy-paste
-import { useEffect, useReducer, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
+// SOT: data-grid, virtualized-grid, grid-cell-rendering, column-sort-header, column-resize, row-selection, inline-cell-edit, foreign-key-link, change-highlighting, drag-select, grid-copy-paste, selection-stats
+import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { FilterRule, SortRule, Value } from "@/lib/bindings";
 import { cellClass, formatCell } from "@/lib/format";
@@ -12,7 +12,7 @@ import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu"
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { bounds, cellCount, clipboardText, inBounds, parseTsv, toTsv, type CellPos, type CellRange, type RangeBounds } from "./cellRange";
+import { bounds, cellCount, clipboardText, formatStat, inBounds, parseTsv, rangeStats, STATS_CELL_LIMIT, toTsv, type CellPos, type CellRange, type RangeBounds } from "./cellRange";
 
 export interface GridColumn {
   name: string;
@@ -286,6 +286,11 @@ export function DataGrid({
 
   const canPaste = onCellsEdit !== undefined || onCellEdit !== undefined;
   const rangeBounds: RangeBounds | null = range ? bounds(range) : null;
+  // Staged values win, as they do on screen: the stats describe what is shown.
+  const stats = useMemo(
+    () => (range && cellCount(bounds(range)) > 1 ? rangeStats(bounds(range), (r, c) => staged?.get(`${r}:${c}`)?.value ?? getRow(r)?.[c]) : null),
+    [range, staged, getRow],
+  );
 
   const startRange = (event: ReactMouseEvent, pos: CellPos) => {
     if (event.button !== 0 || editing !== null) return;
@@ -562,6 +567,7 @@ export function DataGrid({
   const someSelected = selectable && selectedRows.size > 0 && !allSelected;
 
   return (
+    <div className="flex h-full w-full min-h-0 flex-col">
     <ScrollArea
       ref={parentRef}
       orientation="horizontal"
@@ -571,7 +577,7 @@ export function DataGrid({
       onCopy={onGridCopy}
       onPaste={onGridPaste}
       onMouseMove={autoScroll}
-      className="h-full w-full overflow-y-auto bg-background/60 font-mono text-[12px] select-none outline-none"
+      className="min-h-0 w-full flex-1 overflow-y-auto bg-background/60 font-mono text-[12px] select-none outline-none"
     >
       <div style={{ width: totalWidth + gutter, height: totalHeight + HEADER_HEIGHT, position: "relative" }}>
         <div className="sticky top-0 z-20 flex border-b border-border/50 glass-header" style={{ height: HEADER_HEIGHT, width: totalWidth + gutter }}>
@@ -749,6 +755,32 @@ export function DataGrid({
       </div>
       {menu.node}
     </ScrollArea>
+    {stats ? (
+      // WHAT:  Spreadsheet-style status strip for a multi-cell selection;
+      //        clicking an aggregate copies the raw number.
+      <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border/40 bg-surface px-2.5 font-mono text-[11px] text-muted tabular-nums" aria-live="polite">
+        <span>Cells <span className="text-foreground">{formatStat(stats.cells)}</span></span>
+        <span>Count <span className="text-foreground">{formatStat(stats.filled)}</span></span>
+        {stats.numeric > 0 ? (
+          <>
+            <StatButton label="Sum" value={stats.sum} onCopy={copy} />
+            <StatButton label="Avg" value={stats.sum / stats.numeric} onCopy={copy} />
+            {stats.min !== null ? <StatButton label="Min" value={stats.min} onCopy={copy} /> : null}
+            {stats.max !== null ? <StatButton label="Max" value={stats.max} onCopy={copy} /> : null}
+          </>
+        ) : null}
+        {stats.partial ? <span className="text-warning">first {formatStat(STATS_CELL_LIMIT)} cells</span> : null}
+      </div>
+    ) : null}
+    </div>
+  );
+}
+
+function StatButton({ label, value, onCopy }: { label: string; value: number; onCopy: (text: string, what: string) => void }) {
+  return (
+    <Button variant="ghost" size="xs" className="h-5 gap-1 rounded px-1 font-mono text-[11px] font-normal text-muted hover:text-foreground" title={`Copy ${label.toLowerCase()}`} onClick={() => onCopy(String(value), label)}>
+      {label} <span className="text-foreground">{formatStat(value)}</span>
+    </Button>
   );
 }
 
