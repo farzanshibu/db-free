@@ -13,6 +13,7 @@ import { SqlEditor } from "@/features/editor/SqlEditor";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { BarChart, ImageWidget, LineChart, MapChart, PieChart, ProgressMeter, SERIES_COLORS, SankeyChart, SparklineWidget, StatTile, TextWidget, chartData, conditionMatches, isRows } from "./charts";
+import { newWidget } from "./widgetSql";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -67,8 +68,6 @@ function seriesColors(tint: string | null): readonly string[] {
 
 const HAS_SQL: Record<WidgetKind, boolean> = { area: true, line: true, bar: true, pie: true, sankey: true, table: true, metric: true, sparkline: true, map: true, progress: true, text: true, image: true, gif: true };
 const HAS_CONDITIONS: Record<WidgetKind, boolean> = { area: false, line: false, bar: false, pie: false, sankey: false, table: false, metric: true, sparkline: false, map: false, progress: false, text: true, image: true, gif: true };
-
-let widgetCounter = 0;
 
 // WHAT:  Dashboard = grid of widgets, each backed by one SQL statement on the
 //        dashboard's connection. Variables (`{{name}}`) substitute into SQL.
@@ -163,29 +162,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
   }, [body.refreshSeconds, runAll]);
 
   const addWidget = () => {
-    widgetCounter += 1;
-    const w: Widget = {
-      id: `w-${Date.now().toString(36)}-${widgetCounter}`,
-      title: "",
-      kind: "line",
-      sql: "",
-      x: 0,
-      y: 0,
-      w: 4,
-      h: 3,
-      tint: "series-1",
-      showChange: false,
-      maxValue: null,
-      text: null,
-      url: null,
-      xLabel: null,
-      yLabel: null,
-      horizontal: false,
-      showPercent: true,
-      showValues: false,
-      pulse: false,
-      conditions: [],
-    };
+    const w = newWidget({});
     patchBody({ widgets: [...body.widgets, w] });
     setSelectedId(w.id);
   };

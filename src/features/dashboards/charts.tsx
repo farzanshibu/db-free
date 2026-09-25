@@ -34,7 +34,7 @@ function toNumber(v: Value | undefined): number {
   return NaN;
 }
 
-function isNumericColumn(rows: readonly (readonly Value[])[], i: number): boolean {
+export function isNumericColumn(rows: readonly (readonly Value[])[], i: number): boolean {
   const first = rows.find((r) => {
     const v = r[i];
     return v !== undefined && v.t !== "null";
@@ -54,6 +54,83 @@ export function chartData(outcome: QueryOutcome | null): ChartData {
   const labels = rows.result.rows.map((r, i) => (labelIndex >= 0 ? cellText(r[labelIndex]) : String(i + 1)));
   const series = seriesIndexes.map((i) => ({ name: cols[i]?.name ?? `Series ${i + 1}`, values: rows.result.rows.map((r) => toNumber(r[i])) }));
   return { labels, series };
+}
+
+/// Which result columns a chart reads: X labels, Y measures, optional series split.
+export interface ChartMapping {
+  x: number;
+  ys: readonly number[];
+  /// Column whose values become the series; null = one series per Y column.
+  group: number | null;
+}
+
+/// Label of the series that collects every group past the palette's length.
+export const OTHER_SERIES = "Other";
+
+// WHAT:  Rows -> chart data for an explicit column choice (the query results
+//        chart), where `chartData` infers one for dashboard widgets.
+// HOW:   Without a group: one point per row, one series per Y (at most the
+//        palette's length). With a group: X values in first-seen order, one
+//        series per group value of the first Y (summed when a pair repeats);
+//        groups past the sixth fold into "Other" rather than cycle a hue.
+// WHERE: src/features/editor/ResultChart.tsx, ./widgetSql.ts (same shape as widget SQL)
+export function mapChartData(rows: readonly (readonly Value[])[], columnNames: readonly string[], mapping: ChartMapping): ChartData {
+  const label = (r: readonly Value[]) => groupName(r[mapping.x]);
+  const ys = mapping.ys.slice(0, SERIES_COLORS.length);
+  if (mapping.group === null) {
+    return {
+      labels: rows.map((r) => label(r)),
+      series: ys.map((y) => ({ name: columnNames[y] ?? `Series ${y + 1}`, values: rows.map((r) => toNumber(r[y])) })),
+    };
+  }
+  const y = ys[0];
+  if (y === undefined) return { labels: [], series: [] };
+  const group = mapping.group;
+  const labels: string[] = [];
+  const labelIndex = new Map<string, number>();
+  for (const r of rows) {
+    const l = label(r);
+    if (!labelIndex.has(l)) {
+      labelIndex.set(l, labels.length);
+      labels.push(l);
+    }
+  }
+  const { kept, other } = chartGroups(rows, group, y);
+  const names = other ? [...kept, OTHER_SERIES] : kept;
+  const values = names.map(() => labels.map(() => NaN));
+  for (const r of rows) {
+    const g = groupName(r[group]);
+    const s = kept.includes(g) ? kept.indexOf(g) : names.length - 1;
+    const at = labelIndex.get(label(r)) ?? -1;
+    const v = toNumber(r[y]);
+    const series = values[s];
+    if (!series || at < 0 || !Number.isFinite(v)) continue;
+    const prev = series[at] ?? NaN;
+    series[at] = Number.isFinite(prev) ? prev + v : v;
+  }
+  return { labels, series: names.map((name, i) => ({ name, values: values[i] ?? [] })) };
+}
+
+// WHAT:  The group values that get their own series, in first-seen order, and
+//        whether the rest fold into "Other".
+// WHY:   Past the palette's seven hues a series would need a generated colour;
+//        the six largest (by |sum| of Y) keep theirs and the tail is summed.
+export function chartGroups(rows: readonly (readonly Value[])[], group: number, y: number): { kept: string[]; other: boolean } {
+  const totals = new Map<string, number>();
+  for (const r of rows) {
+    const g = groupName(r[group]);
+    const v = toNumber(r[y]);
+    totals.set(g, (totals.get(g) ?? 0) + (Number.isFinite(v) ? Math.abs(v) : 0));
+  }
+  const groups = [...totals.keys()];
+  if (groups.length <= SERIES_COLORS.length) return { kept: groups, other: false };
+  const largest = new Set([...groups].sort((a, b) => (totals.get(b) ?? 0) - (totals.get(a) ?? 0)).slice(0, SERIES_COLORS.length - 1));
+  return { kept: groups.filter((g) => largest.has(g)), other: true };
+}
+
+/// A group value as a series name; NULL is its own group.
+export function groupName(v: Value | undefined): string {
+  return v === undefined || v.t === "null" ? "NULL" : formatCell(v).text;
 }
 
 function fmt(n: number): string {

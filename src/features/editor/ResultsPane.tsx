@@ -1,10 +1,12 @@
-// SOT: results-pane, statement-tabs, query-result-grid, result-row-total, result-export, file-download
+// SOT: results-pane, statement-tabs, query-result-grid, result-row-total, result-export, file-download, grid-chart-toggle
 import { useState } from "react";
 import type { QueryOutcome } from "@/lib/bindings";
 import { formatCount, formatMs } from "@/lib/format";
 import { downloadTextFile, exportFilename, toCsvText, toJsonText, type ExportFormat } from "@/lib/export";
 import { useWorkspace } from "@/stores/workspace";
 import { ResultGrid } from "./ResultGrid";
+import { ResultChart } from "./ResultChart";
+import { Segmented } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
@@ -45,6 +47,8 @@ interface ResultsPaneProps {
 export function ResultsPane({ outcome, connectionId, sql }: ResultsPaneProps) {
   const showInfo = useWorkspace((s) => s.showInfo);
   const [active, setActive] = useState(0);
+  // Grid or chart; kept across runs, since re-running a charted query should stay a chart.
+  const [view, setView] = useState<"grid" | "chart">("grid");
 
   if (!outcome) {
     return <EmptyState icon="terminal" title="No results yet" body="Run a query with ⌘/Ctrl + Enter. Results appear here." />;
@@ -97,6 +101,9 @@ export function ResultsPane({ outcome, connectionId, sql }: ResultsPaneProps) {
           </Button>
         ))}
         <span className="ml-auto flex items-center gap-2">
+          {current?.kind === "rows" && current.result.columns.length > 0 ? (
+            <Segmented label="Result view" value={view} onChange={setView} options={[{ value: "grid", label: "Grid" }, { value: "chart", label: "Chart" }]} />
+          ) : null}
           {current?.kind === "rows" ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -138,7 +145,15 @@ export function ResultsPane({ outcome, connectionId, sql }: ResultsPaneProps) {
         ) : current.result.columns.length === 0 ? (
           <EmptyState title="Empty result" body="The statement returned no rows." />
         ) : (
-          <ResultGrid key={`${outcomeId(outcome)}:${index}`} connectionId={connectionId} sql={sql} result={current.result} single={statements.length === 1} />
+          <>
+            {/* Both views stay mounted so the grid's filters, sort and edits and the chart's picks survive a switch. */}
+            <div className={view === "grid" ? "h-full" : "hidden"}>
+              <ResultGrid key={`${outcomeId(outcome)}:${index}`} connectionId={connectionId} sql={sql} result={current.result} single={statements.length === 1} />
+            </div>
+            <div className={view === "chart" ? "h-full" : "hidden"}>
+              <ResultChart key={`${outcomeId(outcome)}:${index}`} connectionId={connectionId} sql={sql} result={current.result} />
+            </div>
+          </>
         )}
       </div>
     </div>
