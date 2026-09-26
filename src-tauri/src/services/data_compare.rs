@@ -6,6 +6,7 @@ use crate::integrations::{qualified_name_for, quote_ident_for};
 use crate::model::{ColumnInfo, CompareDirection, DataCompare, Engine, PageQuery, RowDiff, RowStatus, SortRule, TableRef, Value};
 use crate::services::changes::literal;
 use std::cmp::Ordering;
+use std::collections::btree_map::Entry;
 use std::collections::BTreeMap;
 
 // ============================================================================
@@ -154,10 +155,10 @@ fn index(rows: Vec<KeyedRow>, duplicates: &mut u64) -> BTreeMap<Vec<Canon>, Keye
     let mut map = BTreeMap::new();
     for row in rows {
         let key: Vec<Canon> = row.key.iter().map(canon).collect();
-        if map.contains_key(&key) {
-            *duplicates += 1;
+        if let Entry::Vacant(slot) = map.entry(key) {
+            slot.insert(row);
         } else {
-            map.insert(key, row);
+            *duplicates += 1;
         }
     }
     map
@@ -566,6 +567,11 @@ mod tests {
             password: None,
             file_path: Some(path),
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let summary = ConnectionSummary::draft(&input, false);
         let resolved = ResolvedConnection { summary: summary.clone(), secret: None };

@@ -827,6 +827,11 @@ mod tests {
             password: None,
             file_path: Some(path),
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let summary = ConnectionSummary::draft(&input, false);
         let resolved = ResolvedConnection { summary: summary.clone(), secret: None };

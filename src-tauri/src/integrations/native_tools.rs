@@ -1004,6 +1004,11 @@ mod tests {
             password: None,
             file_path: None,
             ssl_mode: SslMode::Require,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         ConnectionSummary::draft(&input, true)
     }
@@ -1334,6 +1339,11 @@ mod tests {
             password: None,
             file_path: Some(path.to_string_lossy().into_owned()),
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         ConnectionSummary::draft(&input, false)
     }

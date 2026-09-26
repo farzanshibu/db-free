@@ -215,6 +215,11 @@ mod tests {
             password: None,
             file_path: file.map(|p| p.to_string_lossy().into_owned()),
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let summary = store.insert_connection(&input, None).unwrap_or_else(|e| panic!("{e}"));
         (AppState::new(store, Box::new(MemoryKeyProvider::default())), summary)
