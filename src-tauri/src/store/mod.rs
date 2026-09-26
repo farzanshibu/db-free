@@ -20,7 +20,7 @@ pub struct Store {
     conn: Connection,
 }
 
-const SCHEMA_VERSION: i64 = 2;
+const SCHEMA_VERSION: i64 = 3;
 
 impl Store {
     pub fn open(path: &Path) -> AppResult<Store> {
@@ -118,6 +118,24 @@ impl Store {
                         updated_at TEXT NOT NULL
                     );
                     CREATE INDEX IF NOT EXISTS documents_kind_idx ON documents (kind, updated_at DESC);
+                    ",
+                )
+                .map_err(AppError::store)?;
+        }
+        // 3 — SSH tunnel settings per connection. The password / key passphrase
+        //     is sealed into its own column, exactly like `secret_ciphertext`.
+        if version < 3 {
+            self.conn
+                .execute_batch(
+                    "
+                    ALTER TABLE connections ADD COLUMN ssh_enabled INTEGER NOT NULL DEFAULT 0;
+                    ALTER TABLE connections ADD COLUMN ssh_host TEXT;
+                    ALTER TABLE connections ADD COLUMN ssh_port INTEGER NOT NULL DEFAULT 22;
+                    ALTER TABLE connections ADD COLUMN ssh_user TEXT;
+                    ALTER TABLE connections ADD COLUMN ssh_auth TEXT NOT NULL DEFAULT 'password';
+                    ALTER TABLE connections ADD COLUMN ssh_key_path TEXT;
+                    ALTER TABLE connections ADD COLUMN ssh_host_key TEXT;
+                    ALTER TABLE connections ADD COLUMN ssh_secret_ciphertext BLOB;
                     ",
                 )
                 .map_err(AppError::store)?;

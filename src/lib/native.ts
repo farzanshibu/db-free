@@ -1,4 +1,4 @@
-// SOT: native-dialogs, file-picker, directory-picker, sql-file-save-picker, object-save-picker, backup-save-picker, backup-open-picker
+// SOT: native-dialogs, file-picker, directory-picker, sql-file-save-picker, object-save-picker, backup-save-picker, backup-open-picker, ssh-key-picker
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { TransferFormat } from "./bindings";
 
@@ -9,6 +9,14 @@ export async function pickSqliteFile(): Promise<string | null> {
     directory: false,
     filters: [{ name: "Database file", extensions: ["db", "sqlite", "sqlite3", "db3", "duckdb", "ddb", "gpkg"] }],
   });
+  return typeof picked === "string" ? picked : null;
+}
+
+// WHAT:  Picks an SSH private key file (id_ed25519, id_rsa, *.pem, *.key …).
+// WHY:   No extension filter: OpenSSH keys usually have none. Only the path is
+//        kept; Rust reads the key when the tunnel opens.
+export async function pickPrivateKeyFile(): Promise<string | null> {
+  const picked = await open({ multiple: false, directory: false, title: "Choose SSH private key" });
   return typeof picked === "string" ? picked : null;
 }
 

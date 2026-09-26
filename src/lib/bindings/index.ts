@@ -126,6 +126,8 @@ export type * from "./SessionRequest";
 export type * from "./Snippet";
 export type * from "./SortRule";
 export type * from "./SplitScriptRequest";
+export type * from "./SshAuth";
+export type * from "./SshTunnel";
 export type * from "./SslMode";
 export type * from "./StagedChange";
 export type * from "./Stat";

@@ -311,6 +311,8 @@ mod tests {
             password: None,
             file_path: Some(path),
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
         };
         let summary = store.insert_connection(&input, None).unwrap_or_else(|e| panic!("{e}"));
         let state = AppState::new(store, Box::new(MemoryKeyProvider::default()));

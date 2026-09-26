@@ -1576,6 +1576,8 @@ mod tests {
             password: None,
             file_path: None,
             ssl_mode: if parsed.scheme() == "https" { SslMode::Require } else { SslMode::Disable },
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
         };
         let resolved = ResolvedConnection {
             summary: ConnectionSummary::draft(&input, true),

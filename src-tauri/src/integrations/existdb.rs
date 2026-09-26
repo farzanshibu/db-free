@@ -941,6 +941,8 @@ world</exist:result>"#);
                 file_path: None,
                 ssl_mode: SslMode::Prefer,
                 has_secret: true,
+                ssh: crate::model::SshTunnel::default(),
+                has_ssh_secret: false,
                 created_at: String::new(),
                 updated_at: String::new(),
             },

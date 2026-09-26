@@ -1,4 +1,4 @@
-// SOT: engine, environment, ssl-mode, connection-input, connection-summary, connection-validation
+// SOT: engine, environment, ssl-mode, ssh-tunnel-settings, connection-input, connection-summary, connection-validation
 
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -857,6 +857,97 @@ impl SslMode {
     }
 }
 
+// WHAT:  How the SSH tunnel proves who it is: the password, or a private key
+//        file (optionally protected by a passphrase).
+// WHERE: src-tauri/src/integrations/ssh_tunnel.rs
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum SshAuth {
+    Password,
+    PrivateKey,
+}
+
+impl SshAuth {
+    pub const ALL: [SshAuth; 2] = [SshAuth::Password, SshAuth::PrivateKey];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            SshAuth::Password => "password",
+            SshAuth::PrivateKey => "private_key",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<SshAuth> {
+        SshAuth::ALL.into_iter().find(|a| a.as_str() == raw)
+    }
+}
+
+pub const DEFAULT_SSH_PORT: u16 = 22;
+
+// WHAT:  SSH tunnel (bastion / jump host) settings for a server-form connection.
+// WHY:   Production databases usually listen on a private network reachable only
+//        through an SSH host. The tunnel forwards a local port to host:port as
+//        seen from that SSH host, so every adapter works unchanged.
+// HOW:   Non-secret: stored in the clear and echoed back to the UI. The password
+//        or key passphrase travels separately as `ConnectionInput::ssh_secret`
+//        and is sealed like the database password. `host_key` is the SHA-256
+//        fingerprint pinned on first connect (trust on first use); a server that
+//        presents another key is refused until the user clears the pin.
+// WHERE: src-tauri/src/integrations/ssh_tunnel.rs, src/features/connections/ConnectionForm.tsx
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SshTunnel {
+    pub enabled: bool,
+    pub host: Option<String>,
+    pub port: u16,
+    pub user: Option<String>,
+    pub auth: SshAuth,
+    /// Private key file on this machine (PrivateKey auth). The key itself is never copied.
+    pub key_path: Option<String>,
+    /// Pinned server key fingerprint (`SHA256:…`). None = pin on the next connect.
+    pub host_key: Option<String>,
+}
+
+impl Default for SshTunnel {
+    fn default() -> SshTunnel {
+        SshTunnel {
+            enabled: false,
+            host: None,
+            port: DEFAULT_SSH_PORT,
+            user: None,
+            auth: SshAuth::Password,
+            key_path: None,
+            host_key: None,
+        }
+    }
+}
+
+impl SshTunnel {
+    /// Whether a connection of this engine actually goes through the tunnel.
+    pub fn applies_to(&self, engine: Engine) -> bool {
+        self.enabled && engine.form() == FormKind::Server
+    }
+
+    pub fn validate(&self) -> AppResult<()> {
+        let blank = |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or_default().is_empty();
+        if blank(&self.host) {
+            return Err(AppError::invalid_input("SSH host is required when the tunnel is on."));
+        }
+        if self.port == 0 {
+            return Err(AppError::invalid_input("SSH port must be between 1 and 65535."));
+        }
+        if blank(&self.user) {
+            return Err(AppError::invalid_input("SSH user is required when the tunnel is on."));
+        }
+        if self.auth == SshAuth::PrivateKey && blank(&self.key_path) {
+            return Err(AppError::invalid_input("Choose the SSH private key file."));
+        }
+        Ok(())
+    }
+}
+
 // WHAT:  What the UI sends to create or update a connection.
 // WHY:   `password` is write-only: it is encrypted on arrival and never echoed
 //        back. An empty/absent password on update keeps the stored secret.
@@ -877,6 +968,9 @@ pub struct ConnectionInput {
     pub password: Option<String>,
     pub file_path: Option<String>,
     pub ssl_mode: SslMode,
+    pub ssh: SshTunnel,
+    /// Write-only like `password`: the SSH password or the key's passphrase.
+    pub ssh_secret: Option<String>,
 }
 
 impl ConnectionInput {
@@ -942,15 +1036,19 @@ impl ConnectionInput {
                 if self.port == Some(0) {
                     return Err(AppError::invalid_input("Port must be between 1 and 65535."));
                 }
+                if self.ssh.enabled {
+                    self.ssh.validate()?;
+                }
             }
         }
         Ok(())
     }
 
-    /// Strips the write-only secret so the rest of the input can be logged or echoed.
+    /// Strips the write-only secrets so the rest of the input can be logged or echoed.
     pub fn without_password(&self) -> ConnectionInput {
         ConnectionInput {
             password: None,
+            ssh_secret: None,
             ..self.clone()
         }
     }
@@ -974,6 +1072,9 @@ pub struct ConnectionSummary {
     pub file_path: Option<String>,
     pub ssl_mode: SslMode,
     pub has_secret: bool,
+    pub ssh: SshTunnel,
+    /// True when an SSH password / key passphrase is sealed in the store.
+    pub has_ssh_secret: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -981,6 +1082,11 @@ pub struct ConnectionSummary {
 impl ConnectionSummary {
     /// Builds a summary from unsaved input — used for "Test connection" before save.
     pub fn draft(input: &ConnectionInput, has_secret: bool) -> ConnectionSummary {
+        ConnectionSummary::draft_with_ssh(input, has_secret, false)
+    }
+
+    /// `draft`, also saying whether an SSH secret will be supplied.
+    pub fn draft_with_ssh(input: &ConnectionInput, has_secret: bool, has_ssh_secret: bool) -> ConnectionSummary {
         let now = chrono::Utc::now().to_rfc3339();
         ConnectionSummary {
             id: String::from("draft"),
@@ -995,6 +1101,8 @@ impl ConnectionSummary {
             file_path: input.file_path.clone(),
             ssl_mode: input.ssl_mode,
             has_secret,
+            ssh: input.ssh.clone(),
+            has_ssh_secret,
             created_at: now.clone(),
             updated_at: now,
         }
@@ -1007,6 +1115,7 @@ impl ConnectionSummary {
 pub struct ConnectionRecord {
     pub summary: ConnectionSummary,
     pub secret_ciphertext: Option<Vec<u8>>,
+    pub ssh_secret_ciphertext: Option<Vec<u8>>,
 }
 
 // WHAT:  In-memory only: summary plus the decrypted secret, handed to a integration.
@@ -1033,6 +1142,8 @@ mod tests {
             password: None,
             file_path: None,
             ssl_mode: SslMode::Prefer,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
         }
     }
 
@@ -1079,5 +1190,34 @@ mod tests {
         for m in SslMode::ALL {
             assert_eq!(SslMode::parse(m.as_str()), Some(m));
         }
+        for a in SshAuth::ALL {
+            assert_eq!(SshAuth::parse(a.as_str()), Some(a));
+        }
+    }
+
+    #[test]
+    fn ssh_tunnel_is_validated_only_when_on_and_only_for_servers() {
+        let mut input = base();
+        input.ssh.enabled = true;
+        assert!(input.validate().is_err(), "host and user are required");
+        input.ssh.host = Some("bastion".into());
+        input.ssh.user = Some("ops".into());
+        assert!(input.validate().is_ok());
+        input.ssh.auth = SshAuth::PrivateKey;
+        assert!(input.validate().is_err(), "key auth needs a key file");
+        input.ssh.key_path = Some("~/.ssh/id_ed25519".into());
+        assert!(input.validate().is_ok());
+        assert!(input.ssh.applies_to(Engine::Postgres));
+        assert!(!input.ssh.applies_to(Engine::Sqlite), "file engines never tunnel");
+        assert!(!SshTunnel::default().applies_to(Engine::Postgres));
+    }
+
+    #[test]
+    fn without_password_strips_both_secrets() {
+        let mut input = base();
+        input.password = Some("db".into());
+        input.ssh_secret = Some("ssh".into());
+        let clean = input.without_password();
+        assert!(clean.password.is_none() && clean.ssh_secret.is_none());
     }
 }

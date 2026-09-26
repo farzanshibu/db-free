@@ -60,6 +60,7 @@ pub mod spacetimedb;
 pub mod sparql;
 pub mod sql;
 pub mod sqlite;
+pub mod ssh_tunnel;
 pub mod surrealdb;
 pub mod tigergraph;
 pub mod typesense;
@@ -392,6 +393,15 @@ pub trait Integration: Send + Sync {
     async fn download_object(&self, _bucket: &str, _key: &str) -> AppResult<Vec<u8>> {
         Err(AppError::invalid_input("This engine has no downloadable objects."))
     }
+
+    // WHAT:  Fingerprint of the SSH server key when this session runs through a
+    //        tunnel (`SHA256:…`), so the service can pin it on first connect.
+    // WHERE: src-tauri/src/integrations/ssh_tunnel.rs (the only override).
+    //        That wrapper delegates every method above to the adapter it wraps:
+    //        a new trait method needs a delegation there too.
+    fn ssh_host_key(&self) -> Option<String> {
+        None
+    }
 }
 
 // WHAT:  Static profile per adapter family (see `FamilyProfile`), plus the kinds
@@ -477,8 +487,36 @@ fn family_profile(family: Family) -> FamilyProfile {
     }
 }
 
-// WHAT:  The single dispatch point from a resolved connection to its adapter.
+// WHAT:  Opens a session for a resolved connection: `connect_with_ssh` without
+//        an SSH secret (a tunnel with an unencrypted key file still works).
 pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
+    connect_with_ssh(conn, None).await
+}
+
+// WHAT:  Opens a session, through an SSH tunnel when the connection has one on.
+// WHY:   Tunnelling happens below every adapter: the adapter is handed the same
+//        connection with host/port rewritten to the tunnel's local end, so no
+//        adapter knows or cares that SSH is involved.
+// HOW:   The returned integration owns the tunnel and closes it in `close()`.
+//        `ssh_secret` is the unsealed SSH password / key passphrase.
+// WHERE: src-tauri/src/integrations/ssh_tunnel.rs, src-tauri/src/services/connection.rs
+pub async fn connect_with_ssh(conn: &ResolvedConnection, ssh_secret: Option<&str>) -> AppResult<Arc<dyn Integration>> {
+    if !conn.summary.ssh.applies_to(conn.summary.engine) {
+        return connect_direct(conn).await;
+    }
+    let tunnel = ssh_tunnel::Tunnel::open(&conn.summary, ssh_secret).await?;
+    let local = tunnel.rewrite(conn);
+    match connect_direct(&local).await {
+        Ok(inner) => Ok(Arc::new(ssh_tunnel::Tunnelled::new(inner, tunnel))),
+        Err(err) => {
+            tunnel.close().await;
+            Err(err)
+        }
+    }
+}
+
+// WHAT:  The single dispatch point from a resolved connection to its adapter.
+async fn connect_direct(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
     match conn.summary.engine.family() {
         Family::Postgres => postgres::connect(conn).await,
         Family::Mysql => mysql::connect(conn).await,

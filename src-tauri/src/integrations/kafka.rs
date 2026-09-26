@@ -1415,6 +1415,8 @@ mod tests {
             password: None,
             file_path: None,
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
         };
         ResolvedConnection {
             summary: ConnectionSummary::draft(&input, false),

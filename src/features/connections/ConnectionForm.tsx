@@ -1,14 +1,14 @@
-// SOT: connection-form, connection-editor-page, test-connection-flow
+// SOT: connection-form, connection-editor-page, test-connection-flow, ssh-tunnel-form
 import { useState } from "react";
-import type { ConnectionInput, ConnectionSummary, Engine, Environment, SslMode } from "@/lib/bindings";
+import type { ConnectionInput, ConnectionSummary, Engine, Environment, SshAuth, SshTunnel, SslMode } from "@/lib/bindings";
 import { ENGINE_ORDER, blankInput, categoryLabel, engineMeta, fieldLabels, type EnginePreset } from "@/lib/engines";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { ENVIRONMENT_ORDER, environmentMeta } from "@/lib/environments";
 import { ipc, normalizeError } from "@/lib/ipc";
-import { pickDirectory, pickSqliteFile } from "@/lib/native";
+import { pickDirectory, pickPrivateKeyFile, pickSqliteFile } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
-import { AppSelect, Field, Toggle } from "@/components/global/Field";
+import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -24,6 +24,17 @@ const SSL_MODES: readonly { value: SslMode; label: string }[] = [
   { value: "verify_full", label: "Verify full" },
 ];
 
+const SSH_AUTH: readonly { value: SshAuth; label: string }[] = [
+  { value: "password", label: "Password" },
+  { value: "private_key", label: "Private key" },
+];
+
+type Section = "general" | "ssl" | "ssh";
+
+function asSection(value: string): Section {
+  return value === "ssl" || value === "ssh" ? value : "general";
+}
+
 function fromSummary(summary: ConnectionSummary): ConnectionInput {
   return {
     name: summary.name,
@@ -37,6 +48,8 @@ function fromSummary(summary: ConnectionSummary): ConnectionInput {
     password: null,
     filePath: summary.filePath,
     sslMode: summary.sslMode,
+    ssh: summary.ssh,
+    sshSecret: null,
   };
 }
 
@@ -66,15 +79,22 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [section, setSection] = useState<"general" | "ssl">("general");
+  const [section, setSection] = useState<Section>("general");
 
   const patch = (partial: Partial<ConnectionInput>) => setInput((prev) => ({ ...prev, ...partial }));
+  // WHAT:  Edits the SSH block. Moving the tunnel to another host or port drops
+  //        the pinned key: it belonged to the old server.
+  const patchSsh = (partial: Partial<SshTunnel>) =>
+    setInput((prev) => {
+      const moved = (partial.host !== undefined && partial.host !== prev.ssh.host) || (partial.port !== undefined && partial.port !== prev.ssh.port);
+      return { ...prev, ssh: { ...prev.ssh, ...(moved ? { hostKey: null } : {}), ...partial } };
+    });
   const meta = engineMeta(input.engine);
   const labels = fieldLabels(input.engine);
 
   const changeEngine = (engine: Engine) => {
     const next = blankInput(engine);
-    setInput((prev) => ({ ...next, name: prev.name, environment: prev.environment, readOnly: prev.readOnly }));
+    setInput((prev) => ({ ...next, name: prev.name, environment: prev.environment, readOnly: prev.readOnly, ssh: prev.ssh, sshSecret: prev.sshSecret }));
   };
   const changeEnvironment = (environment: Environment) => patch({ environment, readOnly: environmentMeta(environment).readOnlyDefault });
 
@@ -115,6 +135,12 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
       setStatus({ tone: "error", text: normalizeError(raw).message });
     }
   };
+
+  const browseKey = async () => {
+    const path = await pickPrivateKeyFile();
+    if (path) patchSsh({ keyPath: path });
+  };
+  const savedSshSecret = editing?.hasSshSecret === true && !input.sshSecret;
 
   const browse = async () => {
     const path = input.engine === "rocksdb" ? await pickDirectory() : await pickSqliteFile();
@@ -212,10 +238,14 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                   </p>
                 </div>
               ) : (
-                <Tabs value={section} onValueChange={(next) => { setSection(next === "ssl" ? "ssl" : "general"); }} className="w-full">
+                <Tabs value={section} onValueChange={(next) => { setSection(asSection(next)); }} className="w-full">
                   <TabsList className="glass-pill border border-border/40 p-1">
                     <TabsTrigger value="general">General</TabsTrigger>
                     <TabsTrigger value="ssl">SSL / TLS</TabsTrigger>
+                    <TabsTrigger value="ssh">
+                      SSH
+                      {input.ssh.enabled ? <span className="size-1.5 rounded-full bg-accent" aria-label="tunnel on" /> : null}
+                    </TabsTrigger>
                   </TabsList>
                   <TabsContent value="general" className="flex flex-col gap-5 pt-4">
                     <div className="grid grid-cols-[1fr_120px] gap-3">
@@ -239,7 +269,59 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
                   </TabsContent>
                   <TabsContent value="ssl" className="flex flex-col gap-5 pt-4">
                     <AppSelect label="SSL mode" value={input.sslMode} options={SSL_MODES} onChange={(sslMode) => patch({ sslMode })} />
-                    <p className="text-xs text-muted">SSH tunnelling (bastion hosts, key files, agent) arrives in Phase 2 of the roadmap.</p>
+                  </TabsContent>
+                  {/* WHAT:  SSH tunnel through a bastion host. The database host
+                      and port on the General tab are resolved *from the SSH
+                      host*, so a private address like 10.0.0.5 works here. */}
+                  <TabsContent value="ssh" className="flex flex-col gap-5 pt-4">
+                    <Toggle
+                      checked={input.ssh.enabled}
+                      onChange={(enabled) => patchSsh({ enabled })}
+                      label="Connect through an SSH tunnel"
+                      description="The database host above is reached from the SSH server, not from this machine."
+                    />
+                    {input.ssh.enabled ? (
+                      <>
+                        <div className="grid grid-cols-[1fr_120px] gap-3">
+                          <Field label="SSH host" value={input.ssh.host ?? ""} onChange={(host) => patchSsh({ host })} placeholder="bastion.example.com" mono />
+                          <Field label="SSH port" type="number" value={String(input.ssh.port)} onChange={(port) => patchSsh({ port: port === "" ? 22 : Number(port) })} placeholder="22" />
+                        </div>
+                        <Field label="SSH user" value={input.ssh.user ?? ""} onChange={(user) => patchSsh({ user })} placeholder="ubuntu" />
+                        <Segmented label="Authentication" value={input.ssh.auth} options={SSH_AUTH} onChange={(auth) => patchSsh({ auth })} />
+                        {input.ssh.auth === "private_key" ? (
+                          <Field
+                            label="Private key file"
+                            value={input.ssh.keyPath ?? ""}
+                            onChange={(keyPath) => patchSsh({ keyPath })}
+                            placeholder="~/.ssh/id_ed25519"
+                            mono
+                            suffix={<Button variant="secondary" size="sm" onClick={() => void browseKey()} className="rounded-lg">Browse…</Button>}
+                          />
+                        ) : null}
+                        <Field
+                          label={input.ssh.auth === "private_key" ? "Key passphrase" : "SSH password"}
+                          type={showPassword ? "text" : "password"}
+                          value={input.sshSecret ?? ""}
+                          onChange={(sshSecret) => patch({ sshSecret })}
+                          placeholder={savedSshSecret ? "•••••••• (unchanged)" : input.ssh.auth === "private_key" ? "only if the key is encrypted" : "secret"}
+                          optional={input.ssh.auth === "private_key"}
+                          suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
+                        />
+                        <Field
+                          label="Host key fingerprint"
+                          value={input.ssh.hostKey ?? ""}
+                          onChange={(hostKey) => patchSsh({ hostKey: hostKey.trim() === "" ? null : hostKey })}
+                          placeholder="Pinned on first connect (SHA256:…)"
+                          description="The SSH server must present this key. Clear it to trust a server that was re-keyed."
+                          optional
+                          mono
+                        />
+                        <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
+                          <Icon name="lock" size={12} className="text-accent" />
+                          The SSH password or passphrase is sealed with AES-256-GCM, like the database password.
+                        </p>
+                      </>
+                    ) : null}
                   </TabsContent>
                 </Tabs>
               )}

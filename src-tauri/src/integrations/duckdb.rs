@@ -1415,6 +1415,8 @@ mod tests {
                 file_path: Some(path.into()),
                 ssl_mode: SslMode::Disable,
                 has_secret: false,
+                ssh: crate::model::SshTunnel::default(),
+                has_ssh_secret: false,
                 created_at: String::new(),
                 updated_at: String::new(),
             },

@@ -28,6 +28,7 @@
       id: id, name: name, engine: engine, environment: environment,
       readOnly: environment === "production", host: host, port: port,
       database: database, username: "app", filePath: null, sslMode: "prefer",
+      ssh: { enabled: false, host: null, port: 22, user: null, auth: "password", keyPath: null, hostKey: null }, hasSshSecret: false,
       hasSecret: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     };
   }
@@ -98,7 +99,6 @@
     list_objects: [],
     check_update: { current: "0.7.0", available: null, notes: null, published: null },
     download_update: { current: "0.7.0", available: "0.8.0", notes: "shadcn/ui migration", published: "2026-09-09T00:00:00Z" },
-    connect: true,
     disconnect: null,
     describe_session: {
       engine: "postgres", capabilities: caps,
@@ -133,6 +133,10 @@
           } }],
           totalRows: 25, elapsedMs: 12,
         });
+      }
+      if (cmd === "connect") {
+        var opened = connections.find(function (c) { return c.id === (req && req.id); }) || connections[0];
+        return Promise.resolve(clone(opened));
       }
       if (Object.prototype.hasOwnProperty.call(responses, cmd)) {
         return Promise.resolve(clone(responses[cmd]));

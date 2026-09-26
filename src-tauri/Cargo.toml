@@ -57,6 +57,9 @@ csv = "1"
 aes-gcm = "0.10"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 ts-rs = { version = "12", features = ["serde-compat", "serde-json-impl"] }
+# SSH tunnels for server-form connections. Pure Rust, `ring` backend so it builds
+# on Windows MSVC without extra system deps. Imported only in integrations/ssh_tunnel.rs.
+russh = { version = "0.63", default-features = false, features = ["ring", "rsa", "flate2"] }
 # Agent framework: one CompletionModel abstraction over Anthropic / OpenAI /
 # OpenRouter / Ollama, with unified message + tool-call types and streaming that
 # accumulates fragmented tool arguments. The run loop, tool dispatch and the

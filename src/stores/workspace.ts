@@ -353,8 +353,10 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   connect: async (id, database) => {
     set({ connecting: id });
     try {
-      await ipc("connect", { id, database: database ?? null });
+      const opened = await ipc("connect", { id, database: database ?? null });
       set((s) => ({
+        // The first tunnelled connect pins the SSH host key; keep the form's copy current.
+        connections: s.connections.map((c) => (c.id === id ? { ...c, ssh: opened.ssh } : c)),
         sessions: s.sessions.includes(id) ? s.sessions : [...s.sessions, id],
         activeConnectionId: id,
         page: { kind: "workspace" },

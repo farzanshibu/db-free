@@ -1,5 +1,5 @@
 // SOT: engine-registry, engine-labels, engine-categories, engine-presets, connection-string-parser, form-field-labels
-import type { ConnectionInput, Engine, EngineKind, FormKind, SslMode } from "./bindings";
+import type { ConnectionInput, Engine, EngineKind, FormKind, SshTunnel, SslMode } from "./bindings";
 import type { IconName } from "./icons";
 
 // WHAT:  UI metadata per engine, keyed by the Rust `Engine` enum.
@@ -330,6 +330,12 @@ export const PRESETS: readonly EnginePreset[] = [];
 // WHAT:  Engines listed in the picker that this build does not ship an adapter for yet.
 export const COMING_SOON: readonly { label: string; hint: string }[] = [];
 
+// WHAT:  SSH tunnel settings of a new connection: off, port 22, password auth.
+// WHERE: src-tauri/src/model/connection.rs (`impl Default for SshTunnel`)
+export function blankSsh(): SshTunnel {
+  return { enabled: false, host: null, port: 22, user: null, auth: "password", keyPath: null, hostKey: null };
+}
+
 export function blankInput(engine: Engine, preset?: EnginePreset): ConnectionInput {
   const meta = engineMeta(engine);
   const isFile = meta.form === "file";
@@ -345,6 +351,8 @@ export function blankInput(engine: Engine, preset?: EnginePreset): ConnectionInp
     password: null,
     filePath: isFile ? "" : null,
     sslMode: preset?.sslMode ?? meta.sslMode ?? "prefer",
+    ssh: blankSsh(),
+    sshSecret: null,
   };
 }
 

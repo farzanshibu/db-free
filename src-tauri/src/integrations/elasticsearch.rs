@@ -1956,6 +1956,8 @@ mod tests {
             password: None,
             file_path: None,
             ssl_mode: SslMode::Prefer,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret: secret.map(str::to_string) }
     }

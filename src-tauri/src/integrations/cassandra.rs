@@ -2231,6 +2231,8 @@ mod tests {
             password: None,
             file_path: None,
             ssl_mode: SslMode::Disable,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: std::env::var("DBFREE_TEST_CASSANDRA_PASSWORD").ok() }
     }
