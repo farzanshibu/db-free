@@ -125,6 +125,8 @@ export function tabPresentation(tab: Tab): { label: string; icon: IconName } {
       return { label: "Server", icon: "server" };
     case "tool":
       return { label: TOOLS[tab.tool].label, icon: TOOLS[tab.tool].icon };
+    case "schema-compare":
+      return { label: "Schema compare", icon: "git-branch" };
   }
 }
 

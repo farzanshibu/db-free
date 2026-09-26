@@ -113,6 +113,7 @@ function decodeTab(value: JsonValue): Tab | null {
       return table ? { id, kind, connectionId, table, filterKey: 0 } : null;
     }
     case "erd":
+    case "schema-compare":
       return { id, kind, connectionId, schema: text(obj.schema) };
     case "object": {
       const reference = objectRef(obj.reference);

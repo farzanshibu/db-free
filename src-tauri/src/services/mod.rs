@@ -18,5 +18,6 @@ pub mod query;
 pub mod saved_queries;
 pub mod scripts;
 pub mod schema;
+pub mod schema_diff;
 pub mod settings;
 pub mod transfer;

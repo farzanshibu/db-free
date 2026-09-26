@@ -57,6 +57,7 @@ export function CommandPalette() {
       list.push({ id: "tables", section: "navigation", label: "Tables sidebar", icon: "table", run: () => s.setSidebar("tables") });
       list.push({ id: "queries", section: "navigation", label: "Saved queries sidebar", icon: "file", run: () => s.setSidebar("queries") });
       list.push({ id: "objects", section: "navigation", label: "Objects sidebar", hint: "Views, functions, triggers, indexes, streams…", icon: "hierarchy", run: () => s.setSidebar("objects") });
+      list.push({ id: "schema-compare", section: "navigation", label: "Compare schemas", hint: "Diff two schemas and generate a migration", icon: "git-branch", run: () => s.openSchemaCompare(cid, s.schemaFilter[cid] ?? null) });
       list.push({ id: "admin", section: "navigation", label: "Server admin", hint: "Overview, sessions, users, settings", icon: "server", run: () => s.openAdmin(cid) });
       const engine = s.connections.find((c) => c.id === cid)?.engine;
       const tools = s.sessionInfos[cid]?.tools ?? (engine ? toolsOf(engine) : []);

@@ -64,6 +64,8 @@ import type {
   SaveQueryRequest,
   SaveSettingsRequest,
   SaveSqlFileRequest,
+  SchemaDiff,
+  SchemaDiffRequest,
   SavedQuery,
   SchemaCatalog,
   SearchCommand,
@@ -151,6 +153,7 @@ interface CommandMap {
   begin_transaction: { req: SessionRequest; res: boolean };
   commit_transaction: { req: SessionRequest; res: boolean };
   rollback_transaction: { req: SessionRequest; res: boolean };
+  schema_diff: { req: SchemaDiffRequest; res: SchemaDiff };
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;

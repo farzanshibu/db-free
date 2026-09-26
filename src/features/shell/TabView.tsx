@@ -13,6 +13,7 @@ import { ChatTab } from "@/features/chat/ChatTab";
 import { ObjectTab } from "@/features/objects/ObjectTab";
 import { AdminTab } from "@/features/admin/AdminTab";
 import { ToolTab } from "@/features/tools/ToolTab";
+import { SchemaCompareTab } from "@/features/compare/SchemaCompareTab";
 import { EmptyState } from "@/components/global/EmptyState";
 import { RunShortcut } from "@/components/global/Kbd";
 import { Resizer } from "@/components/global/Resizer";
@@ -51,6 +52,8 @@ export function TabBody({ tab }: { tab: Tab | null }) {
       return <AdminTab key={tab.id} connectionId={tab.connectionId} />;
     case "tool":
       return <ToolTab key={tab.id} connectionId={tab.connectionId} tool={tab.tool} />;
+    case "schema-compare":
+      return <SchemaCompareTab key={tab.id} connectionId={tab.connectionId} schema={tab.schema} />;
     case "document":
       return <DocumentTab key={tab.id} kind={tab.documentKind} documentId={tab.documentId} connectionId={tab.connectionId} />;
   }

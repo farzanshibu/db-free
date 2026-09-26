@@ -101,6 +101,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::query::commit_transaction,
             commands::query::rollback_transaction,
             commands::connections::ping_session,
+            commands::compare::schema_diff,
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -199,6 +200,8 @@ mod export_bindings {
             // Only reachable through the event stream, so it needs naming here.
             crate::model::BackupEvent::export_all(&cfg),
             crate::commands::query::CancelQueryRequest::export_all(&cfg),
+            crate::commands::compare::SchemaDiffRequest::export_all(&cfg),
+            crate::model::SchemaDiff::export_all(&cfg),
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

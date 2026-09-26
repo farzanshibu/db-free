@@ -7,6 +7,7 @@ pub mod agent;
 pub mod ai;
 pub mod backup;
 pub mod changes;
+pub mod compare;
 pub mod connections;
 pub mod data;
 pub mod library;
@@ -90,10 +91,11 @@ pub enum CommandName {
     CommitTransaction,
     RollbackTransaction,
     PingSession,
+    SchemaDiff,
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 62] = [
+    pub const ALL: [CommandName; 63] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -156,6 +158,7 @@ impl CommandName {
         CommandName::CommitTransaction,
         CommandName::RollbackTransaction,
         CommandName::PingSession,
+        CommandName::SchemaDiff,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -222,6 +225,7 @@ impl CommandName {
             CommandName::CommitTransaction => "commit_transaction",
             CommandName::RollbackTransaction => "rollback_transaction",
             CommandName::PingSession => "ping_session",
+            CommandName::SchemaDiff => "schema_diff",
         }
     }
 }
@@ -301,6 +305,7 @@ mod tests {
             | CommandName::LoadHistory
             | CommandName::DownloadObject => "objects",
             CommandName::CheckUpdate | CommandName::DownloadUpdate | CommandName::InstallUpdate => "updates",
+            CommandName::SchemaDiff => "compare",
         }
     }
 }

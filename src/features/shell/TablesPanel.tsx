@@ -37,6 +37,7 @@ export function TablesPanel() {
   const loadCatalog = useWorkspace((s) => s.loadCatalog);
   const openQuery = useWorkspace((s) => s.openQuery);
   const openErd = useWorkspace((s) => s.openErd);
+  const openSchemaCompare = useWorkspace((s) => s.openSchemaCompare);
   const connecting = useWorkspace((s) => s.connecting);
   const menu = useContextMenu();
   const [creating, setCreating] = useState(false);
@@ -151,6 +152,7 @@ export function TablesPanel() {
                       [
                         { id: "only", label: `Show only ${schema.name}`, icon: "folder" },
                         { id: "erd", label: "ER diagram of this schema", icon: "view", group: "open", disabled: !supportsErd(connection.engine) },
+                        { id: "compare", label: "Compare schema…", icon: "git-branch", group: "open", disabled: engineMeta(connection.engine).commandLanguage !== "SQL" },
                         { id: "copy", label: "Copy schema name", icon: "copy", group: "copy" },
                         { id: "refresh", label: "Refresh schema", icon: "refresh", group: "copy" },
                       ],
@@ -159,6 +161,7 @@ export function TablesPanel() {
                         // "show all" would be a no-op here; the picker above does it.
                         if (action === "only") setSchemaFilter(id, schema.name);
                         else if (action === "erd") openErd(id, schema.name);
+                        else if (action === "compare") openSchemaCompare(id, schema.name);
                         else if (action === "copy") void navigator.clipboard.writeText(schema.name);
                         else if (action === "refresh") void loadCatalog(id);
                       },
@@ -270,6 +273,7 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
   const openTable = useWorkspace((s) => s.openTable);
   const openQuery = useWorkspace((s) => s.openQuery);
   const openTransfer = useWorkspace((s) => s.openTransfer);
+  const openSchemaCompare = useWorkspace((s) => s.openSchemaCompare);
   const loadCatalog = useWorkspace((s) => s.loadCatalog);
   const showError = useWorkspace((s) => s.showError);
   const showInfo = useWorkspace((s) => s.showInfo);
@@ -285,6 +289,7 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
     { id: "count", label: "Count rows", icon: "hash", group: "query", disabled: !speaksSql },
     { id: "duplicate", label: "Duplicate table…", icon: "copy", group: "query", disabled: !speaksSql },
     { id: "export", label: "Export / import…", icon: "download", group: "query" },
+    { id: "compare-schema", label: "Compare schema…", icon: "git-branch", group: "query", disabled: !speaksSql },
     { id: "copy-name", label: "Copy name", icon: "copy", group: "copy" },
     { id: "copy-qualified", label: "Copy qualified name", icon: "copy", group: "copy", disabled: table.schema === null },
     { id: "copy-schema", label: "Copy table schema", icon: "braces", group: "copy" },
@@ -324,6 +329,7 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
       else if (action === "count") openQuery(connectionId, `SELECT count(*) FROM ${qualified};`, `count ${table.name}`);
       else if (action === "duplicate") openQuery(connectionId, `CREATE TABLE ${qualified}_copy AS\nSELECT * FROM ${qualified};`, `copy ${table.name}`);
       else if (action === "export") openTransfer(connectionId);
+      else if (action === "compare-schema") openSchemaCompare(connectionId, table.schema);
       else if (action === "copy-schema") void copySchema();
       else if (action === "empty") openQuery(connectionId, `TRUNCATE TABLE ${qualified};`, `empty ${table.name}`);
       else if (action === "drop") openQuery(connectionId, `DROP TABLE ${qualified};`, `drop ${table.name}`);
