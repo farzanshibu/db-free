@@ -1,8 +1,9 @@
-// SOT: sidebar-switch, sidebar-modes, drag-to-expand
+// SOT: sidebar-switch, sidebar-modes, drag-to-expand, sidebar-footer
 import { useCallback, useState } from "react";
 import { useWorkspace, type SidebarMode } from "@/stores/workspace";
 import { Resizer } from "@/components/global/Resizer";
 import { TablesPanel } from "./TablesPanel";
+import { ConnectionHealth } from "./ConnectionHealth";
 import { ObjectsPanel } from "@/features/objects/ObjectsPanel";
 import { QueriesPanel } from "@/features/queries/QueriesPanel";
 import { DocumentsPanel } from "@/features/documents/DocumentsPanel";
@@ -50,7 +51,8 @@ export function Sidebar() {
   return (
     <div className="relative flex h-full shrink-0" style={{ width }}>
       <div className="flex h-full w-full min-w-0 flex-col">
-        {renderPanel(mode)}
+        <div className="flex min-h-0 flex-1 flex-col">{renderPanel(mode)}</div>
+        <ConnectionHealth />
       </div>
       <Resizer direction="horizontal" onResize={handleResize} className="absolute -right-0.5 top-0 bottom-0" />
     </div>

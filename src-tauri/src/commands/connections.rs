@@ -95,3 +95,12 @@ pub async fn describe_session(state: State<'_, AppState>, req: SessionRequest) -
     })
     .await
 }
+
+// WHAT:  Round-trip to the database of a live session, in milliseconds.
+// WHY:   The status bar polls it to show latency and to notice a dropped
+//        session before the user's next query does.
+// WHERE: src/features/shell/ConnectionHealth.tsx
+#[tauri::command]
+pub async fn ping_session(state: State<'_, AppState>, req: SessionRequest) -> AppResult<u64> {
+    guard::session(&state, &req.connection_id, |ctx| async move { services::connection::ping(&ctx).await }).await
+}

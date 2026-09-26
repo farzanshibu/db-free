@@ -97,6 +97,7 @@ interface CommandMap {
   disconnect: { req: ConnectionIdRequest; res: null };
   active_sessions: { req: undefined; res: string[] };
   describe_session: { req: SessionRequest; res: SessionInfo };
+  ping_session: { req: SessionRequest; res: number };
   load_catalog: { req: CatalogRequest; res: SchemaCatalog };
   load_columns: { req: ColumnsRequest; res: ColumnInfo[] };
   load_foreign_keys: { req: CatalogRequest; res: ForeignKey[] };

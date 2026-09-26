@@ -89,10 +89,11 @@ pub enum CommandName {
     BeginTransaction,
     CommitTransaction,
     RollbackTransaction,
+    PingSession,
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 61] = [
+    pub const ALL: [CommandName; 62] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -154,6 +155,7 @@ impl CommandName {
         CommandName::BeginTransaction,
         CommandName::CommitTransaction,
         CommandName::RollbackTransaction,
+        CommandName::PingSession,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -219,6 +221,7 @@ impl CommandName {
             CommandName::BeginTransaction => "begin_transaction",
             CommandName::CommitTransaction => "commit_transaction",
             CommandName::RollbackTransaction => "rollback_transaction",
+            CommandName::PingSession => "ping_session",
         }
     }
 }
@@ -253,7 +256,8 @@ mod tests {
             | CommandName::Connect
             | CommandName::Disconnect
             | CommandName::ActiveSessions
-            | CommandName::DescribeSession => "connections",
+            | CommandName::DescribeSession
+            | CommandName::PingSession => "connections",
             CommandName::LoadCatalog | CommandName::LoadColumns | CommandName::LoadForeignKeys | CommandName::LoadDdl | CommandName::CreateTemplate => "schema",
             CommandName::FetchTablePage => "data",
             CommandName::AgentChat

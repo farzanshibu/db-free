@@ -100,6 +100,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::query::begin_transaction,
             commands::query::commit_transaction,
             commands::query::rollback_transaction,
+            commands::connections::ping_session,
         ])
         .run(tauri::generate_context!())?;
     Ok(())

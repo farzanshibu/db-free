@@ -1,4 +1,4 @@
-// SOT: connection-service, connection-lifecycle, secret-sealing, session-open-close, ssh-tofu-pin
+// SOT: connection-service, connection-lifecycle, secret-sealing, session-open-close, ssh-tofu-pin, session-ping
 
 use crate::adapters::crypto;
 use crate::guard::SessionCtx;
@@ -148,6 +148,19 @@ pub async fn test(state: &AppState, existing_id: Option<&str>, input: &Connectio
 pub async fn active_sessions(state: &AppState) -> Vec<String> {
     state.session_ids().await
 }
+
+// WHAT:  Times one `Integration::ping` on the session (the health indicator).
+// HOW:   Its own short deadline: a hung socket should read as "lost" within
+//        seconds, not after the block's five-minute request timeout.
+pub async fn ping(ctx: &SessionCtx) -> AppResult<u64> {
+    let started = std::time::Instant::now();
+    tokio::time::timeout(PING_TIMEOUT, ctx.integration.ping())
+        .await
+        .map_err(|_| AppError::timeout("The server did not answer the ping."))??;
+    Ok(u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))
+}
+
+const PING_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
 pub async fn describe(ctx: &SessionCtx) -> AppResult<SessionInfo> {
     integrations::describe(ctx.integration.as_ref()).await
