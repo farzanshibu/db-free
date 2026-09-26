@@ -1341,6 +1341,9 @@ mod tests {
             ssl_mode: SslMode::Prefer,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None };
         let p = connect(&resolved).await.unwrap_or_else(|e| panic!("connect: {e}"));

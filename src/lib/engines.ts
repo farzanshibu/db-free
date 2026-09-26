@@ -353,6 +353,9 @@ export function blankInput(engine: Engine, preset?: EnginePreset): ConnectionInp
     sslMode: preset?.sslMode ?? meta.sslMode ?? "prefer",
     ssh: blankSsh(),
     sshSecret: null,
+    folder: null,
+    color: null,
+    favorite: false,
   };
 }
 

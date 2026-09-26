@@ -1914,6 +1914,9 @@ mod tests {
             ssl_mode: SslMode::Require,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, true), secret: Some("p@ss:w/rd".into()) };
         let (url, db) = build_url(&resolved);
@@ -2118,6 +2121,9 @@ mod tests {
             ssl_mode: if scheme == "rediss" { SslMode::VerifyFull } else { SslMode::Disable },
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: password };
         let redis = connect(&resolved).await.unwrap_or_else(|e| panic!("connect: {e}"));

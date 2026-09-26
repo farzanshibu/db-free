@@ -28,7 +28,7 @@
       id: id, name: name, engine: engine, environment: environment,
       readOnly: environment === "production", host: host, port: port,
       database: database, username: "app", filePath: null, sslMode: "prefer",
-      ssh: { enabled: false, host: null, port: 22, user: null, auth: "password", keyPath: null, hostKey: null }, hasSshSecret: false,
+      ssh: { enabled: false, host: null, port: 22, user: null, auth: "password", keyPath: null, hostKey: null }, hasSshSecret: false, folder: null, color: null, favorite: false,
       hasSecret: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
     };
   }

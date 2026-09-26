@@ -20,7 +20,7 @@ pub struct Store {
     conn: Connection,
 }
 
-const SCHEMA_VERSION: i64 = 3;
+const SCHEMA_VERSION: i64 = 4;
 
 impl Store {
     pub fn open(path: &Path) -> AppResult<Store> {
@@ -136,6 +136,18 @@ impl Store {
                     ALTER TABLE connections ADD COLUMN ssh_key_path TEXT;
                     ALTER TABLE connections ADD COLUMN ssh_host_key TEXT;
                     ALTER TABLE connections ADD COLUMN ssh_secret_ciphertext BLOB;
+                    ",
+                )
+                .map_err(AppError::store)?;
+        }
+        // 4 — connection organisation: folder, colour tag, favourite.
+        if version < 4 {
+            self.conn
+                .execute_batch(
+                    "
+                    ALTER TABLE connections ADD COLUMN folder TEXT;
+                    ALTER TABLE connections ADD COLUMN color TEXT;
+                    ALTER TABLE connections ADD COLUMN favorite INTEGER NOT NULL DEFAULT 0;
                     ",
                 )
                 .map_err(AppError::store)?;

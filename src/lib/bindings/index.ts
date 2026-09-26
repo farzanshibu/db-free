@@ -40,6 +40,7 @@ export type * from "./ColumnsRequest";
 export type * from "./CommandName";
 export type * from "./ConditionOp";
 export type * from "./ConnectRequest";
+export type * from "./ConnectionColor";
 export type * from "./ConnectionIdRequest";
 export type * from "./ConnectionInput";
 export type * from "./ConnectionSummary";

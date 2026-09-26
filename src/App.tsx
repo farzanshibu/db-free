@@ -6,6 +6,7 @@ import { fontStack } from "@/lib/fonts";
 import { IconRail } from "@/features/shell/IconRail";
 import { Sidebar } from "@/features/shell/Sidebar";
 import { TabBar } from "@/features/shell/TabBar";
+import { EnvironmentEdge } from "@/features/shell/EnvironmentEdge";
 import { TabArea } from "@/features/shell/TabView";
 import { ConnectionsPage } from "@/features/connections/ConnectionsPage";
 import { ConnectionPicker } from "@/features/connections/ConnectionPicker";
@@ -190,6 +191,7 @@ export function App() {
         <>
           <Sidebar />
           <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+            <EnvironmentEdge environment={connection.environment} />
             <TabBar />
             <div className="flex min-h-0 flex-1">
               <div className="min-w-0 flex-1">

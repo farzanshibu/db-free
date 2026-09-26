@@ -1,15 +1,19 @@
 // SOT: connection-switcher, quick-connect, sidebar-title
+import { Fragment } from "react";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { useBackupDialog } from "@/features/backup/useBackupDialog";
 import { engineMeta } from "@/lib/engines";
+import { connectionColorMeta, connectionTarget, groupConnections } from "@/lib/connectionGroups";
+import { cn } from "@/lib/cn";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { EnvDot } from "@/components/global/Badge";
 import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 // WHAT:  Sidebar title that doubles as a quick connection switcher: pick another
 //        saved connection (connects on demand), add one, or open the list.
+// HOW:   Same grouping as the connections page: favourites, then folders.
 export function ConnectionSwitcher({ caption }: { caption: string }) {
   const connection = useActiveConnection();
   const connections = useWorkspace((s) => s.connections);
@@ -19,6 +23,8 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
   const goConnections = useWorkspace((s) => s.goConnections);
   const openBackup = useBackupDialog((s) => s.open);
   if (!connection) return <span className="text-sm font-medium text-foreground">{caption}</span>;
+  const groups = groupConnections(connections);
+  const labelled = groups.length > 1;
 
   return (
     <DropdownMenu>
@@ -44,26 +50,38 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
           <Icon name="chevron-down" size={12} className="shrink-0 text-muted" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="min-w-[320px]">
-        <DropdownMenuGroup>
-          {connections.map((c) => {
-            const meta = engineMeta(c.engine);
-            const target = meta.form === "file" ? (c.filePath ?? "") : `${c.host ?? ""}${c.port !== null ? `:${c.port}` : ""}${c.database ? `/${c.database}` : ""}`;
-            return (
-              <DropdownMenuItem key={c.id} textValue={`${c.name} ${target}`} onSelect={() => { select(c.id); }}>
-                <EnvDot environment={c.environment} live={sessions.includes(c.id)} />
-                <EngineIcon engine={c.engine} size={20} className="shrink-0" />
-                <span className="flex min-w-0 flex-col">
-                  <span className="truncate" title={c.name}>{c.name}</span>
-                  <span className="truncate font-mono text-[10px] text-muted">
-                    {meta.label} · {target}
-                  </span>
-                </span>
-                {c.id === connection.id ? <Icon name="check" size={13} className="ml-auto pl-3 text-accent" /> : null}
-              </DropdownMenuItem>
-            );
-          })}
-        </DropdownMenuGroup>
+      <DropdownMenuContent className="max-h-[70vh] min-w-[320px] overflow-y-auto">
+        {groups.map((group, index) => (
+          <Fragment key={group.key}>
+            {index > 0 ? <DropdownMenuSeparator /> : null}
+            <DropdownMenuGroup>
+              {labelled ? (
+                <DropdownMenuLabel className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted">
+                  <Icon name={group.kind === "favorites" ? "star" : group.kind === "folder" ? "folder" : "plug"} size={11} className={group.kind === "favorites" ? "text-warning" : ""} />
+                  {group.label}
+                </DropdownMenuLabel>
+              ) : null}
+              {group.items.map((c) => {
+                const meta = engineMeta(c.engine);
+                const target = connectionTarget(c);
+                return (
+                  <DropdownMenuItem key={c.id} textValue={`${c.name} ${target}`} onSelect={() => { select(c.id); }} className="relative">
+                    {c.color !== null ? <span aria-hidden className={cn("absolute inset-y-1 left-0 w-0.5 rounded-full", connectionColorMeta(c.color).fill)} /> : null}
+                    <EnvDot environment={c.environment} live={sessions.includes(c.id)} />
+                    <EngineIcon engine={c.engine} size={20} className="shrink-0" />
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate" title={c.name}>{c.name}</span>
+                      <span className="truncate font-mono text-[10px] text-muted">
+                        {meta.label} · {target}
+                      </span>
+                    </span>
+                    {c.id === connection.id ? <Icon name="check" size={13} className="ml-auto pl-3 text-accent" /> : null}
+                  </DropdownMenuItem>
+                );
+              })}
+            </DropdownMenuGroup>
+          </Fragment>
+        ))}
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem textValue="New connection" onSelect={() => { goPicker(); }}>

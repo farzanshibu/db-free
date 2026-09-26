@@ -1,8 +1,8 @@
-// SOT: connections-table, connection-persistence, secret-change, ssh-host-key-pin
+// SOT: connections-table, connection-persistence, secret-change, ssh-host-key-pin, connection-organisation
 
 use crate::error::{AppError, AppResult};
 use crate::model::{
-    ConnectionInput, ConnectionRecord, ConnectionSummary, Engine, Environment, SshAuth, SshTunnel, SslMode,
+    ConnectionColor, ConnectionInput, ConnectionRecord, ConnectionSummary, Engine, Environment, SshAuth, SshTunnel, SslMode,
 };
 use crate::store::{now_rfc3339, Store};
 use rusqlite::{params, OptionalExtension, Row};
@@ -18,7 +18,7 @@ pub enum SecretChange {
 const COLUMNS: &str = "id, name, engine, environment, read_only, host, port, database, username, \
                        file_path, ssl_mode, secret_ciphertext IS NOT NULL, created_at, updated_at, \
                        ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth, ssh_key_path, ssh_host_key, \
-                       ssh_secret_ciphertext IS NOT NULL";
+                       ssh_secret_ciphertext IS NOT NULL, folder, color, favorite";
 
 fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<ConnectionSummary> {
     let engine_raw: String = row.get(2)?;
@@ -26,6 +26,7 @@ fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<ConnectionSummary> {
     let ssl_raw: String = row.get(10)?;
     let port: Option<i64> = row.get(6)?;
     let ssh_auth_raw: String = row.get(18)?;
+    let color_raw: Option<String> = row.get(23)?;
     let ssh_port: i64 = row.get(16)?;
     let ssh = SshTunnel {
         enabled: row.get::<_, i64>(14)? != 0,
@@ -51,6 +52,9 @@ fn summary_from_row(row: &Row<'_>) -> rusqlite::Result<ConnectionSummary> {
         has_secret: row.get::<_, i64>(11)? != 0,
         ssh,
         has_ssh_secret: row.get::<_, i64>(21)? != 0,
+        folder: row.get(22)?,
+        color: color_raw.as_deref().and_then(ConnectionColor::parse),
+        favorite: row.get::<_, i64>(24)? != 0,
         created_at: row.get(12)?,
         updated_at: row.get(13)?,
     })
@@ -101,9 +105,10 @@ impl Store {
             .execute(
                 "INSERT INTO connections (id, name, engine, environment, read_only, host, port, \
                  database, username, file_path, ssl_mode, secret_ciphertext, created_at, updated_at, \
-                 ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth, ssh_key_path, ssh_host_key) \
+                 ssh_enabled, ssh_host, ssh_port, ssh_user, ssh_auth, ssh_key_path, ssh_host_key, \
+                 folder, color, favorite) \
                  VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?13, \
-                 ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                 ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
                 params![
                     id,
                     input.name.trim(),
@@ -125,6 +130,9 @@ impl Store {
                     input.ssh.auth.as_str(),
                     trimmed(&input.ssh.key_path),
                     trimmed(&input.ssh.host_key),
+                    trimmed(&input.folder),
+                    input.color.map(ConnectionColor::as_str),
+                    i64::from(input.favorite),
                 ],
             )
             .map_err(AppError::store)?;
@@ -144,7 +152,8 @@ impl Store {
                 "UPDATE connections SET name = ?2, engine = ?3, environment = ?4, read_only = ?5, \
                  host = ?6, port = ?7, database = ?8, username = ?9, file_path = ?10, \
                  ssl_mode = ?11, updated_at = ?12, ssh_enabled = ?13, ssh_host = ?14, ssh_port = ?15, \
-                 ssh_user = ?16, ssh_auth = ?17, ssh_key_path = ?18, ssh_host_key = ?19 WHERE id = ?1",
+                 ssh_user = ?16, ssh_auth = ?17, ssh_key_path = ?18, ssh_host_key = ?19, \
+                 folder = ?20, color = ?21, favorite = ?22 WHERE id = ?1",
                 params![
                     id,
                     input.name.trim(),
@@ -165,6 +174,9 @@ impl Store {
                     input.ssh.auth.as_str(),
                     trimmed(&input.ssh.key_path),
                     trimmed(&input.ssh.host_key),
+                    trimmed(&input.folder),
+                    input.color.map(ConnectionColor::as_str),
+                    i64::from(input.favorite),
                 ],
             )
             .map_err(AppError::store)?;
@@ -265,6 +277,9 @@ mod tests {
             ssl_mode: SslMode::Disable,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         }
     }
 
@@ -341,6 +356,28 @@ mod tests {
         assert!(!store.get_connection(&created.id).map(|c| c.has_ssh_secret).unwrap_or(true));
     }
 
+    #[test]
+    fn folder_colour_and_favourite_round_trip() {
+        let store = Store::open_in_memory().unwrap_or_else(|e| panic!("{e}"));
+        let mut organised = input("filed");
+        organised.folder = Some("  Clients / Acme ".into());
+        organised.color = Some(ConnectionColor::Teal);
+        organised.favorite = true;
+        let created = store.insert_connection(&organised, None).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(created.folder.as_deref(), Some("Clients / Acme"));
+        assert_eq!(created.color, Some(ConnectionColor::Teal));
+        assert!(created.favorite);
+
+        let mut plain = organised.clone();
+        plain.folder = Some("   ".into());
+        plain.color = None;
+        plain.favorite = false;
+        let updated = store.update_connection(&created.id, &plain, SecretChange::Keep).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(updated.folder, None, "a blank folder is no folder");
+        assert_eq!(updated.color, None);
+        assert!(!updated.favorite);
+    }
+
     // WHAT:  A store created by an older build (schema v2) upgrades in place.
     #[test]
     fn migrates_a_v2_connections_table() {
@@ -376,6 +413,7 @@ mod tests {
         assert_eq!(legacy.name, "legacy");
         assert_eq!(legacy.ssh, SshTunnel::default(), "old rows read as tunnel off");
         assert!(!legacy.has_ssh_secret);
+        assert_eq!((legacy.folder, legacy.color, legacy.favorite), (None, None, false));
         drop(store);
         let _ = std::fs::remove_dir_all(&dir);
     }

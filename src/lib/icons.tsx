@@ -47,6 +47,7 @@ import {
   Sorting05Icon,
   SourceCodeIcon,
   SquareLock02Icon,
+  StarIcon,
   Table02Icon,
   TableIcon,
   TextFontIcon,
@@ -203,7 +204,8 @@ export type IconName =
   | "exchange"
   | "transfer"
   | "rss"
-  | "stop";
+  | "stop"
+  | "star";
 
 // WHAT:  App icon vocabulary → Hugeicons (stroke-rounded, free set). Call sites
 //        stay `<Icon name="table" />`; swap a glyph here, not in features.
@@ -306,6 +308,7 @@ const GLYPHS: Record<IconName, IconSvgElement> = {
   transfer: ArrowDataTransferHorizontalIcon,
   rss: RssIcon,
   stop: StopIcon,
+  star: StarIcon,
 };
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name" | "strokeWidth"> {

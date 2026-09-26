@@ -1936,6 +1936,9 @@ mod tests {
             ssl_mode: SslMode::Disable,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None }
     }

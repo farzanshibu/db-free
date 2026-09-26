@@ -1868,6 +1868,9 @@ mod tests {
             ssl_mode: ssl,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, true), secret: Some("pw".into()) }
     }
@@ -2172,6 +2175,9 @@ mod tests {
             ssl_mode: SslMode::Disable,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, true), secret: std::env::var("DBFREE_TEST_NEO4J_PASSWORD").ok() }
     }

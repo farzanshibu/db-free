@@ -1,6 +1,8 @@
-// SOT: connection-form, connection-editor-page, test-connection-flow, ssh-tunnel-form
+// SOT: connection-form, connection-editor-page, test-connection-flow, ssh-tunnel-form, connection-organisation-fields
 import { useState } from "react";
 import type { ConnectionInput, ConnectionSummary, Engine, Environment, SshAuth, SshTunnel, SslMode } from "@/lib/bindings";
+import { inputFromSummary } from "@/lib/connectionGroups";
+import { ColorSwatches } from "./ColorSwatches";
 import { ENGINE_ORDER, blankInput, categoryLabel, engineMeta, fieldLabels, type EnginePreset } from "@/lib/engines";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { ENVIRONMENT_ORDER, environmentMeta } from "@/lib/environments";
@@ -35,24 +37,6 @@ function asSection(value: string): Section {
   return value === "ssl" || value === "ssh" ? value : "general";
 }
 
-function fromSummary(summary: ConnectionSummary): ConnectionInput {
-  return {
-    name: summary.name,
-    engine: summary.engine,
-    environment: summary.environment,
-    readOnly: summary.readOnly,
-    host: summary.host,
-    port: summary.port,
-    database: summary.database,
-    username: summary.username,
-    password: null,
-    filePath: summary.filePath,
-    sslMode: summary.sslMode,
-    ssh: summary.ssh,
-    sshSecret: null,
-  };
-}
-
 type Status = { tone: "ok" | "error"; text: string } | null;
 
 // WHAT:  Full-page connection editor (DB Manager layout): centered column on a grid
@@ -74,7 +58,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
   const deleteConnection = useWorkspace((s) => s.deleteConnection);
   const showInfo = useWorkspace((s) => s.showInfo);
 
-  const [input, setInput] = useState<ConnectionInput>(() => (editing ? fromSummary(editing) : (draft ?? blankInput("postgres", preset))));
+  const [input, setInput] = useState<ConnectionInput>(() => (editing ? inputFromSummary(editing) : (draft ?? blankInput("postgres", preset))));
   const [status, setStatus] = useState<Status>(null);
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -94,7 +78,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
 
   const changeEngine = (engine: Engine) => {
     const next = blankInput(engine);
-    setInput((prev) => ({ ...next, name: prev.name, environment: prev.environment, readOnly: prev.readOnly, ssh: prev.ssh, sshSecret: prev.sshSecret }));
+    setInput((prev) => ({ ...next, name: prev.name, environment: prev.environment, readOnly: prev.readOnly, ssh: prev.ssh, sshSecret: prev.sshSecret, folder: prev.folder, color: prev.color, favorite: prev.favorite }));
   };
   const changeEnvironment = (environment: Environment) => patch({ environment, readOnly: environmentMeta(environment).readOnlyDefault });
 
@@ -167,6 +151,8 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
               <AppSelect label="Type" value={input.engine} options={ENGINE_ORDER.map((e) => ({ value: e, label: `${engineMeta(e).label} · ${categoryLabel(engineMeta(e).kind)}`, leading: <EngineIcon engine={e} size={16} /> }))} onChange={changeEngine} />
               <Field label="Connection Name" value={input.name} onChange={(name) => patch({ name })} placeholder="local-db" autoFocus />
               <AppSelect label="Environment" value={input.environment} options={ENVIRONMENT_ORDER.map((e) => ({ value: e, label: environmentMeta(e).label }))} onChange={changeEnvironment} />
+              <Field label="Folder" value={input.folder ?? ""} onChange={(folder) => patch({ folder: folder.trim() === "" ? null : folder })} placeholder="Clients / Acme" optional />
+              <ColorSwatches value={input.color} onChange={(color) => patch({ color })} />
 
               {meta.form === "file" ? (
                 <Field
@@ -327,6 +313,7 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
               )}
 
               <Toggle checked={input.readOnly} onChange={(readOnly) => patch({ readOnly })} label="Read-only lock" description="Blocks every write and DDL statement on this connection. On by default for Production." />
+              <Toggle checked={input.favorite} onChange={(favorite) => patch({ favorite })} label="Favourite" description="Listed first, on the connections page and in the sidebar switcher." />
 
               {status ? (
                 <Alert variant={status.tone === "ok" ? "success" : "danger"} className="rounded-xl font-mono text-xs">

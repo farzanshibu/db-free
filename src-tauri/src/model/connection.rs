@@ -1,4 +1,4 @@
-// SOT: engine, environment, ssl-mode, ssh-tunnel-settings, connection-input, connection-summary, connection-validation
+// SOT: engine, environment, ssl-mode, ssh-tunnel-settings, connection-color, connection-folder, connection-input, connection-summary, connection-validation
 
 use crate::error::{AppError, AppResult};
 use serde::{Deserialize, Serialize};
@@ -857,6 +857,59 @@ impl SslMode {
     }
 }
 
+// WHAT:  Colour tag for a connection card, from a small fixed palette.
+// WHY:   A key, not a hex value: the UI renders it through design tokens
+//        (--color-conn-*), so it follows the theme and cannot smuggle in a colour.
+// WHERE: src/lib/connectionGroups.ts (CONNECTION_COLORS), src/styles/globals.css
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum ConnectionColor {
+    Blue,
+    Teal,
+    Green,
+    Amber,
+    Orange,
+    Red,
+    Pink,
+    Violet,
+    Gray,
+}
+
+impl ConnectionColor {
+    pub const ALL: [ConnectionColor; 9] = [
+        ConnectionColor::Blue,
+        ConnectionColor::Teal,
+        ConnectionColor::Green,
+        ConnectionColor::Amber,
+        ConnectionColor::Orange,
+        ConnectionColor::Red,
+        ConnectionColor::Pink,
+        ConnectionColor::Violet,
+        ConnectionColor::Gray,
+    ];
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ConnectionColor::Blue => "blue",
+            ConnectionColor::Teal => "teal",
+            ConnectionColor::Green => "green",
+            ConnectionColor::Amber => "amber",
+            ConnectionColor::Orange => "orange",
+            ConnectionColor::Red => "red",
+            ConnectionColor::Pink => "pink",
+            ConnectionColor::Violet => "violet",
+            ConnectionColor::Gray => "gray",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<ConnectionColor> {
+        ConnectionColor::ALL.into_iter().find(|c| c.as_str() == raw)
+    }
+}
+
+pub const MAX_FOLDER_LEN: usize = 80;
+
 // WHAT:  How the SSH tunnel proves who it is: the password, or a private key
 //        file (optionally protected by a passphrase).
 // WHERE: src-tauri/src/integrations/ssh_tunnel.rs
@@ -971,6 +1024,10 @@ pub struct ConnectionInput {
     pub ssh: SshTunnel,
     /// Write-only like `password`: the SSH password or the key's passphrase.
     pub ssh_secret: Option<String>,
+    /// Folder on the connections page; None / blank = not in a folder.
+    pub folder: Option<String>,
+    pub color: Option<ConnectionColor>,
+    pub favorite: bool,
 }
 
 impl ConnectionInput {
@@ -982,6 +1039,9 @@ impl ConnectionInput {
             return Err(AppError::invalid_input(
                 "Connection name is too long (max 120).",
             ));
+        }
+        if self.folder.as_deref().map(str::trim).unwrap_or_default().chars().count() > MAX_FOLDER_LEN {
+            return Err(AppError::invalid_input(format!("Folder name is too long (max {MAX_FOLDER_LEN}).")));
         }
         let blank = |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or_default().is_empty();
         match self.engine.form() {
@@ -1075,6 +1135,9 @@ pub struct ConnectionSummary {
     pub ssh: SshTunnel,
     /// True when an SSH password / key passphrase is sealed in the store.
     pub has_ssh_secret: bool,
+    pub folder: Option<String>,
+    pub color: Option<ConnectionColor>,
+    pub favorite: bool,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -1103,6 +1166,9 @@ impl ConnectionSummary {
             has_secret,
             ssh: input.ssh.clone(),
             has_ssh_secret,
+            folder: input.folder.clone(),
+            color: input.color,
+            favorite: input.favorite,
             created_at: now.clone(),
             updated_at: now,
         }
@@ -1144,6 +1210,9 @@ mod tests {
             ssl_mode: SslMode::Prefer,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         }
     }
 
@@ -1193,6 +1262,10 @@ mod tests {
         for a in SshAuth::ALL {
             assert_eq!(SshAuth::parse(a.as_str()), Some(a));
         }
+        for c in ConnectionColor::ALL {
+            assert_eq!(ConnectionColor::parse(c.as_str()), Some(c));
+            assert_eq!(serde_json::to_string(&c).unwrap_or_default(), format!("\"{}\"", c.as_str()));
+        }
     }
 
     #[test]
@@ -1210,6 +1283,15 @@ mod tests {
         assert!(input.ssh.applies_to(Engine::Postgres));
         assert!(!input.ssh.applies_to(Engine::Sqlite), "file engines never tunnel");
         assert!(!SshTunnel::default().applies_to(Engine::Postgres));
+    }
+
+    #[test]
+    fn folder_names_are_bounded() {
+        let mut input = base();
+        input.folder = Some("x".repeat(MAX_FOLDER_LEN));
+        assert!(input.validate().is_ok());
+        input.folder = Some("x".repeat(MAX_FOLDER_LEN + 1));
+        assert!(input.validate().is_err());
     }
 
     #[test]

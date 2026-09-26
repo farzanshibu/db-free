@@ -10,13 +10,15 @@ export interface EnvironmentMeta {
   text: string;
   stripe: string;
   readOnlyDefault: boolean;
+  /// Draw a coloured edge across the workspace (EnvironmentEdge) while connected.
+  tintWorkspace: boolean;
 }
 
 export const ENVIRONMENTS = {
-  none: { label: "None", dot: "bg-muted", text: "text-muted", stripe: "bg-border", readOnlyDefault: false },
-  local: { label: "Local", dot: "bg-env-local", text: "text-env-local", stripe: "bg-env-local", readOnlyDefault: false },
-  staging: { label: "Staging", dot: "bg-env-staging", text: "text-env-staging", stripe: "bg-env-staging", readOnlyDefault: false },
-  production: { label: "Production", dot: "bg-env-production", text: "text-env-production", stripe: "bg-env-production", readOnlyDefault: true },
+  none: { label: "None", dot: "bg-muted", text: "text-muted", stripe: "bg-border", readOnlyDefault: false, tintWorkspace: false },
+  local: { label: "Local", dot: "bg-env-local", text: "text-env-local", stripe: "bg-env-local", readOnlyDefault: false, tintWorkspace: false },
+  staging: { label: "Staging", dot: "bg-env-staging", text: "text-env-staging", stripe: "bg-env-staging", readOnlyDefault: false, tintWorkspace: true },
+  production: { label: "Production", dot: "bg-env-production", text: "text-env-production", stripe: "bg-env-production", readOnlyDefault: true, tintWorkspace: true },
 } satisfies Record<Environment, EnvironmentMeta>;
 
 export const ENVIRONMENT_ORDER: Environment[] = keysOf(ENVIRONMENTS);

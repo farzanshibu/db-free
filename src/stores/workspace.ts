@@ -24,6 +24,7 @@ import { errorMessage, ipc, normalizeError } from "@/lib/ipc";
 import type { Density } from "@/lib/format";
 import type { EnginePreset } from "@/lib/engines";
 import type { SettingsSection } from "@/lib/settingsSections";
+import { inputFromSummary } from "@/lib/connectionGroups";
 import { toast } from "@/components/ui/sonner";
 import { readStoredTabs, storable, writeStoredTabs } from "./tabPersistence";
 import { confirmLeavingTransaction, useTransactions } from "./transactions";
@@ -111,6 +112,8 @@ interface WorkspaceState {
   saveSettings: (settings: AppSettings, aiApiKey: string | null) => Promise<void>;
   saveConnection: (id: string | null, input: ConnectionInput) => Promise<ConnectionSummary>;
   deleteConnection: (id: string) => Promise<void>;
+  /// Favourite / folder / colour change from the connections list; keeps any live session.
+  organizeConnection: (id: string, patch: Partial<Pick<ConnectionInput, "folder" | "color" | "favorite">>) => Promise<void>;
   connect: (id: string, database?: string) => Promise<boolean>;
   disconnect: (id: string) => Promise<void>;
   selectConnection: (id: string) => void;
@@ -331,6 +334,22 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
       }));
     }
     return saved;
+  },
+
+  // WHAT:  One-click organisation (favourite, move to folder) without the form.
+  // WHY:   Saving through the form reconnects a live session because host or
+  //        credentials may have changed; filing a connection changes neither,
+  //        so the session stays open here.
+  // HOW:   The full input is rebuilt from the summary: secrets blank = keep.
+  organizeConnection: async (id, patch) => {
+    const current = get().connections.find((c) => c.id === id);
+    if (!current) return;
+    try {
+      const saved = await ipc("save_connection", { id, input: { ...inputFromSummary(current), ...patch } });
+      set((s) => ({ connections: s.connections.map((c) => (c.id === id ? saved : c)) }));
+    } catch (raw) {
+      get().showError(normalizeError(raw));
+    }
   },
 
   deleteConnection: async (id) => {

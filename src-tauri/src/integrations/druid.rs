@@ -875,6 +875,9 @@ mod tests {
             ssl_mode: SslMode::Prefer,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let secret = std::env::var("DBFREE_TEST_DRUID_PASSWORD").ok();
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret };

@@ -22,7 +22,7 @@ pub use backup::{
     BackupEvent, BackupFormat, BackupMethod, BackupOptions, BackupReport, BackupSupport, NativeTool, NativeToolStatus,
 };
 pub use connection::{
-    ConnectionInput, ConnectionRecord, ConnectionSummary, Engine, EngineFacts, EngineKind, Environment, Family,
+    ConnectionColor, ConnectionInput, ConnectionRecord, ConnectionSummary, Engine, EngineFacts, EngineKind, Environment, Family,
     FormKind, ResolvedConnection, SshAuth, SshTunnel, SslMode,
 };
 pub use changes::{CellValue, ChangePreview, StagedChange};

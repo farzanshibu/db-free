@@ -388,6 +388,9 @@ mod tests {
             ssl_mode: SslMode::Disable,
             ssh: SshTunnel { enabled: true, ..SshTunnel::default() },
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         ConnectionSummary::draft(&input, false)
     }

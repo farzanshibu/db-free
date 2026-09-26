@@ -655,6 +655,9 @@ mod tests {
             ssl_mode: SslMode::Disable,
             ssh: crate::model::SshTunnel::default(),
             ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
         };
         let resolved = ResolvedConnection {
             summary: ConnectionSummary::draft(&input, true),

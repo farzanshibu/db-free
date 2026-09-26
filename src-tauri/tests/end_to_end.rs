@@ -59,6 +59,9 @@ fn file_input(name: &str, engine: Engine, path: String, read_only: bool) -> Conn
         ssl_mode: SslMode::Disable,
         ssh: db_free_lib::model::SshTunnel::default(),
         ssh_secret: None,
+        folder: None,
+        color: None,
+        favorite: false,
     }
 }
 
