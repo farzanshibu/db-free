@@ -52,6 +52,14 @@ UI component → src/lib/ipc.ts (client block) → #[tauri::command] (src-tauri/
 | Settings (incl. AI keys) | `services/settings.rs` | `features/settings/SettingsPage.tsx` |
 | Keyboard shortcuts (rebindable) / editor snippets | `AppSettings.{keybindings,snippets}` | `src/lib/keymap.ts` + `stores/useShortcut.ts`, `src/lib/snippets.ts`, `features/settings/{Shortcuts,Snippets}Section.tsx` |
 | Command palette ⌘K | — | `features/palette/CommandPalette.tsx` |
+| Query results: sort / filter / inspect / edit a single-table SELECT, chart a result | — (`commit_changes`) | `features/editor/{ResultsPane,ResultGrid,ResultChart}.tsx`, `src/lib/editableSelect.ts` |
+| Stop query, manual transactions, visual explain plan | `guard/` (cancellation step), `Integration::{cancel,begin/commit/rollback_transaction}`, `integrations/plan.rs` | `features/editor/{QueryPane,PlanTree}.tsx`, `stores/transactions.ts` |
+| Query parameters (`:name`, `{{name}}`) | — | `src/lib/params.ts`, `QueryPane.tsx` |
+| Tabs: restore on restart, reopen closed, split view | — | `stores/{workspace,tabPersistence}.ts`, `features/shell/TabView.tsx` |
+| SSH tunnel | `integrations/ssh_tunnel.rs` | `features/connections/ConnectionForm.tsx` |
+| Connection folders / favourites / colours, health ping | `commands/connections.rs` (`ping_session`) | `features/connections/ConnectionsPage.tsx`, `features/shell/ConnectionHealth.tsx` |
+| Schema compare / data compare | `services/{schema_diff,data_compare}.rs`, `commands/compare.rs` | `features/compare/*` |
+| Native backup / restore (pg_dump, mysqldump, mongodump, file copy) | `integrations/native_tools.rs`, `services/backup.rs`, guard native-tool step | `features/backup/*` |
 
 Boundaries with a single audited escape: `src/lib/ipc.ts` (`unknown`), `src/lib/json.ts` (`JSON.parse` any).
 
