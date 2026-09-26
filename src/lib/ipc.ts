@@ -27,10 +27,12 @@ import type {
   ColumnInfo,
   ColumnsRequest,
   CommandName,
+  CompareTableDataRequest,
   ConnectRequest,
   ConnectionIdRequest,
   ConnectionSummary,
   CreateTemplateRequest,
+  DataCompare,
   Document,
   DownloadObjectReport,
   DetectToolsRequest,
@@ -154,6 +156,7 @@ interface CommandMap {
   commit_transaction: { req: SessionRequest; res: boolean };
   rollback_transaction: { req: SessionRequest; res: boolean };
   schema_diff: { req: SchemaDiffRequest; res: SchemaDiff };
+  compare_table_data: { req: CompareTableDataRequest; res: DataCompare };
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;

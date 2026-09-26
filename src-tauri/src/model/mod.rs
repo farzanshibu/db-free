@@ -27,7 +27,9 @@ pub use connection::{
     FormKind, ResolvedConnection, SshAuth, SshTunnel, SslMode,
 };
 pub use changes::{CellValue, ChangePreview, StagedChange};
-pub use compare::{ColumnChange, ColumnDiff, CompareDirection, DiffStatus, ForeignKeyDiff, SchemaDiff, TableDiff};
+pub use compare::{
+    ColumnChange, ColumnDiff, CompareDirection, DataCompare, DiffStatus, ForeignKeyDiff, RowDiff, RowStatus, SchemaDiff, TableDiff,
+};
 pub use documents::{
     ConditionOp, DashboardBody, DashboardVariable, DiagramBody, DiagramColumn, DiagramRelation, DiagramTable,
     Document, DocumentBody, DocumentKind, Widget, WidgetCondition, WidgetKind, WorkflowBody, WorkflowRunReport,

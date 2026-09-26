@@ -92,10 +92,11 @@ pub enum CommandName {
     RollbackTransaction,
     PingSession,
     SchemaDiff,
+    CompareTableData,
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 63] = [
+    pub const ALL: [CommandName; 64] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -159,6 +160,7 @@ impl CommandName {
         CommandName::RollbackTransaction,
         CommandName::PingSession,
         CommandName::SchemaDiff,
+        CommandName::CompareTableData,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -226,6 +228,7 @@ impl CommandName {
             CommandName::RollbackTransaction => "rollback_transaction",
             CommandName::PingSession => "ping_session",
             CommandName::SchemaDiff => "schema_diff",
+            CommandName::CompareTableData => "compare_table_data",
         }
     }
 }
@@ -305,7 +308,7 @@ mod tests {
             | CommandName::LoadHistory
             | CommandName::DownloadObject => "objects",
             CommandName::CheckUpdate | CommandName::DownloadUpdate | CommandName::InstallUpdate => "updates",
-            CommandName::SchemaDiff => "compare",
+            CommandName::SchemaDiff | CommandName::CompareTableData => "compare",
         }
     }
 }

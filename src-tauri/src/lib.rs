@@ -102,6 +102,7 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::query::rollback_transaction,
             commands::connections::ping_session,
             commands::compare::schema_diff,
+            commands::compare::compare_table_data,
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -202,6 +203,8 @@ mod export_bindings {
             crate::commands::query::CancelQueryRequest::export_all(&cfg),
             crate::commands::compare::SchemaDiffRequest::export_all(&cfg),
             crate::model::SchemaDiff::export_all(&cfg),
+            crate::commands::compare::CompareTableDataRequest::export_all(&cfg),
+            crate::model::DataCompare::export_all(&cfg),
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

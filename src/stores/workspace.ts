@@ -50,7 +50,8 @@ export type Tab =
   | { id: string; kind: "object"; connectionId: string; reference: ObjectRef }
   | { id: string; kind: "admin"; connectionId: string }
   | { id: string; kind: "tool"; connectionId: string; tool: Tool }
-  | { id: string; kind: "schema-compare"; connectionId: string; schema: string | null };
+  | { id: string; kind: "schema-compare"; connectionId: string; schema: string | null }
+  | { id: string; kind: "data-compare"; connectionId: string; table: TableRef | null };
 
 export function tableKey(table: TableRef): string {
   return table.schema === null ? table.name : `${table.schema}.${table.name}`;
@@ -136,6 +137,8 @@ interface WorkspaceState {
   openTool: (connectionId: string, tool: Tool) => void;
   /// Schema compare with this connection (and schema) preselected as the left side.
   openSchemaCompare: (connectionId: string, schema: string | null) => void;
+  /// Data compare with this connection (and table) preselected as the left side.
+  openDataCompare: (connectionId: string, table: TableRef | null) => void;
   openDocument: (kind: DocumentKind, documentId: string, connectionId: string | null) => void;
   closeTab: (id: string) => void;
   /// Tab-bar context menu: keep one tab, drop the rest.
@@ -535,6 +538,11 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   openSchemaCompare: (connectionId, schema) => {
     const id = `schema-compare:${connectionId}:${schema ?? "*"}`;
     set((s) => ({ tabs: addTab(s.tabs, { id, kind: "schema-compare", connectionId, schema }), activeTabId: id, page: { kind: "workspace" } }));
+  },
+
+  openDataCompare: (connectionId, table) => {
+    const id = `data-compare:${connectionId}:${table ? tableKey(table) : "*"}`;
+    set((s) => ({ tabs: addTab(s.tabs, { id, kind: "data-compare", connectionId, table }), activeTabId: id, page: { kind: "workspace" } }));
   },
 
   openDocument: (kind, documentId, connectionId) => {

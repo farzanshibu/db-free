@@ -115,6 +115,8 @@ function decodeTab(value: JsonValue): Tab | null {
     case "erd":
     case "schema-compare":
       return { id, kind, connectionId, schema: text(obj.schema) };
+    case "data-compare":
+      return { id, kind, connectionId, table: tableRef(obj.table) };
     case "object": {
       const reference = objectRef(obj.reference);
       return reference ? { id, kind, connectionId, reference } : null;

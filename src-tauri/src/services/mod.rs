@@ -11,6 +11,7 @@ pub mod buffers;
 pub mod changes;
 pub mod connection;
 pub mod data;
+pub mod data_compare;
 pub mod documents;
 pub mod history;
 pub mod objects;

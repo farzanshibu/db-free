@@ -1,7 +1,8 @@
-// SOT: compare-direction, diff-status, schema-diff, table-diff, column-diff, column-change, foreign-key-diff
+// SOT: compare-direction, diff-status, schema-diff, table-diff, column-diff, column-change, foreign-key-diff, data-compare, row-diff, row-status
 
 use crate::model::connection::Engine;
 use crate::model::schema::{ColumnInfo, ForeignKey, TableRef};
+use crate::model::value::Value;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -105,5 +106,59 @@ pub struct SchemaDiff {
     pub tables: Vec<TableDiff>,
     pub script: String,
     /// Caveats worth reading before running the script (cross-engine compare…).
+    pub notes: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum RowStatus {
+    OnlyLeft,
+    OnlyRight,
+    Different,
+}
+
+// WHAT:  One row that is not identical on both sides. `left` / `right` hold
+//        the compared columns in `DataCompare::columns` order.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RowDiff {
+    pub status: RowStatus,
+    pub key: Vec<Value>,
+    pub left: Option<Vec<Value>>,
+    pub right: Option<Vec<Value>>,
+    /// Columns whose values differ (Different rows only).
+    pub changed: Vec<String>,
+}
+
+// WHAT:  Row-level comparison of two tables keyed by `key_columns`.
+// HOW:   Counts cover every row read; `rows` stops at a display cap
+//        (`rows_truncated`). A side that hit `max_rows` is `*_capped`: rows
+//        past the cap were not read, so its only-left / only-right counts
+//        can be overstated near the end of the key range.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct DataCompare {
+    pub direction: CompareDirection,
+    /// Columns present on both sides, in the left table's order.
+    pub columns: Vec<ColumnInfo>,
+    pub key_columns: Vec<String>,
+    pub left_only_columns: Vec<String>,
+    pub right_only_columns: Vec<String>,
+    pub rows: Vec<RowDiff>,
+    pub rows_truncated: bool,
+    pub only_left: u64,
+    pub only_right: u64,
+    pub different: u64,
+    pub identical: u64,
+    pub left_rows: u64,
+    pub right_rows: u64,
+    pub left_capped: bool,
+    pub right_capped: bool,
+    /// INSERT / UPDATE / DELETE statements that make the target match the
+    /// source. None when not asked for or the target speaks no SQL.
+    pub script: Option<String>,
     pub notes: Vec<String>,
 }

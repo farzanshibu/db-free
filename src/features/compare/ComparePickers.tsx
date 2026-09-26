@@ -1,7 +1,7 @@
-// SOT: compare-pickers, compare-connection-picker, compare-schema-picker, compare-direction-toggle, diff-status-presentation
+// SOT: compare-pickers, compare-connection-picker, compare-schema-picker, compare-table-picker, compare-direction-toggle, diff-status-presentation
 import { useEffect } from "react";
-import type { CompareDirection, ConnectionSummary, DiffStatus } from "@/lib/bindings";
-import { useWorkspace } from "@/stores/workspace";
+import type { CompareDirection, ConnectionSummary, DiffStatus, TableRef } from "@/lib/bindings";
+import { tableKey, useWorkspace } from "@/stores/workspace";
 import { AppSelect, Segmented, type Option } from "@/components/global/Field";
 import { EngineIcon } from "@/components/global/EngineIcon";
 
@@ -45,6 +45,31 @@ export function SchemaPicker({ label, connectionId, value, onChange }: { label: 
   const current = value ?? names[0] ?? "";
   const options = names.length > 0 ? names.map((n) => ({ value: n, label: n })) : [{ value: current, label: current.length > 0 ? current : "—" }];
   return <AppSelect ariaLabel={label} value={current} options={options} onChange={onChange} size="sm" icon="folder" className="w-40" disabled={names.length <= 1} />;
+}
+
+// WHAT:  A table (or view) of the picked schema; None selected shows "Choose a table…".
+export function TablePicker({ label, connectionId, schema, value, onChange }: { label: string; connectionId: string; schema: string | null; value: TableRef | null; onChange: (table: TableRef) => void }) {
+  const catalog = useSideCatalog(connectionId);
+  const schemas = catalog?.schemas ?? [];
+  const home = schemas.find((s) => s.name === schema) ?? schemas[0];
+  const tables: TableRef[] = (home?.tables ?? []).map((t) => ({ schema: t.schema, name: t.name }));
+  const byKey = new Map(tables.map((t) => [tableKey(t), t]));
+  const current = value === null ? "" : tableKey(value);
+  const options: Option<string>[] = [{ value: "", label: "Choose a table…" }, ...tables.map((t): Option<string> => ({ value: tableKey(t), label: t.name, icon: "table" }))];
+  if (current !== "" && !byKey.has(current) && value !== null) options.push({ value: current, label: value.name });
+  return (
+    <AppSelect
+      ariaLabel={label}
+      value={current}
+      options={options}
+      onChange={(key) => {
+        const table = byKey.get(key);
+        if (table) onChange(table);
+      }}
+      size="sm"
+      className="w-48"
+    />
+  );
 }
 
 export function DirectionToggle({ value, onChange }: { value: CompareDirection; onChange: (direction: CompareDirection) => void }) {

@@ -274,6 +274,7 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
   const openQuery = useWorkspace((s) => s.openQuery);
   const openTransfer = useWorkspace((s) => s.openTransfer);
   const openSchemaCompare = useWorkspace((s) => s.openSchemaCompare);
+  const openDataCompare = useWorkspace((s) => s.openDataCompare);
   const loadCatalog = useWorkspace((s) => s.loadCatalog);
   const showError = useWorkspace((s) => s.showError);
   const showInfo = useWorkspace((s) => s.showInfo);
@@ -290,6 +291,7 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
     { id: "duplicate", label: "Duplicate table…", icon: "copy", group: "query", disabled: !speaksSql },
     { id: "export", label: "Export / import…", icon: "download", group: "query" },
     { id: "compare-schema", label: "Compare schema…", icon: "git-branch", group: "query", disabled: !speaksSql },
+    { id: "compare-data", label: "Compare data…", icon: "exchange", group: "query" },
     { id: "copy-name", label: "Copy name", icon: "copy", group: "copy" },
     { id: "copy-qualified", label: "Copy qualified name", icon: "copy", group: "copy", disabled: table.schema === null },
     { id: "copy-schema", label: "Copy table schema", icon: "braces", group: "copy" },
@@ -330,6 +332,7 @@ function TableRow({ connectionId, table, menu, engine }: { connectionId: string;
       else if (action === "duplicate") openQuery(connectionId, `CREATE TABLE ${qualified}_copy AS\nSELECT * FROM ${qualified};`, `copy ${table.name}`);
       else if (action === "export") openTransfer(connectionId);
       else if (action === "compare-schema") openSchemaCompare(connectionId, table.schema);
+      else if (action === "compare-data") openDataCompare(connectionId, ref);
       else if (action === "copy-schema") void copySchema();
       else if (action === "empty") openQuery(connectionId, `TRUNCATE TABLE ${qualified};`, `empty ${table.name}`);
       else if (action === "drop") openQuery(connectionId, `DROP TABLE ${qualified};`, `drop ${table.name}`);
