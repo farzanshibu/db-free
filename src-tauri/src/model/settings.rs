@@ -1,6 +1,7 @@
 // SOT: app-settings, settings-model, ai-settings, execution-mode, run-scope
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use ts_rs::TS;
 
 // WHAT:  Every user preference, as one typed document (stored as JSON under the
@@ -98,6 +99,9 @@ pub struct AppSettings {
     pub confirm_destructive: bool,
     pub crash_reports_opt_in: bool,
     pub ai: AiSettings,
+    /// Settings → Advanced: where pg_dump, mysqldump, mongodump… live when they
+    /// are not on PATH. A file, or the directory holding it. Absent = PATH.
+    pub native_tool_paths: BTreeMap<crate::model::NativeTool, String>,
 }
 
 impl Default for AppSettings {
@@ -126,6 +130,7 @@ impl Default for AppSettings {
             confirm_destructive: true,
             crash_reports_opt_in: false,
             ai: AiSettings::default(),
+            native_tool_paths: BTreeMap::new(),
         }
     }
 }

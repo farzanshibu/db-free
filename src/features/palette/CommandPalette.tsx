@@ -1,6 +1,7 @@
 // SOT: command-palette, cmd-k, quick-actions
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { tableKey, useActiveConnection, useWorkspace } from "@/stores/workspace";
+import { useBackupDialog } from "@/features/backup/useBackupDialog";
 import { Icon, type IconName } from "@/lib/icons";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { engineMeta } from "@/lib/engines";
@@ -58,6 +59,7 @@ export function CommandPalette() {
       list.push({ id: "new-diagram", section: "create", label: "New schema diagram", icon: "view", run: () => s.setSidebar("diagrams") });
       list.push({ id: "history", section: "navigation", label: "Query history", icon: "history", run: () => s.openHistory(cid) });
       list.push({ id: "transfer", section: "navigation", label: "Export / Import", icon: "download", run: () => s.openTransfer(cid) });
+      list.push({ id: "backup", section: "navigation", label: "Backup / Restore", hint: "pg_dump, mysqldump, mongodump, file copy", icon: "archive", run: () => useBackupDialog.getState().open(cid) });
       list.push({ id: "erd", section: "navigation", label: "ER diagram of current schema", icon: "view", run: () => s.openErd(cid, s.schemaFilter[cid] ?? null) });
       list.push({ id: "chat", section: "navigation", label: "Chat with database", hint: "Ask questions, explore schema, generate queries", icon: "braces", run: () => s.openChat(cid) });
       list.push({ id: "tables", section: "navigation", label: "Tables sidebar", icon: "table", run: () => s.setSidebar("tables") });

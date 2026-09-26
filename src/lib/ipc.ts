@@ -13,6 +13,11 @@ import type {
   AiReply,
   AppError,
   AppSettings,
+  BackupEvent,
+  BackupReport,
+  BackupRequest,
+  BackupRunRequest,
+  BackupSupport,
   BufferIdRequest,
   CatalogRequest,
   ChangePreview,
@@ -27,6 +32,7 @@ import type {
   CreateTemplateRequest,
   Document,
   DownloadObjectReport,
+  DetectToolsRequest,
   DownloadObjectRequest,
   EditorBuffer,
   ExecuteQueryRequest,
@@ -48,6 +54,7 @@ import type {
   QueryOutcome,
   RangeQueryCommand,
   RangeResult,
+  RestoreRequest,
   ResultSet,
   RunWorkflowRequest,
   SaveBufferRequest,
@@ -134,6 +141,10 @@ interface CommandMap {
   agent_cancel: { req: AgentRunRequest; res: null };
   agent_reset: { req: AgentChatIdRequest; res: null };
   agent_skills: { req: undefined; res: AgentSkill[] };
+  detect_native_tools: { req: DetectToolsRequest; res: BackupSupport };
+  backup_database: { req: BackupRequest; res: BackupReport };
+  restore_database: { req: RestoreRequest; res: BackupReport };
+  cancel_backup: { req: BackupRunRequest; res: null };
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;
@@ -217,4 +228,13 @@ export function onUpdateProgress(handler: (progress: UpdateProgress) => void): P
 // WHERE: src-tauri/src/commands/agent.rs (emits "agent:event")
 export function onAgentEvent(handler: (event: AgentEvent) => void): Promise<UnlistenFn> {
   return listen<AgentEvent>("agent:event", (event) => handler(event.payload));
+}
+
+// WHAT:  Log lines and bytes-written while a native backup or restore runs.
+// WHY:   pg_dump / mysqldump / mongodump report as they go; the dialog shows
+//        that output live. Events carry a `runId` so a listener can drop frames
+//        from a run it no longer shows.
+// WHERE: src-tauri/src/commands/backup.rs (emits "backup:progress")
+export function onBackupProgress(handler: (event: BackupEvent) => void): Promise<UnlistenFn> {
+  return listen<BackupEvent>("backup:progress", (event) => handler(event.payload));
 }

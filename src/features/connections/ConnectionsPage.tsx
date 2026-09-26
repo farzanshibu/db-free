@@ -2,6 +2,7 @@
 import { engineMeta } from "@/lib/engines";
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/stores/workspace";
+import { useBackupDialog } from "@/features/backup/useBackupDialog";
 import { IconButton } from "@/components/global/Button";
 import { useContextMenu } from "@/components/global/ContextMenu";
 import { EnvBadge, EnvDot } from "@/components/global/Badge";
@@ -25,6 +26,7 @@ export function ConnectionsPage() {
   const deleteConnection = useWorkspace((s) => s.deleteConnection);
   const showInfo = useWorkspace((s) => s.showInfo);
   const menu = useContextMenu();
+  const openBackup = useBackupDialog((s) => s.open);
 
   return (
     <div className="grid-bg flex h-full min-h-0 flex-1 flex-col">
@@ -77,6 +79,7 @@ export function ConnectionsPage() {
                         { id: "disconnect", label: "Disconnect", icon: "x", disabled: !live },
                         { id: "edit", label: "Edit connection…", icon: "pencil", group: "edit" },
                         { id: "copy-target", label: "Copy host / file", icon: "copy", group: "edit", disabled: target.length === 0 },
+                        { id: "backup", label: "Backup / Restore…", icon: "archive", group: "edit" },
                         { id: "delete", label: "Delete connection", icon: "trash", danger: true, group: "danger" },
                       ],
                       (action) => {
@@ -85,6 +88,7 @@ export function ConnectionsPage() {
                         else if (action === "edit") openForm(c.id);
                         else if (action === "copy-target") { void navigator.clipboard.writeText(target); showInfo("Connection target copied."); }
                         else if (action === "delete") void deleteConnection(c.id);
+                        else if (action === "backup") openBackup(c.id);
                       },
                     )
                   }

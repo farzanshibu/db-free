@@ -34,6 +34,8 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             app.manage(AppState::new(store, Box::new(OsKeyring::default())));
             // Holds an update downloaded in the background until the user restarts.
             app.manage(commands::updates::StagedUpdate::default());
+            // Cancel switches for backup / restore runs in flight.
+            app.manage(commands::backup::BackupRuns::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -90,6 +92,10 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::agent::agent_cancel,
             commands::agent::agent_reset,
             commands::agent::agent_skills,
+            commands::backup::detect_native_tools,
+            commands::backup::backup_database,
+            commands::backup::restore_database,
+            commands::backup::cancel_backup,
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -179,6 +185,14 @@ mod export_bindings {
             crate::model::AgentTurn::export_all(&cfg),
             crate::model::AgentSkill::export_all(&cfg),
             crate::model::AgentAutonomy::export_all(&cfg),
+            crate::commands::backup::DetectToolsRequest::export_all(&cfg),
+            crate::commands::backup::BackupRequest::export_all(&cfg),
+            crate::commands::backup::RestoreRequest::export_all(&cfg),
+            crate::commands::backup::BackupRunRequest::export_all(&cfg),
+            crate::model::BackupSupport::export_all(&cfg),
+            crate::model::BackupReport::export_all(&cfg),
+            // Only reachable through the event stream, so it needs naming here.
+            crate::model::BackupEvent::export_all(&cfg),
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

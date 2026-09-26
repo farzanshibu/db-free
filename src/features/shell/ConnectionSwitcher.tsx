@@ -1,5 +1,6 @@
 // SOT: connection-switcher, quick-connect, sidebar-title
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
+import { useBackupDialog } from "@/features/backup/useBackupDialog";
 import { engineMeta } from "@/lib/engines";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { EnvDot } from "@/components/global/Badge";
@@ -16,6 +17,7 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
   const select = useWorkspace((s) => s.selectConnection);
   const goPicker = useWorkspace((s) => s.goPicker);
   const goConnections = useWorkspace((s) => s.goConnections);
+  const openBackup = useBackupDialog((s) => s.open);
   if (!connection) return <span className="text-sm font-medium text-foreground">{caption}</span>;
 
   return (
@@ -71,6 +73,10 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
           <DropdownMenuItem textValue="Manage connections" onSelect={() => { goConnections(); }}>
             <Icon name="plug" size={13} className="text-muted" />
             Manage connections…
+          </DropdownMenuItem>
+          <DropdownMenuItem textValue="Backup / Restore" onSelect={() => { openBackup(connection.id); }}>
+            <Icon name="archive" size={13} className="text-muted" />
+            Backup / Restore {connection.name}…
           </DropdownMenuItem>
         </DropdownMenuGroup>
       </DropdownMenuContent>

@@ -12,6 +12,7 @@ import type {
 } from "@/lib/bindings";
 import { ipc, normalizeError, onUpdateProgress } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
+import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
@@ -348,6 +349,15 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             {section === "advanced" ? (
               <>
                 <h2 className="text-sm font-semibold text-foreground">Advanced</h2>
+                <Card className="rounded-xl glass-card border-border/40 px-4 py-3.5 shadow-xs">
+                  <CardContent className="flex flex-col gap-3 p-0">
+                    <div>
+                      <p className="text-[13px] font-semibold text-foreground tracking-tight">Backup tools</p>
+                      <p className="text-xs text-muted mt-0.5">Backup / Restore runs pg_dump, mysqldump and mongodump. Leave a field empty to use PATH, or point it at the program or its folder.</p>
+                    </div>
+                    <NativeToolPaths value={draft.nativeToolPaths} onChange={(nativeToolPaths) => patch({ nativeToolPaths })} />
+                  </CardContent>
+                </Card>
                 <Row title="Reset preferences" body="Restores every setting to its default (connections and saved queries are kept).">
                   <Button size="sm" variant="danger-soft" onClick={() => setDraft((d) => (d ? { ...defaultSettings(), ai: d.ai } : d))}>
                     Reset
@@ -379,7 +389,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 // WHAT:  Structural equality for the draft vs saved settings; a fixed key list
 //        keeps JSON.stringify order-independent (top level and `ai`).
 function sameSettings(a: AppSettings, b: AppSettings): boolean {
-  const keys = [...Object.keys(a), ...Object.keys(a.ai)].sort();
+  const keys = [...Object.keys(a), ...Object.keys(a.ai), ...Object.keys(a.nativeToolPaths), ...Object.keys(b.nativeToolPaths)].sort();
   return JSON.stringify(a, keys) === JSON.stringify(b, keys);
 }
 
@@ -512,5 +522,6 @@ function defaultSettings(): AppSettings {
     confirmDestructive: true,
     crashReportsOptIn: false,
     ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false, autonomy: "ask_on_write" },
+    nativeToolPaths: {},
   };
 }

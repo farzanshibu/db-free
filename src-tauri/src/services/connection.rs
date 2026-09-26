@@ -39,7 +39,7 @@ pub async fn delete(state: &AppState, id: &str) -> AppResult<()> {
     state.with_store(|store| store.delete_connection(id))
 }
 
-fn resolve(state: &AppState, id: &str) -> AppResult<ResolvedConnection> {
+pub(crate) fn resolve(state: &AppState, id: &str) -> AppResult<ResolvedConnection> {
     let record = state.with_store(|store| store.get_connection_record(id))?;
     let secret = match record.secret_ciphertext {
         Some(blob) => {

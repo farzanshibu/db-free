@@ -5,6 +5,7 @@ use ts_rs::TS;
 
 pub mod agent;
 pub mod ai;
+pub mod backup;
 pub mod changes;
 pub mod connections;
 pub mod data;
@@ -80,10 +81,14 @@ pub enum CommandName {
     AgentCancel,
     AgentReset,
     AgentSkills,
+    DetectNativeTools,
+    BackupDatabase,
+    RestoreDatabase,
+    CancelBackup,
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 53] = [
+    pub const ALL: [CommandName; 57] = [
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -137,6 +142,10 @@ impl CommandName {
         CommandName::AgentCancel,
         CommandName::AgentReset,
         CommandName::AgentSkills,
+        CommandName::DetectNativeTools,
+        CommandName::BackupDatabase,
+        CommandName::RestoreDatabase,
+        CommandName::CancelBackup,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -194,6 +203,10 @@ impl CommandName {
             CommandName::AgentCancel => "agent_cancel",
             CommandName::AgentReset => "agent_reset",
             CommandName::AgentSkills => "agent_skills",
+            CommandName::DetectNativeTools => "detect_native_tools",
+            CommandName::BackupDatabase => "backup_database",
+            CommandName::RestoreDatabase => "restore_database",
+            CommandName::CancelBackup => "cancel_backup",
         }
     }
 }
@@ -236,6 +249,10 @@ mod tests {
             | CommandName::AgentCancel
             | CommandName::AgentReset
             | CommandName::AgentSkills => "agent",
+            CommandName::DetectNativeTools
+            | CommandName::BackupDatabase
+            | CommandName::RestoreDatabase
+            | CommandName::CancelBackup => "backup",
             CommandName::ExecuteQuery
             | CommandName::ListHistory
             | CommandName::ClearHistory

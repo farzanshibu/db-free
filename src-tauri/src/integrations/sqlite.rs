@@ -1072,6 +1072,46 @@ impl Integration for SqliteIntegration {
     }
 }
 
+// WHAT:  A consistent copy of a SQLite database file, taken with `VACUUM INTO`.
+// WHY:   Copying the bytes of a live file can catch a half-written page or miss
+//        what still sits in the WAL; `VACUUM INTO` reads through SQLite's own
+//        locking, so the copy is a valid database even while the app (or anyone
+//        else) has the file open — and it comes out compacted.
+// HOW:   Opens its own read-only connection, so it needs no session and never
+//        borrows the one the workbench is using.
+// WHERE: src-tauri/src/integrations/native_tools.rs (the backup runner)
+pub async fn vacuum_into(source: &str, dest: &std::path::Path) -> AppResult<()> {
+    let source = source.to_string();
+    let dest = dest.to_string_lossy().into_owned();
+    tokio::task::spawn_blocking(move || {
+        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX | OpenFlags::SQLITE_OPEN_URI;
+        let conn = Connection::open_with_flags(&source, flags)?;
+        conn.execute("VACUUM INTO ?1", params![dest])?;
+        Ok(())
+    })
+    .await
+    .map_err(AppError::internal)?
+}
+
+// WHAT:  Refuses a restore source that is not a healthy SQLite database.
+// WHY:   Restoring overwrites the target; a truncated or foreign file should be
+//        caught before that, not discovered on the next connect.
+pub async fn quick_check(path: &std::path::Path) -> AppResult<()> {
+    let path = path.to_string_lossy().into_owned();
+    tokio::task::spawn_blocking(move || {
+        let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+        let conn = Connection::open_with_flags(&path, flags)?;
+        let verdict: String = conn.query_row("PRAGMA quick_check", [], |row| row.get(0))?;
+        if verdict.eq_ignore_ascii_case("ok") {
+            Ok(())
+        } else {
+            Err(AppError::invalid_input(format!("The backup file failed SQLite's integrity check: {verdict}")))
+        }
+    })
+    .await
+    .map_err(AppError::internal)?
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1325,6 +1365,33 @@ mod tests {
         assert!(stats.groups[0].stats.iter().any(|s| s.label == "Journal mode" && s.value == "wal"));
 
         drop(db);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn vacuum_into_copies_a_live_database() {
+        let dir = std::env::temp_dir().join(format!("db-free-vacuum-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("live.db").to_string_lossy().into_owned();
+        let live = connect(&resolved(&path, false)).await.unwrap_or_else(|e| panic!("{e}"));
+        live.execute("CREATE TABLE t (a INTEGER); INSERT INTO t VALUES (1), (2);", 10).await.unwrap_or_else(|e| panic!("{e}"));
+
+        // Taken while `live` still holds the file open.
+        let copy = dir.join("copy.db");
+        vacuum_into(&path, &copy).await.unwrap_or_else(|e| panic!("{e}"));
+        quick_check(&copy).await.unwrap_or_else(|e| panic!("{e}"));
+        let restored = connect(&resolved(&copy.to_string_lossy(), true)).await.unwrap_or_else(|e| panic!("{e}"));
+        let page = restored
+            .fetch_page(&TableRef { schema: None, name: "t".into() }, &PageQuery { offset: 0, limit: 10, sort: vec![], filters: vec![] })
+            .await
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(page.rows.len(), 2);
+
+        let junk = dir.join("junk.db");
+        std::fs::write(&junk, b"not a database at all, just some bytes padding it out").unwrap_or_else(|e| panic!("{e}"));
+        assert!(quick_check(&junk).await.is_err());
+        drop(live);
+        drop(restored);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

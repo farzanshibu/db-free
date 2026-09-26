@@ -14,6 +14,7 @@ import { SettingsPage } from "@/features/settings/SettingsPage";
 import { CapabilityMatrixPage } from "@/features/engines/CapabilityMatrixPage";
 import { PendingChangesPanel } from "@/features/changes/PendingChangesPanel";
 import { CommandPalette } from "@/features/palette/CommandPalette";
+import { BackupDialog } from "@/features/backup/BackupDialog";
 import { Toaster } from "@/components/global/Toaster";
 import { toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -187,6 +188,7 @@ export function App() {
         </>
       )}
         <CommandPalette />
+        <BackupDialog />
         <Toaster />
       </div>
     </TooltipProvider>

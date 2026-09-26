@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod ai;
+pub mod backup;
 pub mod buffers;
 pub mod changes;
 pub mod connection;

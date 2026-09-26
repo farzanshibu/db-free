@@ -36,6 +36,10 @@ use destructive::{classify, StatementKind};
 //   8  timeout                      handler exceeds the request's deadline
 //   9  history log                  — records SQL on success and error
 //  10  timing enrichment            — elapsed_ms attached to the outcome
+//  11  native-tool gate             backup / restore with the engine's own tools
+//                                   (pg_dump, mysqldump, …): connection unknown;
+//                                   a restore on a read-only connection; a restore
+//                                   the caller did not confirm
 // ============================================================================
 
 pub const MAX_PAGE_LIMIT: u32 = 1_000;
@@ -178,6 +182,51 @@ pub fn clamp_result_rows(max_rows: Option<u32>) -> usize {
     }
 }
 
+// WHAT:  What a native-tool run does to the database.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolAccess {
+    /// A backup: reads only.
+    Read,
+    /// A restore: replaces data. `confirmed` is the user's explicit yes.
+    Replace { confirmed: bool },
+}
+
+// WHAT:  Step 11 — the gate for backup / restore runs.
+// WHY:   A restore runs no SQL the classifier could read (it is pg_restore or
+//        mysql fed a file), yet it is the most destructive thing the app can
+//        do. It gets the same two answers as a destructive statement: never on
+//        a read-only connection, never without an explicit confirmation — and
+//        the confirmation error names the target, so the UI can say exactly
+//        what is about to be overwritten.
+// HOW:   Called inside `guard::local` by the backup commands. It resolves the
+//        saved connection (step 2) but not a session: the tools open their own
+//        connections, and file engines must be restored while disconnected.
+// WHERE: src-tauri/src/commands/backup.rs, src-tauri/src/integrations/native_tools.rs
+pub fn native_tool(state: &AppState, connection_id: &str, access: ToolAccess) -> AppResult<ConnectionSummary> {
+    let connection = state.with_store(|store| store.get_connection(connection_id))?; // 2
+    if let ToolAccess::Replace { confirmed } = access {
+        let target = connection
+            .database
+            .as_deref()
+            .or(connection.file_path.as_deref())
+            .filter(|t| !t.trim().is_empty())
+            .unwrap_or("the default database");
+        if connection.read_only {
+            return Err(AppError::read_only(format!(
+                "\"{}\" is read-only. Restoring would overwrite {target}.",
+                connection.name
+            )));
+        }
+        if !confirmed {
+            return Err(AppError::DestructiveConfirmationRequired {
+                message: format!("Restoring replaces data in \"{}\".", connection.name),
+                statements: vec![format!("restore into {target}")],
+            });
+        }
+    }
+    Ok(connection)
+}
+
 async fn resolve(state: &AppState, connection_id: &str) -> AppResult<SessionCtx> {
     let started = Instant::now(); // 1
     let connection = state.with_store(|store| store.get_connection(connection_id))?; // 2
@@ -277,6 +326,21 @@ mod tests {
         assert!(run(&state, &id, "SELECT * FROM missing_table", false).await.is_err());
         let history = state.with_store(|s| s.list_history(Some(&id), None, 10)).unwrap_or_default();
         assert_eq!(history.first().map(|h| h.status), Some(HistoryStatus::Error));
+    }
+
+    #[tokio::test]
+    async fn native_restore_is_gated() {
+        let (state, id) = state_with_sqlite(false).await;
+        assert!(native_tool(&state, &id, ToolAccess::Read).is_ok());
+        let err = native_tool(&state, &id, ToolAccess::Replace { confirmed: false }).err();
+        assert!(matches!(err, Some(AppError::DestructiveConfirmationRequired { ref statements, .. }) if statements.len() == 1));
+        assert!(native_tool(&state, &id, ToolAccess::Replace { confirmed: true }).is_ok());
+        assert!(matches!(native_tool(&state, "nope", ToolAccess::Read).err(), Some(AppError::NotFound { .. })));
+
+        let (locked, locked_id) = state_with_sqlite(true).await;
+        assert!(native_tool(&locked, &locked_id, ToolAccess::Read).is_ok(), "a backup is a read");
+        let err = native_tool(&locked, &locked_id, ToolAccess::Replace { confirmed: true }).err();
+        assert!(matches!(err, Some(AppError::ReadOnly { .. })), "confirming does not unlock a read-only connection");
     }
 
     #[test]

@@ -1,6 +1,7 @@
 // SOT: model-index, shared-shapes
 
 pub mod agent;
+pub mod backup;
 pub mod changes;
 pub mod connection;
 pub mod documents;
@@ -16,6 +17,9 @@ pub use agent::{
     AgentArtifact, AgentAutonomy, AgentEvent, AgentSkill, AgentStop, AgentTurn, AgentUsage,
     PermissionDecision, PermissionRequest, ToolCallRecord, ToolStatus, UiBlock, UiGraphEdge,
     UiGraphNode, UiStat, UiTone,
+};
+pub use backup::{
+    BackupEvent, BackupFormat, BackupMethod, BackupOptions, BackupReport, BackupSupport, NativeTool, NativeToolStatus,
 };
 pub use connection::{
     ConnectionInput, ConnectionRecord, ConnectionSummary, Engine, EngineFacts, EngineKind, Environment, Family,

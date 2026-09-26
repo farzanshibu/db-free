@@ -40,6 +40,7 @@ pub mod milvus;
 pub mod mongodb;
 pub mod mssql;
 pub mod mysql;
+pub mod native_tools;
 pub mod neo4j;
 pub mod objectdb;
 pub mod oracle;

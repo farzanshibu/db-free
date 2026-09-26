@@ -1,4 +1,4 @@
-// SOT: native-dialogs, file-picker, directory-picker, sql-file-save-picker, object-save-picker
+// SOT: native-dialogs, file-picker, directory-picker, sql-file-save-picker, object-save-picker, backup-save-picker, backup-open-picker
 import { open, save } from "@tauri-apps/plugin-dialog";
 import type { TransferFormat } from "./bindings";
 
@@ -39,5 +39,24 @@ export async function pickSqlSavePath(defaultName: string): Promise<string | nul
 // WHY:   The backend writes bytes straight to disk, so the UI only picks the destination.
 export async function pickSaveFile(suggestedName: string): Promise<string | null> {
   const picked = await save({ defaultPath: suggestedName });
+  return typeof picked === "string" ? picked : null;
+}
+
+// WHAT:  Where to write a backup. `extension` is empty for a pg_dump directory
+//        backup, which is a folder pg_dump creates rather than a file.
+// WHY:   The save dialog asks before replacing an existing file, which is the
+//        only consent an overwrite of a previous backup gets.
+// WHERE: src/features/backup/BackupDialog.tsx
+export async function pickBackupSavePath(defaultName: string, extension: string, label: string): Promise<string | null> {
+  const picked = await save({
+    defaultPath: extension.length > 0 ? `${defaultName}.${extension}` : defaultName,
+    filters: extension.length > 0 ? [{ name: label, extensions: [extension] }] : [],
+  });
+  return typeof picked === "string" ? picked : null;
+}
+
+// WHAT:  The backup to restore from: a file, or a pg_dump directory backup.
+export async function pickBackupSource(directory: boolean): Promise<string | null> {
+  const picked = await open({ multiple: false, directory });
   return typeof picked === "string" ? picked : null;
 }
