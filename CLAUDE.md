@@ -40,6 +40,7 @@ UI component → src/lib/ipc.ts (client block) → #[tauri::command] (src-tauri/
 | Table browser, sort/filter, pager | `services/data.rs`, `integrations/sql.rs` | `features/grid/TableTab.tsx` |
 | Inline edit / insert / delete, Pending Changes (review mode), Commit | `services/changes.rs`, `commands/changes.rs` | `features/changes/PendingChangesPanel.tsx`, `DataGrid.tsx` |
 | Query tab: run, format, save, AI, explain | `guard/`, `services/ai.rs` | `features/editor/QueryPane.tsx` |
+| Per-engine query language (split / read-write-destructive per family: SQL, Redis, Mongo, Cypher, REST console, native) | `guard/dialect.rs` | `src/lib/queryLanguage.ts` (highlighting, completions, example), `SqlEditor.tsx` |
 | Saved queries / history | `store/saved_queries.rs`, `store/history.rs` | `features/queries`, `features/history` |
 | Export / import | `services/transfer.rs` | `features/transfer/TransferTab.tsx` |
 | ER diagram (from FKs) / schema designer | `Integration::foreign_keys`, `ddl` | `features/diagrams/{ErdTab,DesignerTab}.tsx` |

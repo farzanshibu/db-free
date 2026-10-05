@@ -2,7 +2,7 @@
 
 use crate::error::AppResult;
 use crate::guard;
-use crate::model::{EditorBuffer, HistoryEntry, HistoryOrigin, QueryOutcome, StatementSpan};
+use crate::model::{EditorBuffer, Engine, HistoryEntry, HistoryOrigin, QueryOutcome, StatementSpan};
 use crate::commands::connections::SessionRequest;
 use crate::services;
 use crate::services::query::TransactionStep;
@@ -64,6 +64,12 @@ pub struct BufferIdRequest {
 #[ts(export)]
 pub struct SplitScriptRequest {
     pub sql: String,
+    /// The connection's engine: a script is cut where that engine's adapter
+    /// cuts it (`;` for SQL, a line for Redis, a blank line for Mongo…).
+    /// Omitted = SQL.
+    #[serde(default)]
+    #[ts(optional)]
+    pub engine: Option<Engine>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -176,7 +182,13 @@ pub async fn clear_history(state: State<'_, AppState>, req: ClearHistoryRequest)
 // WHERE: src-tauri/src/guard/destructive.rs (spans), src/features/editor/SqlEditor.tsx
 #[tauri::command]
 pub async fn split_script(req: SplitScriptRequest) -> AppResult<Vec<StatementSpan>> {
-    guard::local("split_script", async move { Ok(guard::destructive::spans(&req.sql)) }).await
+    guard::local("split_script", async move {
+        Ok(match req.engine {
+            Some(engine) => guard::dialect::spans(engine, &req.sql),
+            None => guard::destructive::spans(&req.sql),
+        })
+    })
+    .await
 }
 
 // WHAT:  Writes the editor's script to the .sql file the user picked.

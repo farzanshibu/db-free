@@ -1,7 +1,8 @@
 // SOT: agent-tools, tool-registry, progressive-schema-disclosure, agent-artifact-tools, tool-permission-gate
 
 use crate::error::{AppError, AppResult};
-use crate::guard::destructive::{StatementKind, classify};
+use crate::guard::destructive::StatementKind;
+use crate::guard::dialect;
 use crate::guard::{self, SessionCtx};
 use crate::integrations;
 use crate::model::{
@@ -1126,7 +1127,7 @@ async fn authorize_and_execute(
     gate: &mut dyn PermissionGate,
     max_rows: usize,
 ) -> AppResult<QueryOutcome> {
-    let classified = classify(statement);
+    let classified = dialect::classify(ctx.session.connection.engine, statement);
     let worst = classified
         .iter()
         .map(|s| s.kind)

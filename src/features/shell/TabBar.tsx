@@ -1,5 +1,5 @@
 // SOT: tab-bar, workspace-tabs, window-drag-region
-import type { MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { usePendingCount, useWorkspace, type Tab } from "@/stores/workspace";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
 import { Icon, type IconName } from "@/lib/icons";
@@ -29,6 +29,16 @@ export function TabBar() {
   const closeSplit = useWorkspace((s) => s.closeSplit);
   const canReopen = useWorkspace((s) => s.closedTabs.length > 0);
   const menu = useContextMenu();
+  const stripRef = useRef<HTMLDivElement | null>(null);
+
+  // WHAT:  Keeps the active tab on screen. A tab opened (or switched to with
+  //        Ctrl+Tab) past the strip's right edge is otherwise invisible.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (strip === null || activeTabId === null) return;
+    const el = strip.querySelector(`[data-tab-id="${CSS.escape(activeTabId)}"]`);
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeTabId, tabs.length]);
 
   const tabEntries = (tab: Tab, index: number): MenuEntry[] => [
     { id: "close", label: "Close", icon: "x" },
@@ -44,7 +54,10 @@ export function TabBar() {
 
   return (
     <div className="drag-region flex h-11 shrink-0 items-center border-b border-border/40 glass-header px-2" data-tauri-drag-region role="tablist" aria-label="Open tabs">
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-full items-center gap-1 py-1">
+      {/* min-w-0 + shrink: a flex child will not shrink below its content
+          otherwise, so a long tab list pushed the buttons off the bar instead
+          of scrolling. */}
+      <ScrollArea ref={stripRef} orientation="horizontal" hideScrollBar className="flex h-full min-w-0 shrink items-center gap-1 py-1">
         {tabs.map((tab, index) => (
           <TabItem
             key={tab.id}
@@ -139,6 +152,7 @@ function TabItem({ tab, active, side, onActivate, onClose, onContextMenu }: { ta
   return (
     <div
       role="tab"
+      data-tab-id={tab.id}
       aria-selected={active}
       tabIndex={0}
       onClick={onActivate}

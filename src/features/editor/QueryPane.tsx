@@ -5,6 +5,7 @@ import type { AgentEvent, AppError, ConnectionSummary, PlanReport, QueryOutcome,
 import type { SQLNamespace } from "@codemirror/lang-sql";
 import { ipc, normalizeError, onAgentEvent } from "@/lib/ipc";
 import { engineMeta } from "@/lib/engines";
+import { queryLanguageOf } from "@/lib/queryLanguage";
 import { Markdown } from "@/features/chat/Markdown";
 import { pickSqlSavePath } from "@/lib/native";
 import { useWorkspace } from "@/stores/workspace";
@@ -30,6 +31,7 @@ import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/compo
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /// Per-tab row cap. The default comes from Settings -> Max query rows, so the
 /// app-wide answer is set once and a single tab can still override it.
@@ -82,6 +84,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const showInfo = useWorkspace((s) => s.showInfo);
   const bufferId = tabId;
   const isSql = engineMeta(connection.engine).commandLanguage === "SQL";
+  const language = queryLanguageOf(connection.engine);
 
   const [sql, setSql] = useState(seedSql ?? "");
   const [loaded, setLoaded] = useState(false);
@@ -325,7 +328,9 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
       }
       void (async () => {
         try {
-          const found = await ipc("split_script", { sql });
+          // Cut where this connection's adapter cuts: `;` for SQL, a line for
+          // Redis, a blank line for Mongo, a request for Elasticsearch…
+          const found = await ipc("split_script", { sql, engine: connection.engine });
           if (!token.cancelled) setSpans(found);
         } catch {
           // A split that fails costs the gutter markers, not the query: Run then
@@ -338,7 +343,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
       token.cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [sql]);
+  }, [sql, connection.engine]);
 
   const doFormat = useCallback(() => {
     if (!isSql) return;
@@ -517,6 +522,16 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
             Run all {spans.length}
           </Button>
         ) : null}
+        {/* The language this tab speaks, so a Redis or Mongo tab says so instead
+            of looking like a SQL editor. The tooltip says how a script is cut. */}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge size="sm" variant="secondary" className="shrink-0 font-mono text-[10px]">
+              {language.name}
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>{language.separator}</TooltipContent>
+        </Tooltip>
         {isSql ? (
           <Button size="sm" variant="ghost" className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onClick={doFormat} disabled={empty}>
             Format
@@ -646,7 +661,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                   />
                   <div className="mt-2 flex items-center justify-between">
                     <Button size="sm" pending={aiBusy} onClick={() => void askAi()} disabled={aiPrompt.trim().length === 0} className="font-semibold liquid-hover">
-                      Generate {engineMeta(connection.engine).commandLanguage}
+                      Generate {language.name}
                     </Button>
                     <span className="text-[11px] text-muted">Schema, context & prompt sent to {settings.ai.provider}.</span>
                   </div>

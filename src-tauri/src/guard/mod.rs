@@ -9,8 +9,9 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub mod destructive;
+pub mod dialect;
 
-use destructive::{classify, StatementKind};
+use destructive::StatementKind;
 
 // ============================================================================
 // THE BLOCK
@@ -108,8 +109,9 @@ where
         return Err(AppError::invalid_input("Nothing to run."));
     }
 
-    // 4 — classification
-    let statements = classify(trimmed);
+    // 4 — classification, in the connection's own language (SQL, Redis
+    //     commands, Mongo command documents, Cypher, a REST console…).
+    let statements = dialect::classify(ctx.connection.engine, trimmed);
 
     // 5 — read-only gate
     if ctx.connection.read_only {
