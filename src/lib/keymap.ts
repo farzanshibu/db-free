@@ -22,17 +22,50 @@ export type ShortcutAction =
   | "close-tab"
   | "reopen-tab"
   | "next-tab"
-  | "prev-tab";
+  | "prev-tab"
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
+  ;
 
 export type ShortcutGroup = "General" | "Editor" | "Tabs" | "Data";
 
 /// Display order of the groups on the Settings page.
 export const SHORTCUT_GROUPS: readonly ShortcutGroup[] = ["General", "Editor", "Tabs", "Data"];
 
+/// Where a chord is live. Two actions may share a chord when their scopes
+/// never overlap (⌘↵ runs SQL in the editor and applies changes in the grid).
+export type ShortcutScope = "global" | "editor" | "grid";
+
 export interface ShortcutMeta {
   label: string;
   group: ShortcutGroup;
   keys: string;
+  /// Omitted means "global".
+  scope?: ShortcutScope;
 }
 
 export const SHORTCUTS = {
@@ -46,9 +79,72 @@ export const SHORTCUTS = {
   "reopen-tab": { label: "Reopen closed tab", group: "Tabs", keys: "Mod+Shift+T" },
   "next-tab": { label: "Next tab", group: "Tabs", keys: "Ctrl+Tab" },
   "prev-tab": { label: "Previous tab", group: "Tabs", keys: "Ctrl+Shift+Tab" },
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
 } satisfies Record<ShortcutAction, ShortcutMeta>;
 
-export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = ["palette", "commit-changes", "run", "run-all", "format", "new-query", "close-tab", "reopen-tab", "next-tab", "prev-tab"];
+export const SHORTCUT_ACTIONS: readonly ShortcutAction[] = [
+  "palette",
+  "commit-changes",
+  "run",
+  "run-all",
+  "format",
+  "new-query",
+  "close-tab",
+  "reopen-tab",
+  "next-tab",
+  "prev-tab",
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
+];
 
 export function isShortcutAction(value: string): value is ShortcutAction {
   return value in SHORTCUTS;

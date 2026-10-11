@@ -11,6 +11,32 @@ pub mod model;
 pub mod services;
 pub mod state;
 pub mod store;
+// @parity wf
+// @end wf
+// @parity dash
+// @end dash
+// @parity diag
+// @end diag
+// @parity lib
+// @end lib
+// @parity grid
+// @end grid
+// @parity schema
+// @end schema
+// @parity editor
+// @end editor
+// @parity rx
+// @end rx
+// @parity conn
+// @end conn
+// @parity auth
+// @end auth
+// @parity shell
+// @end shell
+// @parity ai
+// @end ai
+// @parity engine
+// @end engine
 
 use adapters::keyring::OsKeyring;
 use state::AppState;
@@ -27,6 +53,32 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        // @parity wf
+        // @end wf
+        // @parity dash
+        // @end dash
+        // @parity diag
+        // @end diag
+        // @parity lib
+        // @end lib
+        // @parity grid
+        // @end grid
+        // @parity schema
+        // @end schema
+        // @parity editor
+        // @end editor
+        // @parity rx
+        // @end rx
+        // @parity conn
+        // @end conn
+        // @parity auth
+        // @end auth
+        // @parity shell
+        // @end shell
+        // @parity ai
+        // @end ai
+        // @parity engine
+        // @end engine
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
@@ -36,6 +88,32 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             app.manage(commands::updates::StagedUpdate::default());
             // Cancel switches for backup / restore runs in flight.
             app.manage(commands::backup::BackupRuns::default());
+            // @parity wf
+            // @end wf
+            // @parity dash
+            // @end dash
+            // @parity diag
+            // @end diag
+            // @parity lib
+            // @end lib
+            // @parity grid
+            // @end grid
+            // @parity schema
+            // @end schema
+            // @parity editor
+            // @end editor
+            // @parity rx
+            // @end rx
+            // @parity conn
+            // @end conn
+            // @parity auth
+            // @end auth
+            // @parity shell
+            // @end shell
+            // @parity ai
+            // @end ai
+            // @parity engine
+            // @end engine
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -103,6 +181,32 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::connections::ping_session,
             commands::compare::schema_diff,
             commands::compare::compare_table_data,
+            // @parity wf
+            // @end wf
+            // @parity dash
+            // @end dash
+            // @parity diag
+            // @end diag
+            // @parity lib
+            // @end lib
+            // @parity grid
+            // @end grid
+            // @parity schema
+            // @end schema
+            // @parity editor
+            // @end editor
+            // @parity rx
+            // @end rx
+            // @parity conn
+            // @end conn
+            // @parity auth
+            // @end auth
+            // @parity shell
+            // @end shell
+            // @parity ai
+            // @end ai
+            // @parity engine
+            // @end engine
         ])
         .run(tauri::generate_context!())?;
     Ok(())
@@ -205,6 +309,32 @@ mod export_bindings {
             crate::model::SchemaDiff::export_all(&cfg),
             crate::commands::compare::CompareTableDataRequest::export_all(&cfg),
             crate::model::DataCompare::export_all(&cfg),
+            // @parity wf
+            // @end wf
+            // @parity dash
+            // @end dash
+            // @parity diag
+            // @end diag
+            // @parity lib
+            // @end lib
+            // @parity grid
+            // @end grid
+            // @parity schema
+            // @end schema
+            // @parity editor
+            // @end editor
+            // @parity rx
+            // @end rx
+            // @parity conn
+            // @end conn
+            // @parity auth
+            // @end auth
+            // @parity shell
+            // @end shell
+            // @parity ai
+            // @end ai
+            // @parity engine
+            // @end engine
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

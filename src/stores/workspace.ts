@@ -37,7 +37,34 @@ export type Page =
   | { kind: "connection-form"; editingId: string | null; preset?: EnginePreset; draft?: ConnectionInput }
   | { kind: "workspace" }
   | { kind: "settings"; section?: SettingsSection }
-  | { kind: "capabilities" };
+  | { kind: "capabilities" }
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
+  ;
 
 export type Tab =
   | { id: string; kind: "table"; connectionId: string; table: TableRef; initialFilters?: FilterRule[]; filterKey: number }
@@ -51,7 +78,34 @@ export type Tab =
   | { id: string; kind: "admin"; connectionId: string }
   | { id: string; kind: "tool"; connectionId: string; tool: Tool }
   | { id: string; kind: "schema-compare"; connectionId: string; schema: string | null }
-  | { id: string; kind: "data-compare"; connectionId: string; table: TableRef | null };
+  | { id: string; kind: "data-compare"; connectionId: string; table: TableRef | null }
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
+  ;
 
 export function tableKey(table: TableRef): string {
   return table.schema === null ? table.name : `${table.schema}.${table.name}`;
@@ -131,7 +185,10 @@ interface WorkspaceState {
   openHistory: (connectionId: string) => void;
   openTransfer: (connectionId: string) => void;
   openErd: (connectionId: string, schema: string | null) => void;
-  openChat: (connectionId: string) => void;
+  openChat: (connectionId: string, prompt?: string) => void;
+  /// A prompt handed to the chat by openChat, consumed once by the chat tab.
+  chatSeed: { connectionId: string; prompt: string } | null;
+  takeChatSeed: (connectionId: string) => string | null;
   openObject: (connectionId: string, reference: ObjectRef) => void;
   openAdmin: (connectionId: string) => void;
   openTool: (connectionId: string, tool: Tool) => void;
@@ -169,6 +226,32 @@ interface WorkspaceState {
   setChangesPanelOpen: (open: boolean) => void;
   showError: (error: AppError | string) => void;
   showInfo: (text: string) => void;
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
 }
 
 const DENSITY_KEY = "db-free.density";
@@ -513,9 +596,21 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
     set((s) => ({ tabs: addTab(s.tabs, { id, kind: "erd", connectionId, schema }), activeTabId: id, page: { kind: "workspace" } }));
   },
 
-  openChat: (connectionId) => {
+  openChat: (connectionId, prompt) => {
     const id = `chat:${connectionId}`;
-    set((s) => ({ tabs: addTab(s.tabs, { id, kind: "chat", connectionId }), activeTabId: id, page: { kind: "workspace" } }));
+    set((s) => ({
+      tabs: addTab(s.tabs, { id, kind: "chat", connectionId }),
+      activeTabId: id,
+      page: { kind: "workspace" },
+      ...(prompt !== undefined && prompt.trim() !== "" ? { chatSeed: { connectionId, prompt } } : {}),
+    }));
+  },
+  chatSeed: null,
+  takeChatSeed: (connectionId) => {
+    const seed = get().chatSeed;
+    if (seed?.connectionId !== connectionId) return null;
+    set({ chatSeed: null });
+    return seed.prompt;
   },
 
   invalidateObjects: (id) => set((s) => ({ objectsCache: withoutPrefix(s.objectsCache, `${id}:`) })),
@@ -714,6 +809,32 @@ export const useWorkspace = create<WorkspaceState>()((set, get) => ({
   showInfo: (text) => {
     toast.success(text);
   },
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
 }));
 
 export function useActiveConnection(): ConnectionSummary | null {

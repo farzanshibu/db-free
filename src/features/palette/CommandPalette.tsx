@@ -67,7 +67,59 @@ export function CommandPalette() {
         const meta = toolMeta(tool);
         list.push({ id: `tool:${tool}`, section: "navigation", label: meta.label, hint: meta.hint, icon: meta.icon, run: () => s.openTool(cid, tool) });
       }
+      // @parity wf
+      // @end wf
+      // @parity dash
+      // @end dash
+      // @parity diag
+      // @end diag
+      // @parity lib
+      // @end lib
+      // @parity grid
+      // @end grid
+      // @parity schema
+      // @end schema
+      // @parity editor
+      // @end editor
+      // @parity rx
+      // @end rx
+      // @parity conn
+      // @end conn
+      // @parity auth
+      // @end auth
+      // @parity shell
+      // @end shell
+      // @parity ai
+      // @end ai
+      // @parity engine
+      // @end engine
     }
+    // @parity global-wf
+    // @end global-wf
+    // @parity global-dash
+    // @end global-dash
+    // @parity global-diag
+    // @end global-diag
+    // @parity global-lib
+    // @end global-lib
+    // @parity global-grid
+    // @end global-grid
+    // @parity global-schema
+    // @end global-schema
+    // @parity global-editor
+    // @end global-editor
+    // @parity global-rx
+    // @end global-rx
+    // @parity global-conn
+    // @end global-conn
+    // @parity global-auth
+    // @end global-auth
+    // @parity global-shell
+    // @end global-shell
+    // @parity global-ai
+    // @end global-ai
+    // @parity global-engine
+    // @end global-engine
     list.push({ id: "connections", section: "navigation", label: "Connections", icon: "plug", run: () => s.goConnections() });
     list.push({ id: "settings", section: "settings", label: "Settings", icon: "settings", run: () => s.goSettings() });
     list.push({ id: "theme", section: "settings", label: "Theme", hint: "Dark, light or system", icon: "eye", run: () => s.goSettingsSection("themes") });

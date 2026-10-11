@@ -129,6 +129,32 @@ export function tabPresentation(tab: Tab): { label: string; icon: IconName } {
       return { label: "Schema compare", icon: "git-branch" };
     case "data-compare":
       return { label: tab.table ? `Compare: ${tab.table.name}` : "Data compare", icon: "exchange" };
+    // @parity wf
+    // @end wf
+    // @parity dash
+    // @end dash
+    // @parity diag
+    // @end diag
+    // @parity lib
+    // @end lib
+    // @parity grid
+    // @end grid
+    // @parity schema
+    // @end schema
+    // @parity editor
+    // @end editor
+    // @parity rx
+    // @end rx
+    // @parity conn
+    // @end conn
+    // @parity auth
+    // @end auth
+    // @parity shell
+    // @end shell
+    // @parity ai
+    // @end ai
+    // @parity engine
+    // @end engine
   }
 }
 

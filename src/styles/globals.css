@@ -168,6 +168,32 @@
   --glass-modal: var(--overlay);
   --modal-shadow: 0 12px 32px -12px oklch(0 0 0 / 0.55);
   --row-stripe: oklch(1 0 0 / 0.035);
+  /* @parity wf */
+  /* @end wf */
+  /* @parity dash */
+  /* @end dash */
+  /* @parity diag */
+  /* @end diag */
+  /* @parity lib */
+  /* @end lib */
+  /* @parity grid */
+  /* @end grid */
+  /* @parity schema */
+  /* @end schema */
+  /* @parity editor */
+  /* @end editor */
+  /* @parity rx */
+  /* @end rx */
+  /* @parity conn */
+  /* @end conn */
+  /* @parity auth */
+  /* @end auth */
+  /* @parity shell */
+  /* @end shell */
+  /* @parity ai */
+  /* @end ai */
+  /* @parity engine */
+  /* @end engine */
 }
 
 /* WHAT:  The light scheme: every variable above, restated for a white ground.
@@ -247,6 +273,32 @@
   --color-syntax-comment: oklch(0.56 0.01 var(--accent-hue));
   --color-syntax-operator: oklch(0.46 0.12 240);
   --color-syntax-type: oklch(0.48 0.1 200);
+  /* @parity wf */
+  /* @end wf */
+  /* @parity dash */
+  /* @end dash */
+  /* @parity diag */
+  /* @end diag */
+  /* @parity lib */
+  /* @end lib */
+  /* @parity grid */
+  /* @end grid */
+  /* @parity schema */
+  /* @end schema */
+  /* @parity editor */
+  /* @end editor */
+  /* @parity rx */
+  /* @end rx */
+  /* @parity conn */
+  /* @end conn */
+  /* @parity auth */
+  /* @end auth */
+  /* @parity shell */
+  /* @end shell */
+  /* @parity ai */
+  /* @end ai */
+  /* @parity engine */
+  /* @end engine */
 }
 
 /* WHAT:  Publishes the variables above as Tailwind utilities.

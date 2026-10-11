@@ -96,6 +96,32 @@ VENDOR_OWNERS = {
     # The agent framework. Only the provider adapter speaks rig; the loop, the
     # tools and the permission gate work in this codebase's own types.
     "rig_core": ("services/agent/provider.rs",),
+    # @parity wf
+    # @end wf
+    # @parity dash
+    # @end dash
+    # @parity diag
+    # @end diag
+    # @parity lib
+    # @end lib
+    # @parity grid
+    # @end grid
+    # @parity schema
+    # @end schema
+    # @parity editor
+    # @end editor
+    # @parity rx
+    # @end rx
+    # @parity conn
+    # @end conn
+    # @parity auth
+    # @end auth
+    # @parity shell
+    # @end shell
+    # @parity ai
+    # @end ai
+    # @parity engine
+    # @end engine
 }
 
 HARDCODED_COLOR = re.compile(

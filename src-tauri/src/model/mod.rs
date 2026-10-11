@@ -13,6 +13,32 @@ pub mod settings;
 pub mod transfer;
 pub mod update;
 pub mod value;
+// @parity wf
+// @end wf
+// @parity dash
+// @end dash
+// @parity diag
+// @end diag
+// @parity lib
+// @end lib
+// @parity grid
+// @end grid
+// @parity schema
+// @end schema
+// @parity editor
+// @end editor
+// @parity rx
+// @end rx
+// @parity conn
+// @end conn
+// @parity auth
+// @end auth
+// @parity shell
+// @end shell
+// @parity ai
+// @end ai
+// @parity engine
+// @end engine
 
 pub use agent::{
     AgentArtifact, AgentAutonomy, AgentEvent, AgentSkill, AgentStop, AgentTurn, AgentUsage,
@@ -50,3 +76,29 @@ pub use transfer::{AiReply, ExportReport, ExportedFile, ImportReport, PlanNode, 
 pub use schema::{ColumnInfo, ForeignKey, SchemaCatalog, SchemaInfo, TableInfo, TableKind, TableRef};
 pub use value::Value;
 pub use update::{UpdateProgress, UpdateStatus};
+// @parity wf
+// @end wf
+// @parity dash
+// @end dash
+// @parity diag
+// @end diag
+// @parity lib
+// @end lib
+// @parity grid
+// @end grid
+// @parity schema
+// @end schema
+// @parity editor
+// @end editor
+// @parity rx
+// @end rx
+// @parity conn
+// @end conn
+// @parity auth
+// @end auth
+// @parity shell
+// @end shell
+// @parity ai
+// @end ai
+// @parity engine
+// @end engine

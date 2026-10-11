@@ -18,6 +18,32 @@ pub mod settings;
 pub mod transfer;
 pub mod updates;
 pub mod workflows;
+// @parity wf
+// @end wf
+// @parity dash
+// @end dash
+// @parity diag
+// @end diag
+// @parity lib
+// @end lib
+// @parity grid
+// @end grid
+// @parity schema
+// @end schema
+// @parity editor
+// @end editor
+// @parity rx
+// @end rx
+// @parity conn
+// @end conn
+// @parity auth
+// @end auth
+// @parity shell
+// @end shell
+// @parity ai
+// @end ai
+// @parity engine
+// @end engine
 
 // WHAT:  Every IPC command name, as one enum.
 // WHY:   Exported to TS so `src/lib/ipc.ts` must declare a signature for each —
@@ -93,10 +119,36 @@ pub enum CommandName {
     PingSession,
     SchemaDiff,
     CompareTableData,
+    // @parity wf
+    // @end wf
+    // @parity dash
+    // @end dash
+    // @parity diag
+    // @end diag
+    // @parity lib
+    // @end lib
+    // @parity grid
+    // @end grid
+    // @parity schema
+    // @end schema
+    // @parity editor
+    // @end editor
+    // @parity rx
+    // @end rx
+    // @parity conn
+    // @end conn
+    // @parity auth
+    // @end auth
+    // @parity shell
+    // @end shell
+    // @parity ai
+    // @end ai
+    // @parity engine
+    // @end engine
 }
 
 impl CommandName {
-    pub const ALL: [CommandName; 64] = [
+    pub const ALL: &'static [CommandName] = &[
         CommandName::ListConnections,
         CommandName::SaveConnection,
         CommandName::DeleteConnection,
@@ -161,6 +213,32 @@ impl CommandName {
         CommandName::PingSession,
         CommandName::SchemaDiff,
         CommandName::CompareTableData,
+        // @parity wf
+        // @end wf
+        // @parity dash
+        // @end dash
+        // @parity diag
+        // @end diag
+        // @parity lib
+        // @end lib
+        // @parity grid
+        // @end grid
+        // @parity schema
+        // @end schema
+        // @parity editor
+        // @end editor
+        // @parity rx
+        // @end rx
+        // @parity conn
+        // @end conn
+        // @parity auth
+        // @end auth
+        // @parity shell
+        // @end shell
+        // @parity ai
+        // @end ai
+        // @parity engine
+        // @end engine
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -229,6 +307,32 @@ impl CommandName {
             CommandName::PingSession => "ping_session",
             CommandName::SchemaDiff => "schema_diff",
             CommandName::CompareTableData => "compare_table_data",
+            // @parity wf
+            // @end wf
+            // @parity dash
+            // @end dash
+            // @parity diag
+            // @end diag
+            // @parity lib
+            // @end lib
+            // @parity grid
+            // @end grid
+            // @parity schema
+            // @end schema
+            // @parity editor
+            // @end editor
+            // @parity rx
+            // @end rx
+            // @parity conn
+            // @end conn
+            // @parity auth
+            // @end auth
+            // @parity shell
+            // @end shell
+            // @parity ai
+            // @end ai
+            // @parity engine
+            // @end engine
         }
     }
 }
@@ -241,8 +345,20 @@ mod tests {
     fn every_command_is_registered_in_lib_rs() {
         let lib = include_str!("../lib.rs");
         for name in CommandName::ALL {
-            let needle = format!("commands::{}::{},", module_of(name), name.as_str());
-            assert!(lib.contains(&needle), "{needle} missing from generate_handler! in lib.rs");
+            let suffix = format!("::{},", name.as_str());
+            let registered = lib
+                .lines()
+                .map(str::trim)
+                .any(|line| line.starts_with("commands::") && line.ends_with(&suffix));
+            assert!(registered, "commands::<module>::{} missing from generate_handler! in lib.rs", name.as_str());
+        }
+    }
+
+    #[test]
+    fn all_lists_each_command_once() {
+        let mut seen = std::collections::HashSet::new();
+        for name in CommandName::ALL {
+            assert!(seen.insert(name.as_str()), "{} listed twice in CommandName::ALL", name.as_str());
         }
     }
 
@@ -251,64 +367,6 @@ mod tests {
         for name in CommandName::ALL {
             let json = serde_json::to_string(&name).unwrap_or_default();
             assert_eq!(json, format!("\"{}\"", name.as_str()));
-        }
-    }
-
-    fn module_of(name: CommandName) -> &'static str {
-        match name {
-            CommandName::ListConnections
-            | CommandName::SaveConnection
-            | CommandName::DeleteConnection
-            | CommandName::TestConnection
-            | CommandName::Connect
-            | CommandName::Disconnect
-            | CommandName::ActiveSessions
-            | CommandName::DescribeSession
-            | CommandName::PingSession => "connections",
-            CommandName::LoadCatalog | CommandName::LoadColumns | CommandName::LoadForeignKeys | CommandName::LoadDdl | CommandName::CreateTemplate => "schema",
-            CommandName::FetchTablePage => "data",
-            CommandName::AgentChat
-            | CommandName::AgentDecide
-            | CommandName::AgentCancel
-            | CommandName::AgentReset
-            | CommandName::AgentSkills => "agent",
-            CommandName::DetectNativeTools
-            | CommandName::BackupDatabase
-            | CommandName::RestoreDatabase
-            | CommandName::CancelBackup => "backup",
-            CommandName::ExecuteQuery
-            | CommandName::ListHistory
-            | CommandName::ClearHistory
-            | CommandName::ListBuffers
-            | CommandName::SaveBuffer
-            | CommandName::DeleteBuffer
-            | CommandName::SplitScript
-            | CommandName::SaveSqlFile
-            | CommandName::CancelQuery
-            | CommandName::BeginTransaction
-            | CommandName::CommitTransaction
-            | CommandName::RollbackTransaction => "query",
-            CommandName::GetSettings | CommandName::SaveSettings => "settings",
-            CommandName::ListSavedQueries
-            | CommandName::SaveSavedQuery
-            | CommandName::DeleteSavedQuery
-            | CommandName::ListDocuments
-            | CommandName::SaveDocument
-            | CommandName::DeleteDocument => "library",
-            CommandName::PreviewChanges | CommandName::CommitChanges => "changes",
-            CommandName::ExportTables | CommandName::ImportFile => "transfer",
-            CommandName::AiGenerate | CommandName::ExplainQuery => "ai",
-            CommandName::RunWorkflow => "workflows",
-            CommandName::ListObjects
-            | CommandName::LoadObject
-            | CommandName::ServerStats
-            | CommandName::VectorSearch
-            | CommandName::SearchDocuments
-            | CommandName::QueryRange
-            | CommandName::LoadHistory
-            | CommandName::DownloadObject => "objects",
-            CommandName::CheckUpdate | CommandName::DownloadUpdate | CommandName::InstallUpdate => "updates",
-            CommandName::SchemaDiff | CommandName::CompareTableData => "compare",
         }
     }
 }

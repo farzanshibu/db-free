@@ -66,6 +66,32 @@ pub mod tigergraph;
 pub mod typesense;
 pub mod val_town;
 pub mod weaviate;
+// @parity wf
+// @end wf
+// @parity dash
+// @end dash
+// @parity diag
+// @end diag
+// @parity lib
+// @end lib
+// @parity grid
+// @end grid
+// @parity schema
+// @end schema
+// @parity editor
+// @end editor
+// @parity rx
+// @end rx
+// @parity conn
+// @end conn
+// @parity auth
+// @end auth
+// @parity shell
+// @end shell
+// @parity ai
+// @end ai
+// @parity engine
+// @end engine
 
 // ============================================================================
 // INTEGRATION ADAPTER LAYER
@@ -402,6 +428,32 @@ pub trait Integration: Send + Sync {
     fn ssh_host_key(&self) -> Option<String> {
         None
     }
+    // @parity wf
+    // @end wf
+    // @parity dash
+    // @end dash
+    // @parity diag
+    // @end diag
+    // @parity lib
+    // @end lib
+    // @parity grid
+    // @end grid
+    // @parity schema
+    // @end schema
+    // @parity editor
+    // @end editor
+    // @parity rx
+    // @end rx
+    // @parity conn
+    // @end conn
+    // @parity auth
+    // @end auth
+    // @parity shell
+    // @end shell
+    // @parity ai
+    // @end ai
+    // @parity engine
+    // @end engine
 }
 
 // WHAT:  Static profile per adapter family (see `FamilyProfile`), plus the kinds

@@ -320,6 +320,32 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
               </>
             ) : null}
             {section === "updates" ? <UpdatesSection /> : null}
+            {/* @parity wf */}
+            {/* @end wf */}
+            {/* @parity dash */}
+            {/* @end dash */}
+            {/* @parity diag */}
+            {/* @end diag */}
+            {/* @parity lib */}
+            {/* @end lib */}
+            {/* @parity grid */}
+            {/* @end grid */}
+            {/* @parity schema */}
+            {/* @end schema */}
+            {/* @parity editor */}
+            {/* @end editor */}
+            {/* @parity rx */}
+            {/* @end rx */}
+            {/* @parity conn */}
+            {/* @end conn */}
+            {/* @parity auth */}
+            {/* @end auth */}
+            {/* @parity shell */}
+            {/* @end shell */}
+            {/* @parity ai */}
+            {/* @end ai */}
+            {/* @parity engine */}
+            {/* @end engine */}
             {section === "advanced" ? (
               <>
                 <h2 className="text-sm font-semibold text-foreground">Advanced</h2>

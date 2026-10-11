@@ -84,6 +84,32 @@ import type {
   VectorSearchCommand,
   WorkflowRunReport,
 } from "./bindings";
+// @parity wf
+// @end wf
+// @parity dash
+// @end dash
+// @parity diag
+// @end diag
+// @parity lib
+// @end lib
+// @parity grid
+// @end grid
+// @parity schema
+// @end schema
+// @parity editor
+// @end editor
+// @parity rx
+// @end rx
+// @parity conn
+// @end conn
+// @parity auth
+// @end auth
+// @parity shell
+// @end shell
+// @parity ai
+// @end ai
+// @parity engine
+// @end engine
 
 // WHAT:  The client-side block. Every call into the Rust core goes through `ipc`.
 // WHY:   One place normalises errors into AppError, so components switch on
@@ -157,6 +183,32 @@ interface CommandMap {
   rollback_transaction: { req: SessionRequest; res: boolean };
   schema_diff: { req: SchemaDiffRequest; res: SchemaDiff };
   compare_table_data: { req: CompareTableDataRequest; res: DataCompare };
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
 }
 
 type MissingFromMap = Exclude<CommandName, keyof CommandMap>;

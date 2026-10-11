@@ -1028,6 +1028,32 @@ pub struct ConnectionInput {
     pub folder: Option<String>,
     pub color: Option<ConnectionColor>,
     pub favorite: bool,
+    // @parity wf
+    // @end wf
+    // @parity dash
+    // @end dash
+    // @parity diag
+    // @end diag
+    // @parity lib
+    // @end lib
+    // @parity grid
+    // @end grid
+    // @parity schema
+    // @end schema
+    // @parity editor
+    // @end editor
+    // @parity rx
+    // @end rx
+    // @parity conn
+    // @end conn
+    // @parity auth
+    // @end auth
+    // @parity shell
+    // @end shell
+    // @parity ai
+    // @end ai
+    // @parity engine
+    // @end engine
 }
 
 impl ConnectionInput {
@@ -1140,6 +1166,32 @@ pub struct ConnectionSummary {
     pub favorite: bool,
     pub created_at: String,
     pub updated_at: String,
+    // @parity wf
+    // @end wf
+    // @parity dash
+    // @end dash
+    // @parity diag
+    // @end diag
+    // @parity lib
+    // @end lib
+    // @parity grid
+    // @end grid
+    // @parity schema
+    // @end schema
+    // @parity editor
+    // @end editor
+    // @parity rx
+    // @end rx
+    // @parity conn
+    // @end conn
+    // @parity auth
+    // @end auth
+    // @parity shell
+    // @end shell
+    // @parity ai
+    // @end ai
+    // @parity engine
+    // @end engine
 }
 
 impl ConnectionSummary {
@@ -1182,6 +1234,32 @@ pub struct ConnectionRecord {
     pub summary: ConnectionSummary,
     pub secret_ciphertext: Option<Vec<u8>>,
     pub ssh_secret_ciphertext: Option<Vec<u8>>,
+    // @parity wf
+    // @end wf
+    // @parity dash
+    // @end dash
+    // @parity diag
+    // @end diag
+    // @parity lib
+    // @end lib
+    // @parity grid
+    // @end grid
+    // @parity schema
+    // @end schema
+    // @parity editor
+    // @end editor
+    // @parity rx
+    // @end rx
+    // @parity conn
+    // @end conn
+    // @parity auth
+    // @end auth
+    // @parity shell
+    // @end shell
+    // @parity ai
+    // @end ai
+    // @parity engine
+    // @end engine
 }
 
 // WHAT:  In-memory only: summary plus the decrypted secret, handed to a integration.

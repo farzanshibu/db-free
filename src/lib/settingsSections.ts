@@ -6,7 +6,44 @@ import type { IconName } from "@/lib/icons";
 //        section id, so the ⌘K palette can open Settings straight at one
 //        ("Keyboard shortcuts") without the store importing a feature.
 // WHERE: src/features/settings/SettingsPage.tsx, src/stores/workspace.ts (Page)
-export type SettingsSection = "general" | "themes" | "fonts" | "grid" | "editor" | "shortcuts" | "ai" | "security" | "updates" | "advanced";
+export type SettingsSection =
+  | "general"
+  | "themes"
+  | "fonts"
+  | "grid"
+  | "editor"
+  | "shortcuts"
+  | "ai"
+  | "security"
+  | "updates"
+  | "advanced"
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
+  ;
 
 export const SETTINGS_SECTIONS: readonly { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "general", label: "General", icon: "settings" },
@@ -19,4 +56,30 @@ export const SETTINGS_SECTIONS: readonly { id: SettingsSection; label: string; i
   { id: "security", label: "Security & Privacy", icon: "lock" },
   { id: "updates", label: "Updates", icon: "download" },
   { id: "advanced", label: "Advanced", icon: "columns" },
+  // @parity wf
+  // @end wf
+  // @parity dash
+  // @end dash
+  // @parity diag
+  // @end diag
+  // @parity lib
+  // @end lib
+  // @parity grid
+  // @end grid
+  // @parity schema
+  // @end schema
+  // @parity editor
+  // @end editor
+  // @parity rx
+  // @end rx
+  // @parity conn
+  // @end conn
+  // @parity auth
+  // @end auth
+  // @parity shell
+  // @end shell
+  // @parity ai
+  // @end ai
+  // @parity engine
+  // @end engine
 ];
