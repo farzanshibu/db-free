@@ -86,7 +86,7 @@ export function PlanTree({ root }: { root: PlanNode }) {
 
   return (
     <div className="flex flex-col gap-0.5 text-xs" role="tree" aria-label="Execution plan">
-      <div className="mb-1 flex items-center gap-3 px-1 text-[10.5px] text-muted">
+      <div className="mb-1 flex items-center gap-2 px-1 text-[10.5px] text-muted">
         <span>Bars: {timed ? "measured time" : "estimated cost"} of each subtree, relative to the whole plan.</span>
         <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-danger" />most work</span>
         <span className="flex items-center gap-1"><span className="inline-block size-2 rounded-sm bg-warning" />heavy</span>
@@ -108,12 +108,12 @@ export function PlanTree({ root }: { root: PlanNode }) {
                   <span className="inline-block size-4 shrink-0" />
                 )}
                 <div className="min-w-0">
-                  <div className={cn("selectable truncate font-mono text-[11.5px] font-medium", LABEL[h])} title={r.node.label}>{r.node.label}</div>
+                  <div className={cn("selectable truncate font-mono text-[11px] font-medium", LABEL[h])} title={r.node.label}>{r.node.label}</div>
                   {r.node.detail !== null ? <div className="selectable whitespace-pre-wrap font-mono text-[10.5px] text-muted">{r.node.detail}</div> : null}
                 </div>
               </div>
-              <div className="flex w-56 shrink-0 flex-col items-end gap-1 pt-0.5">
-                <div className="flex gap-3 font-mono text-[10.5px] text-muted">
+              <div className="flex w-52 shrink-0 flex-col items-end gap-1 pt-0.5">
+                <div className="flex gap-2 font-mono text-[10.5px] text-muted">
                   {r.node.rows !== null ? <span title="Rows">{fmt(r.node.rows)} rows</span> : null}
                   {r.total !== null ? <span title={unit}>{fmt(r.total)} {unit}</span> : null}
                 </div>

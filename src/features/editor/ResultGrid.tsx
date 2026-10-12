@@ -95,6 +95,8 @@ interface ResultGridProps {
   result: ResultSet;
   /// Only a script with exactly one statement can be written back.
   single: boolean;
+  /// Told which rows are ticked (in result order), for the export dialog's "selected rows".
+  onSelectionChange?: ((rows: readonly (readonly Value[])[]) => void) | undefined;
 }
 
 // WHAT:  A query result as a working grid: client-side sort, quick search,
@@ -110,7 +112,7 @@ interface ResultGridProps {
 //        mode. After a commit the SELECT is re-run (it is a plain single-table
 //        SELECT, checked by analyzeSelect) so the grid shows what was stored.
 // WHERE: src/lib/editableSelect.ts, src/features/grid/TableTab.tsx, src/features/grid/clientRows.ts
-export function ResultGrid({ connectionId, sql, result: initial, single }: ResultGridProps) {
+export function ResultGrid({ connectionId, sql, result: initial, single, onSelectionChange }: ResultGridProps) {
   const density = useWorkspace((s) => s.density);
   const settings = useWorkspace((s) => s.settings);
   const engine = useWorkspace((s) => s.connections.find((c) => c.id === connectionId)?.engine ?? "postgres");
@@ -137,6 +139,9 @@ export function ResultGrid({ connectionId, sql, result: initial, single }: Resul
   // Selections are kept as source indexes so re-sorting never moves them.
   const [selected, setSelected] = useState<ReadonlySet<number>>(new Set());
   const [cell, setCell] = useState<{ row: number; col: number } | null>(null);
+  useEffect(() => {
+    onSelectionChange?.([...selected].sort((a, b) => a - b).map((i) => rows[i]).filter((r): r is Value[] => r !== undefined));
+  }, [selected, rows, onSelectionChange]);
   const [inspectorTab, setInspectorTab] = useState<string>(settings?.inspectorTabs[0] ?? "fields");
   const [inspectorCollapsed, setInspectorCollapsed, toggleInspector] = useInspectorCollapsed();
 
@@ -320,7 +325,7 @@ export function ResultGrid({ connectionId, sql, result: initial, single }: Resul
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-8 shrink-0 items-center gap-0.5 border-b border-border/40 px-1.5">
+      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-7 shrink-0 items-center gap-0.5 border-b border-border/40 px-1.5">
         <SearchInput value={search} onChange={setSearch} aria-label="Search the result" placeholder="Search result…" className="glass-input h-6 w-48 rounded-md text-xs" />
         <FilterPopover columns={columns} filters={filters} onApply={setFilters} />
         <ColumnsPopover columns={columns} hidden={hidden} onChange={setHidden} />

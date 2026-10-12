@@ -74,6 +74,10 @@ pub fn spans(sql: &str) -> Vec<StatementSpan> {
                 return None;
             }
             let text: String = chars[from..to].iter().collect();
+            // A shell command is answered from the catalog and never writes.
+            if starts_shell_command(chars[from], chars.get(from + 1).copied()) {
+                return Some(StatementSpan { start: at(from), end: at(to), intent: StatementIntent::Read });
+            }
             let (kind, _) = classify_words(&top_level_words(&text));
             Some(StatementSpan { start: at(from), end: at(to), intent: intent_of(kind) })
         })
@@ -98,9 +102,33 @@ fn scan(chars: &[char]) -> Vec<(usize, usize)> {
     let len = chars.len();
     let mut start = 0_usize;
     let mut i = 0_usize;
+    // True while nothing but whitespace and comments has followed the last boundary:
+    // the one place a shell command (psql `\dt`, sqlite `.tables`) can begin.
+    let mut fresh = true;
     while i < len {
         let c = chars[i];
         let next = chars.get(i + 1).copied();
+        if fresh {
+            if c.is_whitespace() {
+                i += 1;
+                continue;
+            }
+            if starts_shell_command(c, next) {
+                // A shell command runs to the end of its line and takes no `;`, so the
+                // line is a statement of its own and what follows is a fresh start.
+                let mut end = i;
+                while end < len && chars[end] != '\n' {
+                    end += 1;
+                }
+                out.push((start, end));
+                start = end;
+                i = end;
+                continue;
+            }
+            if !(c == '-' && next == Some('-')) && !(c == '/' && next == Some('*')) {
+                fresh = false;
+            }
+        }
         match c {
             '\'' | '"' | '`' => {
                 let quote = c;
@@ -156,6 +184,7 @@ fn scan(chars: &[char]) -> Vec<(usize, usize)> {
                 out.push((start, i));
                 i += 1;
                 start = i;
+                fresh = true;
             }
             _ => i += 1,
         }
@@ -164,6 +193,27 @@ fn scan(chars: &[char]) -> Vec<(usize, usize)> {
         out.push((start, len));
     }
     out
+}
+
+// WHAT:  Whether `c` (followed by `next`) opens a shell command at the start of a
+//        statement: psql's `\dt`, sqlite3's and the DuckDB CLI's `.tables`.
+// WHY:   No SQL statement begins with a backslash or with a dot and a letter, so
+//        the rule needs no engine: it cuts `\dt` and `.schema` off at the end of
+//        their line wherever a script holds them, and the engine-aware layer
+//        (`integrations::shell_meta`) decides whether it knows the command.
+fn starts_shell_command(c: char, next: Option<char>) -> bool {
+    c == '\\' || (c == '.' && next.is_some_and(|n| n.is_ascii_alphabetic()))
+}
+
+// WHAT:  The statements of a script as char ranges into its characters, with the
+//        characters themselves, for callers that slice the original text.
+// WHY:   `integrations::shell_meta` cuts a script at the block's own boundaries so
+//        a `;` inside a literal and a `\dt` line are told apart the same way here
+//        and in the guard.
+pub fn scan_ranges(sql: &str) -> (Vec<char>, Vec<(usize, usize)>) {
+    let chars: Vec<char> = sql.chars().collect();
+    let ranges = scan(&chars);
+    (chars, ranges)
 }
 
 // WHAT:  Uppercased bare words at parenthesis depth 0, with literals and comments removed.
@@ -360,5 +410,38 @@ mod tests {
         let found = spans(script);
         assert_eq!(found.len(), 2);
         assert_eq!(found.get(1).map(|s| sliced(script, s)), Some("select 2".to_string()));
+    }
+
+    // psql's `\dt` and sqlite3's `.tables` end at their line, not at a `;`.
+    #[test]
+    fn shell_commands_are_statements_of_their_own_line() {
+        let script = "\\dt public.*\nselect 1;\n  .tables  \n.schema users\nselect 2";
+        let found: Vec<String> = spans(script).iter().map(|s| sliced(script, s)).collect();
+        assert_eq!(found, ["\\dt public.*", "select 1", ".tables", ".schema users", "select 2"]);
+        assert!(spans(script).iter().all(|s| s.intent == StatementIntent::Read));
+        // A comment may lead the line; it stays with the command.
+        let commented = split_statements("-- structure\n\\d users\nselect 1");
+        assert_eq!(commented.len(), 2, "{commented:?}");
+        assert!(commented[0].trim().ends_with("\\d users"));
+    }
+
+    // The rule applies only where a statement begins: a dot or a backslash inside one is text.
+    #[test]
+    fn dots_and_backslashes_inside_a_statement_are_not_commands() {
+        let script = "select a\n.b from t;\nselect 'x\n\\dt'\n;select \"a\\\" from t";
+        let found = split_statements(script);
+        assert_eq!(found.len(), 3, "{found:?}");
+        assert!(found[0].contains(".b from t"));
+        assert_eq!(split_statements("select .5, 1.e3").len(), 1, "a number's dot is not a command");
+        assert_eq!(split_statements(".5").len(), 1);
+        assert_eq!(kinds("\\dt"), vec![StatementKind::Write], "the engine-free classifier still fails closed on a command it cannot read");
+    }
+
+    #[test]
+    fn scan_ranges_slice_the_original_text() {
+        let script = "select 1;\n.tables\nselect 2";
+        let (chars, ranges) = scan_ranges(script);
+        let texts: Vec<String> = ranges.iter().map(|(from, to)| chars[*from..*to].iter().collect::<String>().trim().to_string()).collect();
+        assert_eq!(texts, ["select 1", ".tables", "select 2"]);
     }
 }

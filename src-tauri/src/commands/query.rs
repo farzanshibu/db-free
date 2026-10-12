@@ -2,13 +2,14 @@
 
 use crate::error::AppResult;
 use crate::guard;
-use crate::model::{EditorBuffer, HistoryEntry, HistoryOrigin, QueryOutcome, StatementSpan};
+use crate::model::{BatchEvent, BatchSummary, EditorBuffer, HistoryEntry, HistoryOrigin, HistoryPage, OpenedSqlFile, QueryOutcome, StatementSpan};
 use crate::commands::connections::SessionRequest;
 use crate::services;
 use crate::services::query::TransactionStep;
 use crate::state::AppState;
 use serde::Deserialize;
 use std::path::Path;
+use tauri::ipc::Channel;
 use tauri::State;
 use ts_rs::TS;
 
@@ -27,32 +28,12 @@ pub struct ExecuteQueryRequest {
     #[serde(default)]
     #[ts(optional)]
     pub run_id: Option<String>,
-    // @parity wf
-    // @end wf
-    // @parity dash
-    // @end dash
-    // @parity diag
-    // @end diag
-    // @parity lib
-    // @end lib
-    // @parity grid
-    // @end grid
-    // @parity schema
-    // @end schema
-    // @parity editor
-    // @end editor
-    // @parity rx
-    // @end rx
-    // @parity conn
-    // @end conn
-    // @parity auth
-    // @end auth
-    // @parity shell
-    // @end shell
-    // @parity ai
-    // @end ai
-    // @parity engine
-    // @end engine
+    /// Names the query tab this run belongs to (its tab id). The adapter keeps one
+    /// dedicated connection per key, so SET, temp tables and BEGIN persist between
+    /// Runs; the tab's close sends `close_session`. Omitted = the shared pool.
+    #[serde(default)]
+    #[ts(optional)]
+    pub session_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -60,6 +41,58 @@ pub struct ExecuteQueryRequest {
 #[ts(export)]
 pub struct CancelQueryRequest {
     pub run_id: String,
+}
+
+// WHAT:  A script to run statement by statement (`execute_batch`).
+// HOW:   Like `ExecuteQueryRequest`, plus `stop_on_error` (carry on after a
+//        failing statement, or stop at it) and `split` (cut the script at its
+//        statement boundaries, or send the text whole — for command languages
+//        that have no `;`). `run_id` is required: it is what Stop names.
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ExecuteBatchRequest {
+    pub connection_id: String,
+    pub sql: String,
+    pub confirm_destructive: bool,
+    /// None or 0 = "No limit"; otherwise clamped by the block.
+    pub max_rows: Option<u32>,
+    pub schema: Option<String>,
+    pub run_id: String,
+    pub stop_on_error: bool,
+    pub split: bool,
+    /// The query tab's id: its statements share one pinned connection.
+    #[serde(default)]
+    #[ts(optional)]
+    pub session_key: Option<String>,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct HistoryPageRequest {
+    pub connection_id: Option<String>,
+    pub origin: Option<HistoryOrigin>,
+    /// Some(true) = only what was typed in the editor; None = everything.
+    pub from_editor: Option<bool>,
+    pub limit: u32,
+    pub offset: u32,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ReadSqlFileRequest {
+    /// Chosen in the OS open dialog.
+    pub path: String,
+}
+
+#[derive(Debug, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct EditorHistoryRequest {
+    pub connection_id: String,
+    pub limit: u32,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -103,11 +136,13 @@ pub struct SaveSqlFileRequest {
 
 #[tauri::command]
 pub async fn execute_query(state: State<'_, AppState>, req: ExecuteQueryRequest) -> AppResult<QueryOutcome> {
-    let max_rows = guard::clamp_result_rows(req.max_rows);
+    let max_rows = guard::clamp_run_rows(req.max_rows);
     let sql = req.sql.clone();
     let schema = req.schema.clone();
-    guard::statement(
+    // The log marks it as typed in the editor (step 10).
+    guard::as_editor(guard::statement_in_session(
         &state,
+        req.session_key.as_deref(),
         guard::StatementRequest {
             connection_id: &req.connection_id,
             sql: &req.sql,
@@ -115,8 +150,56 @@ pub async fn execute_query(state: State<'_, AppState>, req: ExecuteQueryRequest)
             run_id: req.run_id.as_deref(),
         },
         |ctx| async move { services::query::execute(&ctx, &sql, max_rows, schema.as_deref()).await },
-    )
+    ))
     .await
+}
+
+// WHAT:  Runs a script statement by statement and streams each one's progress.
+// WHY:   The editor's result tabs show per-statement status and time, fill in as
+//        statements finish, and survive a failing statement in the middle.
+// HOW:   The service checks the whole script first (read-only, destructive
+//        confirmation), then runs each statement through the block on its own.
+//        Events travel on `on_event`; the return value is only the summary, so
+//        no row is sent twice. `guard::local` here is the command's entry: every
+//        statement inside passes `guard::statement_in_session` individually.
+// WHERE: src-tauri/src/services/query.rs (execute_batch), src/lib/ipc.ts (executeBatch)
+#[tauri::command]
+pub async fn execute_batch(state: State<'_, AppState>, req: ExecuteBatchRequest, on_event: Channel<BatchEvent>) -> AppResult<BatchSummary> {
+    guard::local("execute_batch", async {
+        let batch = services::query::BatchRequest {
+            connection_id: &req.connection_id,
+            sql: &req.sql,
+            confirm_destructive: req.confirm_destructive,
+            max_rows: guard::clamp_run_rows(req.max_rows),
+            namespace: req.schema.as_deref(),
+            run_id: &req.run_id,
+            stop_on_error: req.stop_on_error,
+            split: req.split,
+            session_key: req.session_key.as_deref(),
+        };
+        let emit = |event: BatchEvent| {
+            if let Err(err) = on_event.send(event) {
+                log::debug!("batch progress not delivered: {err}");
+            }
+        };
+        guard::as_editor(services::query::execute_batch(&state, &batch, &emit)).await
+    })
+    .await
+}
+
+// WHAT:  One page of the query log with the filtered total (the log viewer's pager).
+#[tauri::command]
+pub async fn list_history_page(state: State<'_, AppState>, req: HistoryPageRequest) -> AppResult<HistoryPage> {
+    guard::local("list_history_page", async {
+        services::history::page(&state, req.connection_id.as_deref(), req.origin, req.from_editor, req.limit, req.offset)
+    })
+    .await
+}
+
+// WHAT:  The editor's recent statements, each text once (the History panel).
+#[tauri::command]
+pub async fn list_editor_history(state: State<'_, AppState>, req: EditorHistoryRequest) -> AppResult<Vec<HistoryEntry>> {
+    guard::local("list_editor_history", async { services::history::recent_editor(&state, &req.connection_id, req.limit) }).await
 }
 
 // WHAT:  Stops a running `execute_query` by the run id the editor gave it.
@@ -203,6 +286,12 @@ pub async fn clear_history(state: State<'_, AppState>, req: ClearHistoryRequest)
 #[tauri::command]
 pub async fn split_script(req: SplitScriptRequest) -> AppResult<Vec<StatementSpan>> {
     guard::local("split_script", async move { Ok(guard::destructive::spans(&req.sql)) }).await
+}
+
+// WHAT:  Reads the .sql file the user picked, for a new query tab.
+#[tauri::command]
+pub async fn read_sql_file(req: ReadSqlFileRequest) -> AppResult<OpenedSqlFile> {
+    guard::local("read_sql_file", async move { services::scripts::read(Path::new(&req.path)) }).await
 }
 
 // WHAT:  Writes the editor's script to the .sql file the user picked.
