@@ -19,7 +19,7 @@ interface IconButtonProps {
 //        screen readers, and without `aria-label` it exists only for sighted users.
 //        Pairing them here means neither can be forgotten at a call site.
 // WHERE: https://ui.shadcn.com/docs/components/tooltip
-export function IconButton({ icon, label, onClick, disabled = false, active = false, size = 15, className }: IconButtonProps) {
+export function IconButton({ icon, label, onClick, disabled = false, active = false, size = 14, className }: IconButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -29,7 +29,7 @@ export function IconButton({ icon, label, onClick, disabled = false, active = fa
           size="icon-sm"
           disabled={disabled}
           {...(onClick ? { onClick } : {})}
-          className={cn("rounded-lg liquid-hover", active ? "glass-pill border-0 text-accent" : "", className)}
+          className={cn("rounded-md liquid-hover", active ? "glass-pill border-0 text-accent" : "", className)}
         >
           <Icon name={icon} size={size} />
         </Button>

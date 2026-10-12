@@ -15,7 +15,7 @@ export function Toaster({ theme = "dark" }: { theme?: "dark" | "light" }) {
       visibleToasts={3}
       toastOptions={{
         classNames: {
-          toast: "glass-modal !rounded-xl !border-0 !text-[13px] !text-foreground",
+          toast: "glass-modal !rounded-lg !border-0 !text-xs !text-foreground",
           description: "!text-muted",
           actionButton: "!bg-accent !text-accent-foreground",
           cancelButton: "!bg-surface-secondary !text-foreground",
@@ -23,7 +23,7 @@ export function Toaster({ theme = "dark" }: { theme?: "dark" | "light" }) {
           success: "!text-success",
         },
       }}
-      style={{ width: "380px" }}
+      style={{ width: "340px" }}
     />
   );
 }

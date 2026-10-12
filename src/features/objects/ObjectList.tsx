@@ -44,15 +44,15 @@ export function ObjectRow({ connectionId, object, dense = false, onSelect }: { c
         )
       }
       className={cn(
-        "flex w-full min-w-0 items-center justify-start gap-2 rounded-lg px-2 text-left text-[12.5px] liquid-hover",
-        dense ? "h-7 min-h-7" : "h-7.5 min-h-7.5",
+        "flex w-full min-w-0 items-center justify-start gap-2 rounded-md px-2 text-left text-xs liquid-hover",
+        dense ? "h-5.5 min-h-5.5" : "h-6 min-h-6",
         isActive ? "glass-pill font-medium text-accent shadow-xs" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground",
       )}
     >
       <Icon name={meta.icon} size={13} className="shrink-0 opacity-70" />
       <span className="truncate">{object.reference.name}</span>
       {object.badge ? (
-        <Badge size="sm" variant="soft" className="ml-1 h-4 shrink-0 px-1 font-mono text-[9px]">
+        <Badge size="sm" variant="soft" className="ml-1 h-4 shrink-0 px-1 font-mono text-[10px]">
           {object.badge}
         </Badge>
       ) : null}
@@ -101,19 +101,19 @@ export function KindNode({ connectionId, kind, parent, needle, refreshKey, defau
         variant="ghost"
         size="sm"
         onClick={() => setOpen((v) => !v)}
-        className="flex h-7 min-h-7 w-full min-w-0 items-center justify-start gap-1.5 rounded-lg px-1.5 text-left text-[12px] text-muted hover:bg-surface-secondary/60 hover:text-foreground"
+        className="flex h-6 min-h-6 w-full min-w-0 items-center justify-start gap-1.5 rounded-md px-1.5 text-left text-xs text-muted hover:bg-surface-secondary/60 hover:text-foreground"
       >
         <Icon name={open ? "chevron-down" : "chevron-right"} size={11} className="shrink-0" />
         <Icon name={meta.icon} size={13} className="shrink-0 opacity-70" />
         <span className="truncate">{meta.plural}</span>
         {objects !== null ? (
-          <Badge size="sm" variant="soft" className="ml-auto h-4 min-w-0 px-1 font-mono text-[9px]">
+          <Badge size="sm" variant="soft" className="ml-auto h-4 min-w-0 px-1 font-mono text-[10px]">
             {objects.length}
           </Badge>
         ) : null}
       </Button>
       {open ? (
-        <div className="pl-3">
+        <div className="pl-2.5">
           {loading && objects === null ? (
             <div className="flex items-center gap-2 py-1 pl-2 text-[11px] text-muted">
               <Spinner size="sm" /> loading…

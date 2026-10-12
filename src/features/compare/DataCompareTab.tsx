@@ -122,7 +122,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
         <DirectionToggle value={direction} onChange={(next) => { setDirection(next); setResult(null); }} />
         <SidePicker label="Right" side={right} onChange={(next) => { setRight(next); setResult(null); }} />
       </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/40 px-3 py-1.5 text-xs text-muted">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border/40 px-2.5 py-1 text-xs text-muted">
         <span>Match rows by</span>
         <Popover>
           <PopoverTrigger asChild>
@@ -150,7 +150,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
           </PopoverContent>
         </Popover>
         <span className="ml-2">Max rows per side</span>
-        <NumberInput ariaLabel="Max rows per side" value={maxRows} onChange={setMaxRows} integer compact className="h-7 w-28" />
+        <NumberInput ariaLabel="Max rows per side" value={maxRows} onChange={setMaxRows} integer compact className="h-6 w-28" />
         <Button size="sm" pending={busy} disabled={left.table === null || right.table === null} onClick={() => void compare(false)} className="ml-auto">
           <Icon name="exchange" size={13} />
           Compare
@@ -165,7 +165,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
         <EmptyState icon="exchange" title="Compare the rows of two tables" body="Pick a table on each side (the same or another connection), check the key the rows are matched by, then Compare. Only connected connections are listed." />
       ) : (
         <>
-          <div className="flex shrink-0 flex-wrap items-center gap-2 px-3 py-2 text-xs">
+          <div className="flex shrink-0 flex-wrap items-center gap-2 px-2.5 py-1.5 text-xs">
             <Segmented
               label="Filter rows"
               value={filter}
@@ -187,7 +187,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
             </span>
           </div>
           {result.notes.length > 0 || result.rowsTruncated ? (
-            <ul className="shrink-0 space-y-0.5 border-y border-border/40 bg-warning-soft/40 px-3 py-1.5 text-[11.5px] text-warning">
+            <ul className="shrink-0 space-y-0.5 border-y border-border/40 bg-warning-soft/40 px-2.5 py-1 text-[11px] text-warning">
               {result.rowsTruncated ? <li>Showing the first {formatCount(result.rows.length)} differing rows; the counts and the sync script cover all of them.</li> : null}
               {result.notes.map((n) => (
                 <li key={n}>{n}</li>

@@ -66,9 +66,9 @@ export function cellClass(kind: CellKind): string {
 export type Density = "compact" | "cozy" | "comfortable";
 
 export const DENSITIES: Record<Density, { label: string; rowHeight: number }> = {
-  compact: { label: "Compact", rowHeight: 24 },
-  cozy: { label: "Cozy", rowHeight: 28 },
-  comfortable: { label: "Comfortable", rowHeight: 34 },
+  compact: { label: "Compact", rowHeight: 22 },
+  cozy: { label: "Cozy", rowHeight: 26 },
+  comfortable: { label: "Comfortable", rowHeight: 30 },
 };
 
 export const DENSITY_ORDER: Density[] = ["compact", "cozy", "comfortable"];

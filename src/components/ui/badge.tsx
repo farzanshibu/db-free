@@ -11,8 +11,8 @@ import { cn } from "@/lib/cn";
 const badgeVariants = cva(
   [
     "inline-flex w-fit shrink-0 items-center justify-center gap-1 whitespace-nowrap",
-    "rounded-md border px-1.5 py-0.5 text-[11px] font-medium",
-    "[&_svg]:pointer-events-none [&_svg]:size-3",
+    "rounded-sm border px-1.5 text-[10.5px] font-medium leading-none",
+    "[&_svg]:pointer-events-none [&_svg]:size-2.5",
   ],
   {
     variants: {
@@ -26,8 +26,8 @@ const badgeVariants = cva(
         danger: "border-transparent bg-danger/15 text-danger",
       },
       size: {
-        sm: "h-4 px-1 text-[10px]",
-        md: "h-5",
+        sm: "h-3.5 px-1 text-[10px]",
+        md: "h-4.5",
       },
     },
     defaultVariants: { variant: "secondary", size: "md" },

@@ -13,15 +13,15 @@ export function TooltipProvider({ delayDuration = 400, skipDelayDuration = 300, 
   return <TooltipPrimitive.Provider delayDuration={delayDuration} skipDelayDuration={skipDelayDuration} {...props} />;
 }
 
-export function TooltipContent({ className, sideOffset = 6, children, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
+export function TooltipContent({ className, sideOffset = 4, children, ...props }: React.ComponentProps<typeof TooltipPrimitive.Content>) {
   return (
     <TooltipPrimitive.Portal>
       <TooltipPrimitive.Content
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          "z-50 w-fit max-w-64 origin-(--radix-tooltip-content-transform-origin) rounded-md",
-          "bg-popover border border-border px-2 py-1 text-xs text-foreground shadow-md",
+          "z-50 w-fit max-w-64 origin-(--radix-tooltip-content-transform-origin) rounded-sm",
+          "bg-popover border border-border px-1.5 py-0.5 text-[11px] text-foreground shadow-md",
           "data-[state=delayed-open]:animate-in data-[state=delayed-open]:fade-in-0 data-[state=delayed-open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           className,

@@ -15,14 +15,14 @@ export function PromptInput({ className, ...props }: ComponentProps<"form">) {
   return (
     <form
       data-slot="prompt-input"
-      className={cn("mx-auto flex w-full max-w-3xl items-end gap-2", className)}
+      className={cn("mx-auto flex w-full max-w-3xl items-end gap-1.5", className)}
       {...props}
     />
   );
 }
 
 export function PromptInputBody({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="prompt-input-body" className={cn("flex min-w-0 flex-1 flex-col gap-1.5", className)} {...props} />;
+  return <div data-slot="prompt-input-body" className={cn("flex min-w-0 flex-1 flex-col gap-1", className)} {...props} />;
 }
 
 export interface PromptInputTextareaProps extends ComponentProps<typeof Textarea> {
@@ -35,7 +35,7 @@ export function PromptInputTextarea({ className, submitOnEnter = true, onKeyDown
     <Textarea
       data-slot="prompt-input-textarea"
       rows={1}
-      className={cn("max-h-40 min-h-9 w-full resize-none font-sans", className)}
+      className={cn("max-h-40 min-h-7 w-full resize-none font-sans", className)}
       onKeyDown={(event) => {
         onKeyDown?.(event);
         if (submitOnEnter && event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -49,7 +49,7 @@ export function PromptInputTextarea({ className, submitOnEnter = true, onKeyDown
 }
 
 export function PromptInputToolbar({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="prompt-input-toolbar" className={cn("flex items-center gap-1.5", className)} {...props} />;
+  return <div data-slot="prompt-input-toolbar" className={cn("flex items-center gap-1", className)} {...props} />;
 }
 
 export function PromptInputTools({ className, ...props }: ComponentProps<"div">) {
@@ -75,7 +75,7 @@ export function PromptInputSubmit({ className, status = "ready", onStop, label =
         size="sm"
         aria-label="Stop generating"
         onClick={onStop}
-        className={cn("h-8 shrink-0 rounded-lg px-3 glass-pill text-danger", className)}
+        className={cn("h-7 shrink-0 rounded-md px-2.5 glass-pill text-danger", className)}
       >
         <span aria-hidden className="size-2.5 rounded-xs bg-current" />
         <span className="hidden sm:inline">Stop</span>
@@ -89,7 +89,7 @@ export function PromptInputSubmit({ className, status = "ready", onStop, label =
       size="sm"
       aria-label={label}
       disabled={disabled === true || busy}
-      className={cn("h-8 shrink-0 rounded-lg px-3 font-semibold shadow-sm shadow-accent/30 glass-pill liquid-hover", className)}
+      className={cn("h-7 shrink-0 rounded-md px-2.5 font-semibold shadow-sm shadow-accent/30 glass-pill liquid-hover", className)}
       {...props}
     >
       {busy ? <Spinner size="sm" className="text-accent-foreground" /> : <Icon name="send" className="size-3" />}

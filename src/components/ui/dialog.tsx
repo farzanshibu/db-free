@@ -41,7 +41,7 @@ export function DialogContent({ className, children, showCloseButton = true, ...
         data-slot="dialog-content"
         className={cn(
           "fixed top-1/2 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2 flex-col",
-          "max-h-[calc(100dvh-4rem)] rounded-xl glass-modal outline-none",
+          "max-h-[calc(100dvh-3rem)] rounded-lg glass-modal outline-none",
           "data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95",
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95",
           "duration-150",
@@ -54,9 +54,9 @@ export function DialogContent({ className, children, showCloseButton = true, ...
           <DialogPrimitive.Close
             data-slot="dialog-close"
             aria-label="Close"
-            className="absolute top-3 right-3 grid size-6 place-items-center rounded-md text-muted transition-colors outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="absolute top-2 right-2 grid size-5 place-items-center rounded-sm text-muted transition-colors outline-none hover:bg-surface-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/60"
           >
-            <Icon name="x" className="size-3.5" />
+            <Icon name="x" className="size-3" />
           </DialogPrimitive.Close>
         ) : null}
       </DialogPrimitive.Content>
@@ -65,11 +65,11 @@ export function DialogContent({ className, children, showCloseButton = true, ...
 }
 
 export function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="dialog-header" className={cn("flex shrink-0 flex-col gap-1 border-b border-border/50 px-4 py-3 pr-10", className)} {...props} />;
+  return <div data-slot="dialog-header" className={cn("flex shrink-0 flex-col gap-0.5 border-b border-border/50 px-3 py-2 pr-8", className)} {...props} />;
 }
 
 export function DialogTitle({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Title>) {
-  return <DialogPrimitive.Title data-slot="dialog-title" className={cn("text-sm font-semibold text-foreground", className)} {...props} />;
+  return <DialogPrimitive.Title data-slot="dialog-title" className={cn("text-[13px] font-semibold text-foreground", className)} {...props} />;
 }
 
 export function DialogDescription({ className, ...props }: React.ComponentProps<typeof DialogPrimitive.Description>) {
@@ -78,9 +78,9 @@ export function DialogDescription({ className, ...props }: React.ComponentProps<
 
 // WHAT:  The scrolling middle of a dialog: the header and footer stay put.
 export function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="dialog-body" className={cn("min-h-0 flex-1 overflow-y-auto px-4 py-3", className)} {...props} />;
+  return <div data-slot="dialog-body" className={cn("min-h-0 flex-1 overflow-y-auto px-3 py-2.5", className)} {...props} />;
 }
 
 export function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="dialog-footer" className={cn("flex shrink-0 items-center justify-end gap-2 border-t border-border/50 px-4 py-3", className)} {...props} />;
+  return <div data-slot="dialog-footer" className={cn("flex shrink-0 items-center justify-end gap-1.5 border-t border-border/50 px-3 py-2", className)} {...props} />;
 }

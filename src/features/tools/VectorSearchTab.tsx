@@ -83,15 +83,15 @@ export function VectorSearchTab({ connectionId }: { connectionId: string }) {
           <>
             <AppSelect label="Collection" value={current} options={options} onChange={setCollection} />
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">Query vector</span>
-              <Textarea aria-label="Query vector" value={vectorText} onChange={(e) => setVectorText(e.target.value)} placeholder="[0.12, -0.4, 0.88, …]" spellCheck={false} className="min-h-28 font-mono text-[12px]" />
+              <span className="text-[11px] font-medium text-muted">Query vector</span>
+              <Textarea aria-label="Query vector" value={vectorText} onChange={(e) => setVectorText(e.target.value)} placeholder="[0.12, -0.4, 0.88, …]" spellCheck={false} className="min-h-24 font-mono text-xs" />
               <span className="text-[11px] text-muted">{parseVector(vectorText)?.length ?? 0} dimensions</span>
             </div>
             <Field label="Vector name" value={vectorName} onChange={setVectorName} optional placeholder="named vector / field" mono />
             <NumberInput label="Top K" integer value={topK} onChange={setTopK} />
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">Payload filter</span>
-              <Textarea aria-label="Payload filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder='{ "must": [ { "key": "city", "match": { "value": "Berlin" } } ] }' spellCheck={false} className="min-h-24 font-mono text-[12px]" />
+              <span className="text-[11px] font-medium text-muted">Payload filter</span>
+              <Textarea aria-label="Payload filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder='{ "must": [ { "key": "city", "match": { "value": "Berlin" } } ] }' spellCheck={false} className="min-h-20 font-mono text-xs" />
               <span className="text-[11px] text-muted">Engine-native filter JSON, optional.</span>
             </div>
             <Check label="Include vectors in results" checked={includeVectors} onChange={setIncludeVectors} />

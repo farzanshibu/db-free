@@ -71,7 +71,7 @@ export function useContextMenu(): ContextMenu {
               className="pointer-events-none fixed z-50 size-px opacity-0"
               style={{ left: state.x, top: state.y }}
             />
-            <DropdownMenuContent align="start" className="min-w-52">
+            <DropdownMenuContent align="start" className="min-w-44">
               {groupEntries(state.entries).map((group, index) => (
                 <DropdownMenuGroup key={group[0]?.group ?? String(index)}>
                   {index > 0 ? <DropdownMenuSeparator /> : null}
@@ -85,7 +85,7 @@ export function useContextMenu(): ContextMenu {
                         setState(null);
                       }}
                     >
-                      {entry.icon !== undefined ? <Icon name={entry.icon} size={13} className={cn("shrink-0", entry.danger === true ? "text-danger" : "text-muted")} /> : null}
+                      {entry.icon !== undefined ? <Icon name={entry.icon} size={12} className={cn("shrink-0", entry.danger === true ? "text-danger" : "text-muted")} /> : null}
                       <span className="truncate">{entry.label}</span>
                     </DropdownMenuItem>
                   ))}

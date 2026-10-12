@@ -16,7 +16,7 @@ export function EnvBadge({ environment, readOnly = false }: { environment: Envir
   }
   // Past the guard above, the environment always has a name to show.
   return (
-    <Badge variant="soft" className={cn("gap-1.5 rounded-full border border-border/60 backdrop-blur-sm", meta.text)}>
+    <Badge variant="soft" className={cn("gap-1 rounded-full border border-border/60 backdrop-blur-sm", meta.text)}>
       <span className={cn("size-1.5 rounded-full", meta.dot)} />
       {meta.label}
       {readOnly ? <Icon name="lock" size={11} /> : null}

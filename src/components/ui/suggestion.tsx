@@ -8,7 +8,7 @@ import { Icon } from "@/lib/icons";
 //        can actually do is faster than explaining the capability in prose.
 // WHERE: https://ai-sdk.dev/elements/components/suggestion
 export function Suggestions({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="suggestions" className={cn("grid w-full grid-cols-1 gap-2 sm:grid-cols-2", className)} {...props} />;
+  return <div data-slot="suggestions" className={cn("grid w-full grid-cols-1 gap-1.5 sm:grid-cols-2", className)} {...props} />;
 }
 
 export interface SuggestionProps extends Omit<ComponentProps<"button">, "onClick" | "onSelect"> {
@@ -23,7 +23,7 @@ export function Suggestion({ className, suggestion, onSelect, ...props }: Sugges
       data-slot="suggestion"
       onClick={() => { onSelect(suggestion); }}
       className={cn(
-        "flex items-center justify-between gap-2 rounded-xl border border-border/50 bg-surface-secondary/40 p-2.5",
+        "flex items-center justify-between gap-1.5 rounded-lg border border-border/50 bg-surface-secondary/40 p-2",
         "text-left text-xs text-foreground transition-all liquid-hover",
         "hover:border-accent/40 hover:bg-surface-secondary/80 active:scale-[0.99]",
         className,

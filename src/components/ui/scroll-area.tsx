@@ -67,7 +67,7 @@ export function ScrollArea({ className, orientation = "vertical", hideScrollBar 
       data-slot="scroll-area"
       data-orientation={orientation}
       className={cn(
-        "min-h-0 [scrollbar-color:var(--color-surface-tertiary)_transparent] [scrollbar-width:thin]",
+        "min-h-0 [scrollbar-color:var(--scrollbar-thumb)_var(--scrollbar-track)] [scrollbar-width:thin]",
         orientation === "vertical" ? "overflow-y-auto" : "overflow-x-auto",
         hideScrollBar ? "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "",
         className,

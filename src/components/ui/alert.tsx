@@ -12,7 +12,7 @@ import { Icon, type IconName } from "@/lib/icons";
 // HOW:   The variant travels through a context so `AlertIndicator` can pick its
 //        own glyph, which is what makes the component a one-liner at the call site.
 // WHERE: https://ui.shadcn.com/docs/components/alert
-const alertVariants = cva("flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-[13px]", {
+const alertVariants = cva("flex w-full items-start gap-2 rounded-md border px-2.5 py-1.5 text-xs", {
   variants: {
     variant: {
       default: "border-border bg-surface text-foreground",
@@ -53,7 +53,7 @@ export function Alert({ className, variant, ...props }: ComponentProps<"div"> & 
 // WHAT:  The status glyph. Takes no icon: it reads the Alert's variant.
 export function AlertIndicator({ className }: { className?: string }) {
   const variant = useContext(AlertContext);
-  return <Icon name={INDICATORS[variant]} size={16} data-slot="alert-indicator" className={cn("mt-px shrink-0", INDICATOR_TONE[variant], className)} />;
+  return <Icon name={INDICATORS[variant]} size={14} data-slot="alert-indicator" className={cn("mt-px shrink-0", INDICATOR_TONE[variant], className)} />;
 }
 
 export function AlertContent({ className, ...props }: ComponentProps<"div">) {
@@ -61,9 +61,9 @@ export function AlertContent({ className, ...props }: ComponentProps<"div">) {
 }
 
 export function AlertTitle({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="alert-title" className={cn("text-[13px] font-medium text-foreground", className)} {...props} />;
+  return <div data-slot="alert-title" className={cn("text-xs font-medium text-foreground", className)} {...props} />;
 }
 
 export function AlertDescription({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="alert-description" className={cn("text-xs text-muted", className)} {...props} />;
+  return <div data-slot="alert-description" className={cn("text-[11px] text-muted", className)} {...props} />;
 }

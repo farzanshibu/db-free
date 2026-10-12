@@ -12,7 +12,7 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof Ch
     <CheckboxPrimitive.Root
       data-slot="checkbox"
       className={cn(
-        "peer size-3.5 shrink-0 rounded-[4px] border border-input bg-field outline-none transition-shadow",
+        "peer size-3.5 shrink-0 rounded-[3px] border border-input bg-field outline-none transition-shadow",
         "data-[state=checked]:border-accent data-[state=checked]:bg-accent data-[state=checked]:text-accent-foreground",
         "data-[state=indeterminate]:border-accent data-[state=indeterminate]:bg-accent data-[state=indeterminate]:text-accent-foreground",
         "focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -22,7 +22,7 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof Ch
       {...props}
     >
       <CheckboxPrimitive.Indicator data-slot="checkbox-indicator" className="flex items-center justify-center text-current">
-        {props.checked === "indeterminate" ? <Icon name="minus" size={11} /> : <Icon name="check" size={11} />}
+        {props.checked === "indeterminate" ? <Icon name="minus" size={10} /> : <Icon name="check" size={10} />}
       </CheckboxPrimitive.Indicator>
     </CheckboxPrimitive.Root>
   );

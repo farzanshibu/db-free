@@ -72,8 +72,9 @@
      blue. */
   --accent-hue: 258;
 
-  --radius: 0.625rem;
-  --field-radius: 0.5rem;
+  /* Compact radii: a 26px control with a 10px corner reads as a pill. */
+  --radius: 0.5rem;
+  --field-radius: 0.375rem;
 
   --background: oklch(0.12 0.006 var(--accent-hue) / 0.85);
   --foreground: oklch(0.94 0 0);
@@ -168,32 +169,68 @@
   --glass-modal: var(--overlay);
   --modal-shadow: 0 12px 32px -12px oklch(0 0 0 / 0.55);
   --row-stripe: oklch(1 0 0 / 0.035);
-  /* @parity wf */
-  /* @end wf */
-  /* @parity dash */
-  /* @end dash */
-  /* @parity diag */
-  /* @end diag */
-  /* @parity lib */
-  /* @end lib */
-  /* @parity grid */
-  /* @end grid */
-  /* @parity schema */
-  /* @end schema */
-  /* @parity editor */
-  /* @end editor */
-  /* @parity rx */
-  /* @end rx */
-  /* @parity conn */
-  /* @end conn */
-  /* @parity auth */
-  /* @end auth */
-  /* @parity shell */
-  /* @end shell */
-  /* @parity ai */
-  /* @end ai */
-  /* @parity engine */
-  /* @end engine */
+  /* Dashboard tile swatches. `--tile-<name>` is the solid hue (a chart's line, a
+     tile's top edge); `--tile-gradient-<name>` is the metric / text / image
+     background, white text on top. The light scheme restates all of them. */
+  --tile-on-gradient: oklch(0.99 0 0);
+  --tile-slate: oklch(0.66 0.035 255);
+  --tile-red: oklch(0.7 0.2 25);
+  --tile-orange: oklch(0.7 0.18 50);
+  --tile-amber: oklch(0.7 0.16 80);
+  --tile-green: oklch(0.7 0.19 150);
+  --tile-emerald: oklch(0.7 0.16 165);
+  --tile-teal: oklch(0.7 0.12 185);
+  --tile-cyan: oklch(0.7 0.12 210);
+  --tile-blue: oklch(0.7 0.19 255);
+  --tile-indigo: oklch(0.7 0.2 275);
+  --tile-violet: oklch(0.7 0.2 295);
+  --tile-purple: oklch(0.7 0.21 315);
+  --tile-pink: oklch(0.7 0.2 350);
+  --tile-rose: oklch(0.7 0.2 10);
+  --tile-gradient-slate: linear-gradient(135deg, oklch(0.36 0.026 255), oklch(0.58 0.033 255));
+  --tile-gradient-red: linear-gradient(135deg, oklch(0.36 0.15 25), oklch(0.58 0.19 25));
+  --tile-gradient-orange: linear-gradient(135deg, oklch(0.36 0.135 50), oklch(0.58 0.171 50));
+  --tile-gradient-amber: linear-gradient(135deg, oklch(0.36 0.12 80), oklch(0.58 0.152 80));
+  --tile-gradient-green: linear-gradient(135deg, oklch(0.36 0.143 150), oklch(0.58 0.18 150));
+  --tile-gradient-emerald: linear-gradient(135deg, oklch(0.36 0.12 165), oklch(0.58 0.152 165));
+  --tile-gradient-teal: linear-gradient(135deg, oklch(0.36 0.09 185), oklch(0.58 0.114 185));
+  --tile-gradient-cyan: linear-gradient(135deg, oklch(0.36 0.09 210), oklch(0.58 0.114 210));
+  --tile-gradient-blue: linear-gradient(135deg, oklch(0.36 0.143 255), oklch(0.58 0.18 255));
+  --tile-gradient-indigo: linear-gradient(135deg, oklch(0.36 0.15 275), oklch(0.58 0.19 275));
+  --tile-gradient-violet: linear-gradient(135deg, oklch(0.36 0.15 295), oklch(0.58 0.19 295));
+  --tile-gradient-purple: linear-gradient(135deg, oklch(0.36 0.158 315), oklch(0.58 0.199 315));
+  --tile-gradient-pink: linear-gradient(135deg, oklch(0.36 0.15 350), oklch(0.58 0.19 350));
+  --tile-gradient-rose: linear-gradient(135deg, oklch(0.36 0.15 10), oklch(0.58 0.19 10));
+  /* Ink for text drawn on a palette colour (table headers, sticky notes): dark on
+     the light palette keys, light on the dark ones. The pair is the same in both
+     themes because the fills (--color-conn-*) are. */
+  --diagram-ink-dark: oklch(0.2 0.01 260);
+  --diagram-ink-light: oklch(0.99 0 0);
+  /* Connection tag palette (ConnectionTagColor in Rust, src/features/connections/connectionTags.ts). */
+  --tag-red: oklch(0.68 0.2 25);
+  --tag-rose: oklch(0.7 0.19 10);
+  --tag-pink: oklch(0.72 0.18 350);
+  --tag-orange: oklch(0.74 0.17 55);
+  --tag-amber: oklch(0.82 0.15 85);
+  --tag-yellow: oklch(0.87 0.16 100);
+  --tag-lime: oklch(0.83 0.2 128);
+  --tag-green: oklch(0.76 0.19 150);
+  --tag-emerald: oklch(0.73 0.16 162);
+  --tag-teal: oklch(0.74 0.12 188);
+  --tag-cyan: oklch(0.8 0.12 210);
+  --tag-sky: oklch(0.76 0.13 235);
+  --tag-blue: oklch(0.68 0.16 255);
+  --tag-indigo: oklch(0.64 0.17 275);
+  --tag-violet: oklch(0.66 0.19 295);
+  --tag-purple: oklch(0.68 0.2 310);
+  --tag-fuchsia: oklch(0.7 0.24 330);
+  --tag-slate: oklch(0.66 0.04 255);
+  --tag-gray: oklch(0.68 0.01 260);
+  /* Scrollbars (Settings → Themes → Scrollbars). Thumb and track follow the
+     surfaces; a theme may restate them. */
+  --scrollbar-thumb: var(--surface-tertiary);
+  --scrollbar-thumb-hover: oklch(0.34 0.014 var(--accent-hue) / 0.9);
+  --scrollbar-track: transparent;
 }
 
 /* WHAT:  The light scheme: every variable above, restated for a white ground.
@@ -204,7 +241,8 @@
           flip it. Text tokens are chosen for contrast on the white surfaces:
           foreground ≈ 15:1, muted ≈ 5:1, status colours ≥ 4.5:1 as text.
           The accent's own lightness is picked per theme in App.tsx. */
-:root[data-theme="light"] {
+:root[data-theme="light"],
+:root[data-theme="parchment"] {
   color-scheme: light;
 
   --background: oklch(0.995 0.002 var(--accent-hue) / 0.85);
@@ -273,32 +311,466 @@
   --color-syntax-comment: oklch(0.56 0.01 var(--accent-hue));
   --color-syntax-operator: oklch(0.46 0.12 240);
   --color-syntax-type: oklch(0.48 0.1 200);
-  /* @parity wf */
-  /* @end wf */
-  /* @parity dash */
-  /* @end dash */
-  /* @parity diag */
-  /* @end diag */
-  /* @parity lib */
-  /* @end lib */
-  /* @parity grid */
-  /* @end grid */
-  /* @parity schema */
-  /* @end schema */
-  /* @parity editor */
-  /* @end editor */
-  /* @parity rx */
-  /* @end rx */
-  /* @parity conn */
-  /* @end conn */
-  /* @parity auth */
-  /* @end auth */
-  /* @parity shell */
-  /* @end shell */
-  /* @parity ai */
-  /* @end ai */
-  /* @parity engine */
-  /* @end engine */
+  /* The light restatement of the dashboard tile swatches above. */
+  --tile-on-gradient: oklch(0.99 0 0);
+  --tile-slate: oklch(0.52 0.035 255);
+  --tile-red: oklch(0.58 0.2 25);
+  --tile-orange: oklch(0.58 0.18 50);
+  --tile-amber: oklch(0.58 0.16 80);
+  --tile-green: oklch(0.58 0.19 150);
+  --tile-emerald: oklch(0.58 0.16 165);
+  --tile-teal: oklch(0.58 0.12 185);
+  --tile-cyan: oklch(0.58 0.12 210);
+  --tile-blue: oklch(0.58 0.19 255);
+  --tile-indigo: oklch(0.58 0.2 275);
+  --tile-violet: oklch(0.58 0.2 295);
+  --tile-purple: oklch(0.58 0.21 315);
+  --tile-pink: oklch(0.58 0.2 350);
+  --tile-rose: oklch(0.58 0.2 10);
+  --tile-gradient-slate: linear-gradient(135deg, oklch(0.56 0.035 255), oklch(0.68 0.032 255));
+  --tile-gradient-red: linear-gradient(135deg, oklch(0.56 0.2 25), oklch(0.68 0.18 25));
+  --tile-gradient-orange: linear-gradient(135deg, oklch(0.56 0.18 50), oklch(0.68 0.162 50));
+  --tile-gradient-amber: linear-gradient(135deg, oklch(0.56 0.16 80), oklch(0.68 0.144 80));
+  --tile-gradient-green: linear-gradient(135deg, oklch(0.56 0.19 150), oklch(0.68 0.171 150));
+  --tile-gradient-emerald: linear-gradient(135deg, oklch(0.56 0.16 165), oklch(0.68 0.144 165));
+  --tile-gradient-teal: linear-gradient(135deg, oklch(0.56 0.12 185), oklch(0.68 0.108 185));
+  --tile-gradient-cyan: linear-gradient(135deg, oklch(0.56 0.12 210), oklch(0.68 0.108 210));
+  --tile-gradient-blue: linear-gradient(135deg, oklch(0.56 0.19 255), oklch(0.68 0.171 255));
+  --tile-gradient-indigo: linear-gradient(135deg, oklch(0.56 0.2 275), oklch(0.68 0.18 275));
+  --tile-gradient-violet: linear-gradient(135deg, oklch(0.56 0.2 295), oklch(0.68 0.18 295));
+  --tile-gradient-purple: linear-gradient(135deg, oklch(0.56 0.21 315), oklch(0.68 0.189 315));
+  --tile-gradient-pink: linear-gradient(135deg, oklch(0.56 0.2 350), oklch(0.68 0.18 350));
+  --tile-gradient-rose: linear-gradient(135deg, oklch(0.56 0.2 10), oklch(0.68 0.18 10));
+  /* Ink for text drawn on a palette colour (table headers, sticky notes): dark on
+     the light palette keys, light on the dark ones. The pair is the same in both
+     themes because the fills (--color-conn-*) are. */
+  --diagram-ink-dark: oklch(0.2 0.01 260);
+  --diagram-ink-light: oklch(0.99 0 0);
+  --tag-red: oklch(0.55 0.21 25);
+  --tag-rose: oklch(0.56 0.2 10);
+  --tag-pink: oklch(0.57 0.2 350);
+  --tag-orange: oklch(0.58 0.17 50);
+  --tag-amber: oklch(0.58 0.14 75);
+  --tag-yellow: oklch(0.55 0.12 95);
+  --tag-lime: oklch(0.55 0.15 125);
+  --tag-green: oklch(0.5 0.15 150);
+  --tag-emerald: oklch(0.5 0.12 162);
+  --tag-teal: oklch(0.5 0.1 188);
+  --tag-cyan: oklch(0.52 0.1 210);
+  --tag-sky: oklch(0.53 0.13 235);
+  --tag-blue: oklch(0.52 0.19 258);
+  --tag-indigo: oklch(0.5 0.2 275);
+  --tag-violet: oklch(0.52 0.22 295);
+  --tag-purple: oklch(0.52 0.22 310);
+  --tag-fuchsia: oklch(0.54 0.24 330);
+  --tag-slate: oklch(0.48 0.04 255);
+  --tag-gray: oklch(0.5 0.01 260);
+  --scrollbar-thumb: oklch(0.82 0.01 var(--accent-hue) / 0.9);
+  --scrollbar-thumb-hover: oklch(0.72 0.014 var(--accent-hue) / 0.95);
+  --scrollbar-track: transparent;
+}
+
+/* WHAT:  The built-in colour themes beyond Dark and Light: Ember, Nocturne,
+          Glacier, Midnight (dark) and Parchment (light).
+   WHY:   Settings → Themes lists them next to Dark and Light, and a custom
+          theme can start from any of them. Each restates every colour token
+          the base schemes define, so switching never leaves a stray tint of
+          the previous palette. Palettes are expressed in hsl() from the
+          published DB Pro values (Darcula-, Dracula-, Nord-, Tokyo-Night- and
+          Solarized-Light-derived) and mapped onto this app's tokens.
+   HOW:   `:root[data-theme="<id>"]` outranks the base blocks by specificity.
+          Parchment is light, so it also joins the light block's selector and
+          inherits any light token a later feature adds; the dark themes
+          inherit from the dark `:root` block the same way. The accent comes
+          from the theme itself: the Accent setting only applies to Dark/Light.
+   WHERE: src/lib/themes.ts (the registry; ids must match), src/App.tsx */
+:root[data-theme="ember"] {
+  color-scheme: dark;
+
+  --background: hsl(204 4% 17%);
+  --foreground: hsl(211 20% 72%);
+
+  --surface: hsl(204 4% 23%);
+  --surface-secondary: hsl(204 4% 28%);
+  --surface-tertiary: hsl(204 4% 33%);
+  --surface-hover: hsl(211 20% 72% / 0.07);
+  --overlay: hsl(204 4% 22%);
+  --surface-elevated: hsl(204 4% 23%);
+  --backdrop: hsl(0 0% 0% / 0.6);
+  --default: hsl(204 4% 28%);
+  --field: hsl(204 4% 19%);
+  --segment: hsl(204 4% 23%);
+
+  --muted: hsl(210 9% 58%);
+  --accent: hsl(219 40% 49%);
+  --accent-foreground: hsl(0 0% 100%);
+  --field-placeholder: hsl(210 9% 58% / 0.7);
+  --field-border: hsl(204 4% 35%);
+  --border: hsl(204 4% 31%);
+  --separator: hsl(204 4% 25%);
+
+  --success: hsl(98 21% 44%);
+  --success-foreground: hsl(0 0% 10%);
+  --warning: hsl(37 100% 71%);
+  --warning-foreground: hsl(0 0% 10%);
+  --danger: hsl(1 52% 49%);
+  --danger-foreground: hsl(0 0% 100%);
+
+  --overlay-shadow: 0 8px 24px -8px hsl(0 0% 0% / 0.5);
+  --modal-shadow: 0 12px 32px -12px hsl(0 0% 0% / 0.5);
+
+  --page-base: hsl(204 4% 19%);
+  --page-glow: hsl(219 40% 49% / 0.12);
+  --page-corner: hsl(219 40% 49% / 0.06);
+  --page-top: hsl(204 4% 17%);
+  --page-mid: hsl(204 4% 17%);
+  --page-bottom: hsl(204 4% 19%);
+
+  --glass-edge: hsl(211 20% 72% / 0.1);
+  --glass-edge-strong: hsl(211 20% 72% / 0.15);
+  --glass-edge-hover: hsl(211 20% 72% / 0.22);
+  --glass-dock: hsl(204 4% 19% / 0.88);
+  --glass-sidebar: hsl(204 4% 19% / 0.85);
+  --glass-header: hsl(204 4% 17% / 0.85);
+  --glass-card: hsl(204 4% 23% / 0.7);
+  --glass-card-hover: hsl(204 4% 28% / 0.75);
+  --glass-pill: hsl(204 4% 28% / 0.6);
+  --glass-input: hsl(204 4% 19% / 0.65);
+  --row-stripe: hsl(211 20% 72% / 0.035);
+
+  --color-selection: hsl(219 45% 65% / 0.45);
+  --color-selection-strong: hsl(219 45% 65% / 0.3);
+  --color-grid-line: hsl(211 20% 72% / 0.05);
+  --color-syntax-keyword: #cc7832;
+  --color-syntax-string: #6a8759;
+  --color-syntax-number: #6897bb;
+  --color-syntax-comment: #808080;
+  --color-syntax-operator: #a9b7c6;
+  --color-syntax-type: #9876aa;
+
+  --color-series-1: hsl(206 38% 57%);
+  --color-series-2: hsl(98 21% 44%);
+  --color-series-3: hsl(27 61% 50%);
+  --color-series-4: hsl(279 23% 56%);
+  --color-series-5: hsl(37 100% 71%);
+  --color-series-6: hsl(98 21% 44%);
+  --color-series-7: hsl(219 40% 49%);
+
+  --scrollbar-thumb: #515558;
+  --scrollbar-thumb-hover: #565a5d;
+  --scrollbar-track: transparent;
+}
+
+:root[data-theme="nocturne"] {
+  color-scheme: dark;
+
+  --background: hsl(231 15% 18%);
+  --foreground: hsl(60 30% 96%);
+
+  --surface: hsl(231 15% 24%);
+  --surface-secondary: hsl(231 15% 29%);
+  --surface-tertiary: hsl(231 15% 34%);
+  --surface-hover: hsl(60 30% 96% / 0.07);
+  --overlay: hsl(231 15% 23%);
+  --surface-elevated: hsl(231 15% 24%);
+  --backdrop: hsl(0 0% 0% / 0.6);
+  --default: hsl(231 15% 29%);
+  --field: hsl(231 15% 20%);
+  --segment: hsl(231 15% 24%);
+
+  --muted: hsl(226 31% 66%);
+  --accent: hsl(265 89% 78%);
+  --accent-foreground: hsl(231 15% 18%);
+  --field-placeholder: hsl(226 31% 66% / 0.7);
+  --field-border: hsl(231 15% 36%);
+  --border: hsl(231 15% 32%);
+  --separator: hsl(231 15% 26%);
+
+  --success: hsl(135 94% 65%);
+  --success-foreground: hsl(0 0% 10%);
+  --warning: hsl(31 100% 71%);
+  --warning-foreground: hsl(0 0% 10%);
+  --danger: hsl(0 100% 67%);
+  --danger-foreground: hsl(0 0% 100%);
+
+  --overlay-shadow: 0 8px 24px -8px hsl(0 0% 0% / 0.5);
+  --modal-shadow: 0 12px 32px -12px hsl(0 0% 0% / 0.5);
+
+  --page-base: hsl(231 15% 20%);
+  --page-glow: hsl(265 89% 78% / 0.12);
+  --page-corner: hsl(265 89% 78% / 0.06);
+  --page-top: hsl(231 15% 18%);
+  --page-mid: hsl(231 15% 18%);
+  --page-bottom: hsl(231 15% 20%);
+
+  --glass-edge: hsl(60 30% 96% / 0.1);
+  --glass-edge-strong: hsl(60 30% 96% / 0.15);
+  --glass-edge-hover: hsl(60 30% 96% / 0.22);
+  --glass-dock: hsl(231 15% 20% / 0.88);
+  --glass-sidebar: hsl(231 15% 20% / 0.85);
+  --glass-header: hsl(231 15% 18% / 0.85);
+  --glass-card: hsl(231 15% 24% / 0.7);
+  --glass-card-hover: hsl(231 15% 29% / 0.75);
+  --glass-pill: hsl(231 15% 29% / 0.6);
+  --glass-input: hsl(231 15% 20% / 0.65);
+  --row-stripe: hsl(60 30% 96% / 0.035);
+
+  --color-selection: hsl(217 70% 65% / 0.45);
+  --color-selection-strong: hsl(217 70% 65% / 0.3);
+  --color-grid-line: hsl(60 30% 96% / 0.05);
+  --color-syntax-keyword: #ff79c6;
+  --color-syntax-string: #f1fa8c;
+  --color-syntax-number: #bd93f9;
+  --color-syntax-comment: #6272a4;
+  --color-syntax-operator: #ff79c6;
+  --color-syntax-type: #8be9fd;
+
+  --color-series-1: hsl(265 89% 78%);
+  --color-series-2: hsl(191 97% 77%);
+  --color-series-3: hsl(135 94% 65%);
+  --color-series-4: hsl(31 100% 71%);
+  --color-series-5: hsl(326 100% 74%);
+  --color-series-6: hsl(135 94% 65%);
+  --color-series-7: hsl(265 89% 78%);
+
+  --scrollbar-thumb: #4a4d64;
+  --scrollbar-thumb-hover: #4e5269;
+  --scrollbar-track: transparent;
+}
+
+:root[data-theme="glacier"] {
+  color-scheme: dark;
+
+  --background: hsl(220 16% 22%);
+  --foreground: hsl(219 28% 88%);
+
+  --surface: hsl(220 16% 28%);
+  --surface-secondary: hsl(220 16% 33%);
+  --surface-tertiary: hsl(220 16% 38%);
+  --surface-hover: hsl(219 28% 88% / 0.07);
+  --overlay: hsl(220 16% 27%);
+  --surface-elevated: hsl(220 16% 28%);
+  --backdrop: hsl(0 0% 0% / 0.6);
+  --default: hsl(220 16% 33%);
+  --field: hsl(220 16% 24%);
+  --segment: hsl(220 16% 28%);
+
+  --muted: hsl(219 19% 62%);
+  --accent: hsl(213 32% 52%);
+  --accent-foreground: hsl(218 27% 94%);
+  --field-placeholder: hsl(219 19% 62% / 0.7);
+  --field-border: hsl(220 16% 40%);
+  --border: hsl(220 16% 36%);
+  --separator: hsl(220 16% 30%);
+
+  --success: hsl(92 28% 65%);
+  --success-foreground: hsl(0 0% 10%);
+  --warning: hsl(40 71% 73%);
+  --warning-foreground: hsl(0 0% 10%);
+  --danger: hsl(354 42% 56%);
+  --danger-foreground: hsl(0 0% 100%);
+
+  --overlay-shadow: 0 8px 24px -8px hsl(0 0% 0% / 0.5);
+  --modal-shadow: 0 12px 32px -12px hsl(0 0% 0% / 0.5);
+
+  --page-base: hsl(220 16% 24%);
+  --page-glow: hsl(213 32% 52% / 0.12);
+  --page-corner: hsl(213 32% 52% / 0.06);
+  --page-top: hsl(220 16% 22%);
+  --page-mid: hsl(220 16% 22%);
+  --page-bottom: hsl(220 16% 24%);
+
+  --glass-edge: hsl(219 28% 88% / 0.1);
+  --glass-edge-strong: hsl(219 28% 88% / 0.15);
+  --glass-edge-hover: hsl(219 28% 88% / 0.22);
+  --glass-dock: hsl(220 16% 24% / 0.88);
+  --glass-sidebar: hsl(220 16% 24% / 0.85);
+  --glass-header: hsl(220 16% 22% / 0.85);
+  --glass-card: hsl(220 16% 28% / 0.7);
+  --glass-card-hover: hsl(220 16% 33% / 0.75);
+  --glass-pill: hsl(220 16% 33% / 0.6);
+  --glass-input: hsl(220 16% 24% / 0.65);
+  --row-stripe: hsl(219 28% 88% / 0.035);
+
+  --color-selection: hsl(213 45% 65% / 0.45);
+  --color-selection-strong: hsl(213 45% 65% / 0.3);
+  --color-grid-line: hsl(219 28% 88% / 0.05);
+  --color-syntax-keyword: #81a1c1;
+  --color-syntax-string: #a3be8c;
+  --color-syntax-number: #b48ead;
+  --color-syntax-comment: #616e88;
+  --color-syntax-operator: #81a1c1;
+  --color-syntax-type: #88c0d0;
+
+  --color-series-1: hsl(193 43% 67%);
+  --color-series-2: hsl(92 28% 65%);
+  --color-series-3: hsl(40 71% 73%);
+  --color-series-4: hsl(311 20% 63%);
+  --color-series-5: hsl(14 51% 63%);
+  --color-series-6: hsl(92 28% 65%);
+  --color-series-7: hsl(213 32% 52%);
+
+  --scrollbar-thumb: #515c71;
+  --scrollbar-thumb-hover: #556077;
+  --scrollbar-track: transparent;
+}
+
+:root[data-theme="midnight"] {
+  color-scheme: dark;
+
+  --background: hsl(235 19% 13%);
+  --foreground: hsl(229 73% 86%);
+
+  --surface: hsl(235 19% 19%);
+  --surface-secondary: hsl(235 19% 24%);
+  --surface-tertiary: hsl(235 19% 29%);
+  --surface-hover: hsl(229 73% 86% / 0.07);
+  --overlay: hsl(235 19% 18%);
+  --surface-elevated: hsl(235 19% 19%);
+  --backdrop: hsl(0 0% 0% / 0.6);
+  --default: hsl(235 19% 24%);
+  --field: hsl(235 19% 15%);
+  --segment: hsl(235 19% 19%);
+
+  --muted: hsl(230 24% 58%);
+  --accent: hsl(221 89% 72%);
+  --accent-foreground: hsl(235 19% 13%);
+  --field-placeholder: hsl(230 24% 58% / 0.7);
+  --field-border: hsl(235 19% 31%);
+  --border: hsl(235 19% 27%);
+  --separator: hsl(235 19% 21%);
+
+  --success: hsl(89 51% 61%);
+  --success-foreground: hsl(0 0% 10%);
+  --warning: hsl(36 66% 64%);
+  --warning-foreground: hsl(0 0% 10%);
+  --danger: hsl(349 89% 72%);
+  --danger-foreground: hsl(0 0% 100%);
+
+  --overlay-shadow: 0 8px 24px -8px hsl(0 0% 0% / 0.5);
+  --modal-shadow: 0 12px 32px -12px hsl(0 0% 0% / 0.5);
+
+  --page-base: hsl(235 19% 15%);
+  --page-glow: hsl(221 89% 72% / 0.12);
+  --page-corner: hsl(221 89% 72% / 0.06);
+  --page-top: hsl(235 19% 13%);
+  --page-mid: hsl(235 19% 13%);
+  --page-bottom: hsl(235 19% 15%);
+
+  --glass-edge: hsl(229 73% 86% / 0.1);
+  --glass-edge-strong: hsl(229 73% 86% / 0.15);
+  --glass-edge-hover: hsl(229 73% 86% / 0.22);
+  --glass-dock: hsl(235 19% 15% / 0.88);
+  --glass-sidebar: hsl(235 19% 15% / 0.85);
+  --glass-header: hsl(235 19% 13% / 0.85);
+  --glass-card: hsl(235 19% 19% / 0.7);
+  --glass-card-hover: hsl(235 19% 24% / 0.75);
+  --glass-pill: hsl(235 19% 24% / 0.6);
+  --glass-input: hsl(235 19% 15% / 0.65);
+  --row-stripe: hsl(229 73% 86% / 0.035);
+
+  --color-selection: hsl(221 89% 65% / 0.45);
+  --color-selection-strong: hsl(221 89% 65% / 0.3);
+  --color-grid-line: hsl(229 73% 86% / 0.05);
+  --color-syntax-keyword: #bb9af7;
+  --color-syntax-string: #9ece6a;
+  --color-syntax-number: #ff9e64;
+  --color-syntax-comment: #565f89;
+  --color-syntax-operator: #89ddff;
+  --color-syntax-type: #7dcfff;
+
+  --color-series-1: hsl(221 89% 72%);
+  --color-series-2: hsl(89 51% 61%);
+  --color-series-3: hsl(36 66% 64%);
+  --color-series-4: hsl(261 85% 79%);
+  --color-series-5: hsl(202 100% 75%);
+  --color-series-6: hsl(89 51% 61%);
+  --color-series-7: hsl(221 89% 72%);
+
+  --scrollbar-thumb: #3c3e58;
+  --scrollbar-thumb-hover: #40435e;
+  --scrollbar-track: transparent;
+}
+
+:root[data-theme="parchment"] {
+  color-scheme: light;
+
+  --background: hsl(44 57% 94%);
+  --foreground: hsl(195 17% 35%);
+
+  --surface: hsl(44 57% 94%);
+  --surface-secondary: hsl(44 50% 90%);
+  --surface-tertiary: hsl(44 42% 85%);
+  --surface-hover: hsl(195 17% 35% / 0.06);
+  --overlay: hsl(44 57% 95%);
+  --surface-elevated: hsl(44 57% 96%);
+  --backdrop: hsl(195 17% 20% / 0.35);
+  --default: hsl(44 50% 90%);
+  --field: hsl(44 60% 97%);
+  --segment: hsl(44 50% 90%);
+
+  --muted: hsl(180 9% 42%);
+  --accent: hsl(205 69% 49%);
+  --accent-foreground: hsl(44 87% 96%);
+  --field-placeholder: hsl(180 9% 42% / 0.7);
+  --field-border: hsl(44 31% 77%);
+  --border: hsl(44 40% 84%);
+  --separator: hsl(44 40% 84%);
+
+  --success: hsl(68 100% 30%);
+  --success-foreground: hsl(0 0% 100%);
+  --warning: hsl(45 100% 35%);
+  --warning-foreground: hsl(0 0% 100%);
+  --danger: hsl(1 71% 52%);
+  --danger-foreground: hsl(0 0% 100%);
+
+  --overlay-shadow: 0 8px 24px -8px hsl(195 17% 35% / 0.2);
+  --modal-shadow: 0 12px 32px -12px hsl(195 17% 35% / 0.2);
+
+  --page-base: hsl(44 53% 92%);
+  --page-glow: hsl(205 69% 49% / 0.14);
+  --page-corner: hsl(205 69% 49% / 0.08);
+  --page-top: hsl(44 57% 94%);
+  --page-mid: hsl(44 57% 94%);
+  --page-bottom: hsl(44 53% 92%);
+
+  --glass-edge: hsl(195 17% 35% / 0.1);
+  --glass-edge-strong: hsl(195 17% 35% / 0.15);
+  --glass-edge-hover: hsl(195 17% 35% / 0.22);
+  --glass-dock: hsl(44 51% 91% / 0.88);
+  --glass-sidebar: hsl(44 51% 91% / 0.85);
+  --glass-header: hsl(44 57% 94% / 0.85);
+  --glass-card: hsl(44 57% 94% / 0.7);
+  --glass-card-hover: hsl(44 50% 90% / 0.75);
+  --glass-pill: hsl(44 50% 90% / 0.6);
+  --glass-input: hsl(44 57% 94% / 0.65);
+  --row-stripe: hsl(195 17% 35% / 0.035);
+
+  --color-selection: hsl(205 69% 55% / 0.45);
+  --color-selection-strong: hsl(205 69% 55% / 0.3);
+  --color-grid-line: hsl(195 17% 35% / 0.05);
+  --color-syntax-keyword: #859900;
+  --color-syntax-string: #2aa198;
+  --color-syntax-number: #d33682;
+  --color-syntax-comment: #93a1a1;
+  --color-syntax-operator: #657b83;
+  --color-syntax-type: #268bd2;
+
+  --color-series-1: hsl(205 69% 49%);
+  --color-series-2: hsl(175 59% 40%);
+  --color-series-3: hsl(68 100% 30%);
+  --color-series-4: hsl(45 100% 35%);
+  --color-series-5: hsl(331 64% 52%);
+  --color-series-6: hsl(68 100% 30%);
+  --color-series-7: hsl(205 69% 49%);
+
+  --scrollbar-thumb: #d3c9ad;
+  --scrollbar-thumb-hover: #c4b99b;
+  --scrollbar-track: transparent;
+
+  --color-env-local: oklch(0.53 0.15 150);
+  --color-env-staging: oklch(0.58 0.13 70);
+  --color-env-production: oklch(0.53 0.21 26);
 }
 
 /* WHAT:  Publishes the variables above as Tailwind utilities.
@@ -376,29 +848,40 @@
      the element's radius. A global outline here stacked a second, square box on
      top of that ring — most visible on the settings nav. */
 
-  /* Density: one setting, three sizes of chrome. The window drag strip stays
-     44px at every density because the macOS traffic lights are positioned
-     against it in tauri.conf.json. */
+  /* Density: one setting, three sizes of chrome, compact by default. The bare
+     `:root` block is the compact scale, so the app is dense before the
+     `data-density` attribute lands; "cozy" and "comfortable" each step up one
+     notch from it. The window drag strip (--titlebar-h) is the same at every
+     density because the macOS traffic lights are positioned against it in
+     tauri.conf.json (trafficLightPosition.y = (--titlebar-h - 12px) / 2). */
   :root {
-    --toolbar-h: 2.75rem;
+    --titlebar-h: 2rem;
+    --toolbar-h: 2rem;
+    --panel-pad-x: 0.5rem;
+    --panel-pad-y: 0.25rem;
+    --row-h: 1.375rem;
+    --stack-gap: 0.125rem;
+  }
+  :root[data-density="compact"] {
+    --toolbar-h: 2rem;
+    --panel-pad-x: 0.5rem;
+    --panel-pad-y: 0.25rem;
+    --row-h: 1.375rem;
+    --stack-gap: 0.125rem;
+  }
+  :root[data-density="cozy"] {
+    --toolbar-h: 2.25rem;
+    --panel-pad-x: 0.625rem;
+    --panel-pad-y: 0.375rem;
+    --row-h: 1.625rem;
+    --stack-gap: 0.25rem;
+  }
+  :root[data-density="comfortable"] {
+    --toolbar-h: 2.5rem;
     --panel-pad-x: 0.75rem;
     --panel-pad-y: 0.5rem;
     --row-h: 1.875rem;
     --stack-gap: 0.375rem;
-  }
-  :root[data-density="compact"] {
-    --toolbar-h: 2.25rem;
-    --panel-pad-x: 0.5rem;
-    --panel-pad-y: 0.25rem;
-    --row-h: 1.625rem;
-    --stack-gap: 0.125rem;
-  }
-  :root[data-density="comfortable"] {
-    --toolbar-h: 3.25rem;
-    --panel-pad-x: 1rem;
-    --panel-pad-y: 0.75rem;
-    --row-h: 2.25rem;
-    --stack-gap: 0.5rem;
   }
 
   html,
@@ -415,8 +898,8 @@
     background-attachment: fixed;
     color: var(--foreground);
     font-family: var(--font-sans);
-    font-size: 13px;
-    line-height: 1.45;
+    font-size: 12px;
+    line-height: 1.4;
     -webkit-font-smoothing: antialiased;
     overflow: hidden;
     user-select: none;
@@ -437,6 +920,12 @@
    nothing. White on dark, ink on light (--row-stripe). */
 @utility row-stripe {
   background-color: var(--row-stripe);
+}
+
+/* The strip along the top of the window: tab bar, sidebar headers, page headers.
+   Fixed across densities (see the note on --titlebar-h above). */
+@utility app-titlebar {
+  height: var(--titlebar-h);
 }
 
 @utility app-toolbar {
@@ -471,6 +960,47 @@
     linear-gradient(90deg, var(--color-grid-line) 1px, transparent 1px);
   background-size: 100% 100%, 100% 100%, 100% 100%, 36px 36px, 36px 36px;
   background-position: 0 0, 0 0, 0 0, -1px -1px, -1px -1px;
+}
+
+/* WHAT:  Scrollbar thickness for data grids (Settings → Data Grid → Scrollbar size).
+   WHY:   A thin scrollbar is hard to grab on a trackpad-less desk setup; "large"
+          makes the grid's scrollbars the platform default width.
+   HOW:   App.tsx writes `data-scrollbar` on <html>; the grid adds the
+          `grid-scrollbar` class to its scroller. The standard properties win in
+          current engines; the ::-webkit-scrollbar rules cover older WebKit,
+          which ignores `scrollbar-width`. !important beats the ScrollArea
+          primitive's own thin-scrollbar utilities.
+   WHERE: src/components/ui/scroll-area.tsx, src/features/grid/DataGrid.tsx */
+:root {
+  --grid-scrollbar-width: thin;
+  --grid-scrollbar-size: 8px;
+}
+:root[data-scrollbar="large"] {
+  --grid-scrollbar-width: auto;
+  --grid-scrollbar-size: 14px;
+}
+
+@utility grid-scrollbar {
+  scrollbar-width: var(--grid-scrollbar-width) !important;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track) !important;
+
+  &::-webkit-scrollbar {
+    width: var(--grid-scrollbar-size);
+    height: var(--grid-scrollbar-size);
+  }
+
+  &::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: calc(var(--grid-scrollbar-size) / 2);
+  }
+
+  &::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
 }
 
 @utility drag-region {

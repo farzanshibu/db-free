@@ -66,8 +66,8 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
           <>
             <Field label="Channel" value={channel} onChange={setChannel} placeholder="events:orders" mono />
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">Message</span>
-              <Textarea aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} spellCheck={false} className="min-h-28 font-mono text-[12px]" placeholder='{"order": 42, "status": "paid"}' />
+              <span className="text-[11px] font-medium text-muted">Message</span>
+              <Textarea aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} spellCheck={false} className="min-h-24 font-mono text-xs" placeholder='{"order": 42, "status": "paid"}' />
             </div>
             <Button onClick={() => void publish()} disabled={running}>
               {running ? <Spinner size="sm" /> : <Icon name="send" size={13} />}
@@ -75,7 +75,7 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
             </Button>
             {error !== null ? <p className="text-xs text-danger">{error}</p> : null}
             {log.length > 0 ? (
-              <ul className="flex flex-col gap-0.5 border-t border-border/40 pt-2 font-mono text-[10px] text-muted">
+              <ul className="flex flex-col gap-0.5 border-t border-border/40 pt-1.5 font-mono text-[10px] text-muted">
                 {log.map((entry, i) => (
                   <li key={`${entry.at}-${i}`} className="flex gap-2">
                     <span>{entry.at}</span>
@@ -89,7 +89,7 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
         }
       >
         <div className="flex h-full min-h-0 flex-col">
-          <div className="flex h-9 shrink-0 items-center gap-2 border-b border-border/40 px-3 text-[11px] text-muted">
+          <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border/40 px-2.5 text-[11px] text-muted">
             Active channels {loading ? <Spinner size="sm" /> : null}
             <span className="ml-auto">Subscribers are counted server-side; a channel appears once someone subscribes.</span>
           </div>

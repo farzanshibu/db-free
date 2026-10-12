@@ -2,7 +2,7 @@
 import { cn } from "@/lib/cn";
 import { Icon } from "@/lib/icons";
 
-const SIZES = { sm: 14, md: 16, lg: 24 } satisfies Record<string, number>;
+const SIZES = { sm: 12, md: 14, lg: 20 } satisfies Record<string, number>;
 
 export interface SpinnerProps {
   size?: keyof typeof SIZES;

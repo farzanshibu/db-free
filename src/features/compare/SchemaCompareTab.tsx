@@ -113,8 +113,8 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
         />
       ) : (
         <div className="flex min-h-0 flex-1">
-          <div className="flex w-[280px] shrink-0 flex-col border-r border-border/40">
-            <div className="flex flex-col gap-2 p-2.5">
+          <div className="flex w-64 shrink-0 flex-col border-r border-border/40">
+            <div className="flex flex-col gap-2 p-2">
               <Segmented label="Filter differences" value={filter} onChange={setFilter} options={FILTERS} />
               <div className="flex flex-wrap gap-1 text-[10.5px]">
                 {STATUS_ORDER.map((s) => (
@@ -124,9 +124,9 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
                 ))}
               </div>
             </div>
-            <ScrollArea className="min-h-0 flex-1 px-1.5 pb-2">
+            <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
               {visible.length === 0 ? (
-                <p className="px-2 py-3 text-xs text-muted">{filter === "changes" ? "No differences: the schemas match." : "Nothing in this filter."}</p>
+                <p className="px-2 py-2 text-xs text-muted">{filter === "changes" ? "No differences: the schemas match." : "Nothing in this filter."}</p>
               ) : (
                 visible.map((t) => (
                   <Button
@@ -134,7 +134,7 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
                     variant="ghost"
                     size="sm"
                     onClick={() => setSelected(t.name)}
-                    className={cn("flex h-7.5 w-full justify-start gap-2 rounded-lg px-2 text-[12.5px]", selected === t.name ? "bg-surface-secondary text-foreground" : "text-muted")}
+                    className={cn("flex h-6 w-full justify-start gap-2 rounded-md px-2 text-xs", selected === t.name ? "bg-surface-secondary text-foreground" : "text-muted")}
                   >
                     <Icon name="table" size={13} className="shrink-0 opacity-70" />
                     <span className="min-w-0 flex-1 truncate text-left">{t.name}</span>
@@ -149,7 +149,7 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
 
           <div className="flex min-w-0 flex-1 flex-col">
             {result.notes.length > 0 ? (
-              <ul className="shrink-0 space-y-0.5 border-b border-border/40 bg-warning-soft/40 px-3 py-1.5 text-[11.5px] text-warning">
+              <ul className="shrink-0 space-y-0.5 border-b border-border/40 bg-warning-soft/40 px-2.5 py-1 text-[11px] text-warning">
                 {result.notes.map((n) => (
                   <li key={n} className="flex items-start gap-1.5">
                     <Icon name="alert" size={12} className="mt-0.5 shrink-0" />
@@ -162,7 +162,7 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
               {current === null ? <EmptyState title="Pick a table" body="Select a table on the left to see its columns side by side." /> : <TableDetail table={current} leftName={leftName} rightName={rightName} />}
             </div>
             <div className="flex h-[40%] min-h-[160px] shrink-0 flex-col border-t border-border/40">
-              <div className="flex h-9 shrink-0 items-center gap-2 px-3 text-xs text-muted">
+              <div className="flex h-7 shrink-0 items-center gap-2 px-2.5 text-xs text-muted">
                 <Icon name="file" size={13} />
                 <span className="font-medium text-foreground">Migration script</span>
                 <span className="truncate">runs on {target === leftId ? leftName : rightName}</span>
@@ -175,8 +175,8 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
                   Open in query tab
                 </Button>
               </div>
-              <ScrollArea className="min-h-0 flex-1 px-3 pb-3">
-                <pre className="selectable rounded-xl glass-card p-3 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground">{result.script}</pre>
+              <ScrollArea className="min-h-0 flex-1 px-2.5 pb-2">
+                <pre className="selectable rounded-lg glass-card p-2.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground">{result.script}</pre>
               </ScrollArea>
             </div>
           </div>
@@ -192,10 +192,10 @@ const CHANGE_LABEL = { type: "type", nullable: "nullability", primary_key: "prim
 //        is tinted on both sides, a one-sided column on its own row.
 function TableDetail({ table, leftName, rightName }: { table: TableDiff; leftName: string; rightName: string }) {
   return (
-    <div className="flex flex-col gap-3 p-3">
+    <div className="flex flex-col gap-2 p-2.5">
       <div className="flex items-center gap-2">
         <Icon name="table" size={14} className="text-accent" />
-        <span className="text-sm font-medium text-foreground">{table.name}</span>
+        <span className="text-[13px] font-medium text-foreground">{table.name}</span>
         <Badge size="sm" variant={DIFF_STATUS[table.status].variant}>
           {DIFF_STATUS[table.status].label}
         </Badge>
@@ -225,7 +225,7 @@ function TableDetail({ table, leftName, rightName }: { table: TableDiff; leftNam
           {table.foreignKeys.map((fk, i) => {
             const key = fk.left ?? fk.right;
             return key ? (
-              <div key={`${key.name}:${i}`} className="flex items-center gap-2 font-mono text-[11.5px] text-foreground">
+              <div key={`${key.name}:${i}`} className="flex items-center gap-2 font-mono text-[11px] text-foreground">
                 <Badge size="sm" variant={DIFF_STATUS[fk.status].variant}>
                   {DIFF_STATUS[fk.status].label}
                 </Badge>

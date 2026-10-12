@@ -106,7 +106,7 @@ function XmlNodeView({ node, collapsed, onToggle, depth }: { node: XmlNode; coll
           <span className="text-muted">{hasChildren || node.text !== null ? ">" : " />"}</span>
           {!hasChildren && node.text !== null ? (
             <>
-              <span className={cn("text-foreground", node.text.length > 120 ? "block whitespace-pre-wrap pl-4" : "")}>{node.text}</span>
+              <span className={cn("text-foreground", node.text.length > 120 ? "block whitespace-pre-wrap pl-3" : "")}>{node.text}</span>
               <span className="text-muted">&lt;/</span>
               <span className="text-syntax-keyword">{node.name}</span>
               <span className="text-muted">&gt;</span>
@@ -124,11 +124,11 @@ function XmlNodeView({ node, collapsed, onToggle, depth }: { node: XmlNode; coll
       </div>
       {hasChildren && open ? (
         <>
-          {node.text !== null ? <div className="pl-8 text-foreground">{node.text}</div> : null}
+          {node.text !== null ? <div className="pl-5 text-foreground">{node.text}</div> : null}
           {node.children.map((child) => (
             <XmlNodeView key={child.path} node={child} collapsed={collapsed} onToggle={onToggle} depth={depth + 1} />
           ))}
-          <div className="pl-4">
+          <div className="pl-3">
             <span className="text-muted">&lt;/</span>
             <span className="text-syntax-keyword">{node.name}</span>
             <span className="text-muted">&gt;</span>

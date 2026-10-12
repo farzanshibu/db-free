@@ -18,7 +18,7 @@ export function Message({ className, from, ...props }: MessageProps) {
     <div
       data-slot="message"
       data-from={from}
-      className={cn("flex w-full min-w-0 gap-2", from === "user" ? "justify-end" : "justify-start", className)}
+      className={cn("flex w-full min-w-0 gap-1.5", from === "user" ? "justify-end" : "justify-start", className)}
       {...props}
     />
   );
@@ -28,7 +28,7 @@ const messageContentVariants = cva("min-w-0 text-xs leading-relaxed selectable",
   variants: {
     variant: {
       /// A bubble: the user's own words, and short system notices.
-      contained: "max-w-[85%] rounded-2xl px-3 py-2 shadow-sm",
+      contained: "max-w-[85%] rounded-xl px-2.5 py-1.5 shadow-sm",
       /// No bubble: assistant output that carries its own blocks (code, charts).
       flat: "flex w-full flex-col",
     },
@@ -56,7 +56,7 @@ export function MessageAvatar({ className, children, ...props }: MessageAvatarPr
   return (
     <div
       data-slot="message-avatar"
-      className={cn("flex size-6 shrink-0 items-center justify-center rounded-lg bg-accent/15 text-accent", className)}
+      className={cn("flex size-5 shrink-0 items-center justify-center rounded-md bg-accent/15 text-accent", className)}
       {...props}
     >
       {children}

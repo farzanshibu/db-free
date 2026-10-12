@@ -96,7 +96,7 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
             {mode === "consume" ? (
               <>
                 <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-foreground">Start</span>
+                  <span className="text-[11px] font-medium text-muted">Start</span>
                   <Segmented label="Start position" value={start} onChange={setStart} options={[{ value: "earliest", label: "Earliest" }, { value: "latest", label: "Latest" }, { value: "offset", label: "Offset" }]} />
                 </div>
                 {start === "offset" ? <NumberInput label="Offset" integer value={offset} onChange={setOffset} /> : null}
@@ -110,12 +110,12 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
               <>
                 <Field label="Key" value={key} onChange={setKey} optional mono />
                 <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-foreground">Value</span>
-                  <Textarea aria-label="Message value" value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} className="min-h-28 font-mono text-[12px]" placeholder='{"event": "signup", "user": 42}' />
+                  <span className="text-[11px] font-medium text-muted">Value</span>
+                  <Textarea aria-label="Message value" value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} className="min-h-24 font-mono text-xs" placeholder='{"event": "signup", "user": 42}' />
                 </div>
                 <div className="flex flex-col gap-1">
-                  <span className="text-sm font-medium text-foreground">Headers</span>
-                  <Textarea aria-label="Headers" value={headers} onChange={(e) => setHeaders(e.target.value)} spellCheck={false} className="min-h-16 font-mono text-[12px]" placeholder='{"source": "db-free"}' />
+                  <span className="text-[11px] font-medium text-muted">Headers</span>
+                  <Textarea aria-label="Headers" value={headers} onChange={(e) => setHeaders(e.target.value)} spellCheck={false} className="min-h-14 font-mono text-xs" placeholder='{"source": "db-free"}' />
                 </div>
                 <Button onClick={() => void produce()} disabled={running || current.length === 0 || value.length === 0}>
                   {running ? <Spinner size="sm" /> : <Icon name="send" size={13} />}
