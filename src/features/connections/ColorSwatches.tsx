@@ -22,7 +22,7 @@ export function ColorSwatches({ value, onChange }: { value: ConnectionColor | nu
           aria-checked={value === null}
           aria-label="No colour"
           onClick={() => onChange(null)}
-          className={cn("size-7 rounded-full border border-border p-0 text-muted", value === null ? "ring-2 ring-ring" : "")}
+          className={cn("size-6 rounded-full border border-border p-0 text-muted", value === null ? "ring-2 ring-ring" : "")}
         >
           <Icon name="x" size={12} />
         </Button>
@@ -39,10 +39,10 @@ export function ColorSwatches({ value, onChange }: { value: ConnectionColor | nu
               aria-label={meta.label}
               title={meta.label}
               onClick={() => onChange(color)}
-              className={cn("size-7 rounded-full p-0", selected ? "ring-2 ring-ring" : "")}
+              className={cn("size-6 rounded-full p-0", selected ? "ring-2 ring-ring" : "")}
             >
-              <span aria-hidden className={cn("flex size-5 items-center justify-center rounded-full text-background", meta.fill)}>
-                {selected ? <Icon name="check" size={11} /> : null}
+              <span aria-hidden className={cn("flex size-4 items-center justify-center rounded-full text-background", meta.fill)}>
+                {selected ? <Icon name="check" size={10} /> : null}
               </span>
             </Button>
           );

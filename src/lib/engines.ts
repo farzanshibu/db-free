@@ -1,5 +1,8 @@
 // SOT: engine-registry, engine-labels, engine-categories, engine-presets, connection-string-parser, form-field-labels
-import type { ConnectionInput, Engine, EngineKind, FormKind, SshTunnel, SslMode } from "./bindings";
+import type { ConnectionExtras, ConnectionInput, Engine, EngineKind, Family, FormKind, SshTunnel, SslMode } from "./bindings";
+import { ENGINE_FACTS } from "./bindings/EngineFacts.gen";
+import { defaultAuth, emptyAuthSecrets } from "./cloudAuth";
+import { isSecretParam, paramValue, splitUri } from "./connectionUri";
 import type { IconName } from "./icons";
 
 // WHAT:  UI metadata per engine, keyed by the Rust `Engine` enum.
@@ -33,6 +36,15 @@ export interface EngineMeta {
   fields?: Partial<FieldLabels>;
   /// Placeholder shown for the host / URL field.
   hostPlaceholder?: string;
+}
+
+// WHAT:  One line of help shown in the connection form for an engine.
+// WHY:   Hosted services fail in ways the error message does not explain (a
+//        Supabase direct host that only speaks IPv6, a Turso token that is not
+//        the password). Saying it before the first attempt saves the round trip.
+export interface EngineNotice {
+  tone: "info" | "warning";
+  text: string;
 }
 
 // WHAT:  Labels for the connection form; engines override what a field means
@@ -93,7 +105,8 @@ export const ENGINES = {
   oracle: server({ label: "Oracle Database", kind: "relational", defaultPort: 1521, defaultDatabase: "FREEPDB1", defaultUser: "system", hint: "Relational · PL/SQL", schemes: ["oracle", "oracledb"], fields: { database: "Service name / SID" } }),
   supabase: server({ label: "Supabase", kind: "relational", defaultPort: 5432, defaultDatabase: "postgres", defaultUser: "postgres", hint: "Postgres · managed cloud", schemes: ["supabase"], sslMode: "require" }),
   neon: server({ label: "Neon", kind: "relational", defaultPort: 5432, defaultDatabase: "neondb", hint: "Postgres · serverless cloud", schemes: ["neon"], sslMode: "require" }),
-  planetscale: server({ label: "PlanetScale", kind: "relational", defaultPort: 3306, hint: "MySQL · serverless cloud", schemes: ["planetscale", "psdb"], sslMode: "require" }),
+  planetscale: server({ label: "PlanetScale", kind: "relational", defaultPort: 3306, hint: "MySQL · serverless cloud", schemes: ["planetscale", "psdb"], sslMode: "verify_full" }),
+  planetscale_postgres: server({ label: "PlanetScale Postgres", kind: "relational", defaultPort: 5432, defaultDatabase: "postgres", hint: "Postgres · serverless cloud", schemes: ["planetscale-postgres"], sslMode: "verify_full" }),
 
   // ---- Document
   mongodb: server({ label: "MongoDB", kind: "document", defaultPort: 27017, defaultDatabase: "test", icon: "braces", hint: "Documents · JSON commands", commandLanguage: "Command", schemes: ["mongodb", "mongodb+srv"] }),
@@ -315,6 +328,56 @@ export function fieldLabels(engine: Engine): FieldLabels {
   return { ...DEFAULT_FIELD_LABELS, ...(REGISTRY[engine].fields ?? {}) };
 }
 
+// WHAT:  One line of help for the connection form.
+// WHY:   Hosted services fail in ways the error message does not explain (a
+//        Supabase direct host that only speaks IPv6, a Turso token that is not a
+//        password). Saying it before the first attempt saves the round trip.
+export interface EngineNotice {
+  tone: "info" | "warning";
+  text: string;
+}
+
+// Kept apart from `ENGINES` so each of those entries stays one line, which is
+// the shape scripts/guardrail.py reads when it checks them against Rust.
+const ENGINE_NOTICES: Partial<Record<Engine, EngineNotice>> = {
+  supabase: {
+    tone: "warning",
+    text: "Direct connections (db.<project>.supabase.co) are IPv6-only. On an IPv4 network use the Session pooler host from the dashboard's Connect panel (aws-0-<region>.pooler.supabase.com) with the user postgres.<project-ref>.",
+  },
+  neon: {
+    tone: "info",
+    text: "Compute endpoints suspend when idle, so the first connection can take a few seconds. Use the pooled host (…-pooler.….neon.tech) when many clients connect at once.",
+  },
+  planetscale: {
+    tone: "info",
+    text: "Use the host, user and password from your branch's Connect dialog (…connect.psdb.cloud). Passwords belong to a branch, and TLS is required and verified.",
+  },
+  planetscale_postgres: {
+    tone: "info",
+    text: "Use the host, user and password from your database's Connect dialog (…psdb.cloud). TLS is required and verified.",
+  },
+  clickhouse: {
+    tone: "info",
+    text: "DB Free uses ClickHouse's HTTP interface: port 8123, or 8443 with TLS on (ClickHouse Cloud). The native port 9000 is not spoken.",
+  },
+  libsql: {
+    tone: "info",
+    text: "The password field takes an auth token, not a password: create one with `turso db tokens create <database>`.",
+  },
+  cloudflare_d1: {
+    tone: "info",
+    text: "Host is your Cloudflare account ID, Database is the D1 database ID (a UUID, not its name), and the token needs D1 edit permission.",
+  },
+  mongodb: {
+    tone: "info",
+    text: "Atlas clusters use a mongodb+srv:// address: switch on \"Use SRV record\" and enter the cluster name without a port. Users are usually created in the admin database.",
+  },
+};
+
+export function engineNotice(engine: Engine): EngineNotice | null {
+  return ENGINE_NOTICES[engine] ?? null;
+}
+
 // WHAT:  Hosted services that are one of the engines above with fixed settings.
 export interface EnginePreset {
   id: string;
@@ -336,6 +399,12 @@ export function blankSsh(): SshTunnel {
   return { enabled: false, host: null, port: 22, user: null, auth: "password", keyPath: null, hostKey: null };
 }
 
+// WHAT:  Per-connection extras of a new connection: no URI parameters, no TLS files, no tags or folders.
+// WHERE: src-tauri/src/model/connection_org.rs (`ConnectionExtras`)
+export function blankExtras(): ConnectionExtras {
+  return { uriParams: null, srv: false, tls: { caPath: null, certPath: null, keyPath: null }, tagIds: [], folderIds: [], transient: false, tunnelOriginHost: null };
+}
+
 export function blankInput(engine: Engine, preset?: EnginePreset): ConnectionInput {
   const meta = engineMeta(engine);
   const isFile = meta.form === "file";
@@ -344,7 +413,7 @@ export function blankInput(engine: Engine, preset?: EnginePreset): ConnectionInp
     engine,
     environment: "none",
     readOnly: false,
-    host: isFile ? null : (preset?.host ?? (meta.form === "server" ? "localhost" : meta.form === "http_token" && meta.defaultPort !== null ? "localhost" : "")),
+    host: isFile ? null : (preset?.host ?? (meta.form === "server" ? "localhost" : meta.form === "http_token" && meta.defaultPort !== null ? "localhost" : meta.form === "aws" ? "us-east-1" : "")),
     port: meta.defaultPort,
     database: isFile ? null : meta.defaultDatabase,
     username: isFile ? null : meta.defaultUser,
@@ -356,54 +425,244 @@ export function blankInput(engine: Engine, preset?: EnginePreset): ConnectionInp
     folder: null,
     color: null,
     favorite: false,
+    // MongoDB users live in `admin` unless the connection says otherwise; stating it
+    // keeps a form-built connection signing in the way it always has.
+    extra: { ...blankExtras(), uriParams: engine === "mongodb" ? "authSource=admin" : null },
+    auth: defaultAuth("password"),
+    authSecrets: emptyAuthSecrets(),
   };
 }
 
+// ============================================================================
+// Connection strings
+// ============================================================================
+
+export function engineFamily(engine: Engine): Family {
+  return ENGINE_FACTS[engine].family;
+}
+
+// WHAT:  Whether two engines are spoken to by the same adapter (a `postgres://`
+//        string is fine in a TimescaleDB or CockroachDB form).
+export function sharesAdapter(a: Engine, b: Engine): boolean {
+  return engineFamily(a) === engineFamily(b);
+}
+
+/// Hosts that only ever serve TLS. `verify_full` where the provider's certificates chain to a public CA.
+const CLOUD_HOSTS: readonly { suffix: string; ssl: SslMode }[] = [
+  { suffix: ".supabase.co", ssl: "require" },
+  { suffix: ".supabase.com", ssl: "require" },
+  { suffix: ".neon.tech", ssl: "require" },
+  { suffix: ".psdb.cloud", ssl: "verify_full" },
+  { suffix: ".turso.io", ssl: "require" },
+  { suffix: ".rds.amazonaws.com", ssl: "require" },
+  { suffix: ".redshift.amazonaws.com", ssl: "require" },
+  { suffix: ".database.azure.com", ssl: "require" },
+  { suffix: ".database.windows.net", ssl: "require" },
+  { suffix: ".postgres.database.azure.com", ssl: "require" },
+  { suffix: ".mongodb.net", ssl: "require" },
+  { suffix: ".cockroachlabs.cloud", ssl: "require" },
+  { suffix: ".tsdb.cloud", ssl: "require" },
+];
+
+function hostName(host: string): string {
+  // `user@` never reaches here; strip a port and a trailing dot, lower-case.
+  const noPort = host.startsWith("[") ? host : (host.split(":")[0] ?? host);
+  return noPort.toLowerCase().replace(/\.$/, "");
+}
+
+// WHAT:  The TLS posture a cloud host calls for (Supabase, Neon, RDS, Azure, Atlas…), or null.
+// WHY:   These hosts reject plaintext; defaulting to `prefer` would work by luck
+//        of the fallback and `disable` would fail with a confusing reset.
+export function cloudHostSslMode(host: string | null): SslMode | null {
+  if (host === null) return null;
+  const name = hostName(host);
+  return CLOUD_HOSTS.find((c) => name.endsWith(c.suffix))?.ssl ?? null;
+}
+
+// WHAT:  The engine a pasted connection string really is, going by its host.
+// WHY:   `postgresql://…@db.abc.supabase.co` is Supabase, not generic Postgres:
+//        picking the preset keeps the notice, TLS default and icon right.
+//        Only the generic engines are refined; an explicit scheme such as
+//        `timescale://` is never overridden.
+export function engineForHost(engine: Engine, host: string | null): Engine {
+  if (host === null) return engine;
+  const name = hostName(host);
+  if (engine === "postgres") {
+    if (name.endsWith(".supabase.co") || name.endsWith(".supabase.com")) return "supabase";
+    if (name.endsWith(".neon.tech")) return "neon";
+    if (name.endsWith(".psdb.cloud")) return "planetscale_postgres";
+  }
+  if (engine === "mysql" && name.endsWith(".psdb.cloud")) return "planetscale";
+  return engine;
+}
+
+export type TlsFileSupport = "none" | "ca" | "mutual" | "bundle";
+
+// WHAT:  Which certificate files the engine's adapter reads.
+// WHY:   A field that is saved and then ignored is worse than no field: the form
+//        offers exactly what `connect` applies. Postgres and MySQL take a CA plus a
+//        client certificate and key, MongoDB a CA plus one PEM holding both, SQL
+//        Server a CA only.
+export function tlsFileSupport(engine: Engine): TlsFileSupport {
+  if (REGISTRY[engine].form !== "server") return "none";
+  switch (engineFamily(engine)) {
+    case "postgres":
+    case "mysql":
+      return "mutual";
+    case "mongodb":
+      return "bundle";
+    case "mssql":
+      return "ca";
+    default:
+      return "none";
+  }
+}
+
+// WHAT:  Whether the engine's adapter reads `extra.uriParams`.
+// WHY:   Same rule as the TLS files: a field that is saved and then ignored is
+//        worse than no field. MongoDB takes every parameter (`authSource`,
+//        `replicaSet`, …) and PostgreSQL's family reads `application_name` and
+//        `options`; the other adapters take their settings from the fields.
+export function usesUriParams(engine: Engine): boolean {
+  const family = engineFamily(engine);
+  return REGISTRY[engine].form === "server" && (family === "mongodb" || family === "postgres");
+}
+
+/// MongoDB's `mongodb+srv://` scheme: the host is a DNS name that resolves to the members.
+export function supportsSrv(engine: Engine): boolean {
+  return engine === "mongodb";
+}
+
+function sslFromValue(value: string | null): SslMode | null {
+  switch ((value ?? "").toLowerCase()) {
+    case "require":
+    case "required":
+    case "true":
+    case "1":
+      return "require";
+    case "verify-ca":
+    case "verify_ca":
+      return "verify_ca";
+    case "verify-full":
+    case "verify_full":
+    case "verify_identity":
+      return "verify_full";
+    case "disable":
+    case "disabled":
+    case "false":
+    case "0":
+      return "disable";
+    case "prefer":
+    case "preferred":
+    case "allow":
+      return "prefer";
+    default:
+      return null;
+  }
+}
+
+/// Parameters the form turns into settings of its own, so they are not kept as raw options.
+const SSL_PARAMS: readonly string[] = ["sslmode", "ssl-mode", "ssl", "tls", "secure"];
+/// Parameters naming certificate files, mapped onto the TLS file fields.
+const TLS_FILE_PARAMS: readonly { key: string; field: "caPath" | "certPath" | "keyPath" }[] = [
+  { key: "sslrootcert", field: "caPath" },
+  { key: "sslcert", field: "certPath" },
+  { key: "sslkey", field: "keyPath" },
+  { key: "ssl-ca", field: "caPath" },
+  { key: "ssl-cert", field: "certPath" },
+  { key: "ssl-key", field: "keyPath" },
+  { key: "tlscafile", field: "caPath" },
+  { key: "tlscertificatekeyfile", field: "certPath" },
+];
+
+export interface ParsedConnection {
+  engine: Engine;
+  input: ConnectionInput;
+  /// Things the user should know were changed on the way in (a dropped password parameter…).
+  notes: string[];
+}
+
 // WHAT:  Parses `scheme://user:pass@host:port/db?sslmode=…` into a ConnectionInput.
-// WHY:   DB Manager's "paste a connection string to auto-detect" affordance.
-export function parseConnectionString(raw: string): ConnectionInput | null {
+// WHY:   DB Manager's "paste a connection string to auto-detect" affordance, kept
+//        whole: query parameters the form has no field for (`authSource`,
+//        `replicaSet`, `application_name`, `pgbouncer`…) survive as `extra.uriParams`
+//        and reach the driver, a cloud host picks the matching preset and TLS
+//        default, and a password parameter is refused rather than stored in the clear.
+export function parseConnectionStringDetailed(raw: string): ParsedConnection | null {
   const text = raw.trim();
   if (text.length === 0) return null;
-  const scheme = text.split("://")[0]?.toLowerCase() ?? "";
-  const engine = ENGINE_ORDER.find((e) => REGISTRY[e].schemes.includes(scheme));
-  if (!engine) return null;
+  const parts = splitUri(text);
+  if (!parts) return null;
+  const schemeEngine = ENGINE_ORDER.find((e) => REGISTRY[e].schemes.includes(parts.scheme));
+  if (!schemeEngine) return null;
+  const engine = engineForHost(schemeEngine, parts.host);
   const meta = REGISTRY[engine];
-  if (meta.form === "file") {
-    const path = text.replace(/^[a-z_]+:\/\//i, "");
-    return { ...blankInput(engine), name: path.split("/").pop() ?? meta.label, filePath: path };
-  }
-  let url: URL;
-  try {
-    // Custom schemes parse with the generic URL grammar when rewritten to http.
-    url = new URL(text.replace(/^[a-z+_]+:\/\//i, "http://"));
-  } catch {
-    return null;
-  }
-  const params = url.searchParams;
-  const sslParam = (params.get("sslmode") ?? params.get("ssl") ?? params.get("tls") ?? "").toLowerCase();
-  const secureScheme = scheme.endsWith("s") && ["rediss", "valkeys", "neo4j+s", "bolt+s", "wss"].includes(scheme);
-  const sslMode: SslMode =
-    secureScheme || scheme === "mongodb+srv" || sslParam === "require" || sslParam === "true"
-      ? "require"
-      : sslParam === "verify-ca" || sslParam === "verify_ca"
-        ? "verify_ca"
-        : sslParam === "verify-full" || sslParam === "verify_full"
-          ? "verify_full"
-          : sslParam === "disable" || sslParam === "false"
-            ? "disable"
-            : (meta.sslMode ?? "prefer");
   const base = blankInput(engine);
-  const database = decodeURIComponent(url.pathname.replace(/^\//, ""));
-  // HTTP engines keep the full origin so a custom scheme/port survives.
-  const host = meta.form === "http_token" && (scheme === "http" || scheme === "https") ? url.origin : url.hostname;
+  const notes: string[] = [];
+
+  if (meta.form === "file") {
+    const withoutScheme = text.slice(text.indexOf("://") + 3);
+    const path = decodeURIComponent(withoutScheme.split("?")[0] ?? withoutScheme);
+    return { engine, input: { ...base, name: path.split("/").pop() ?? meta.label, filePath: path }, notes };
+  }
+
+  const tlsFiles = tlsFileSupport(engine) !== "none";
+  let sslMode: SslMode | null = null;
+  const tls = { ...base.extra.tls };
+  const kept: string[] = [];
+  let droppedSecret = false;
+  for (const pair of parts.params) {
+    const eq = pair.indexOf("=");
+    const key = (eq >= 0 ? pair.slice(0, eq) : pair).toLowerCase();
+    if (SSL_PARAMS.includes(key)) {
+      sslMode = sslFromValue(paramValue([pair], key)) ?? sslMode;
+      continue;
+    }
+    const file = tlsFiles ? TLS_FILE_PARAMS.find((p) => p.key === key) : undefined;
+    if (file) {
+      tls[file.field] = paramValue([pair], key);
+      continue;
+    }
+    if (isSecretParam(key)) {
+      droppedSecret = true;
+      continue;
+    }
+    kept.push(pair);
+  }
+  if (droppedSecret) notes.push("A password parameter in the URI was not kept: options are stored unencrypted. Use the password field.");
+
+  const secureScheme = ["rediss", "valkeys", "neo4j+s", "bolt+s", "wss", "amqps"].includes(parts.scheme);
+  const srv = parts.scheme === "mongodb+srv";
+  const resolvedSsl: SslMode =
+    sslMode ?? (secureScheme || srv ? "require" : (cloudHostSslMode(parts.host) ?? meta.sslMode ?? "prefer"));
+
+  const database = parts.database ?? "";
+  const host = parts.host ?? "";
   return {
-    ...base,
-    name: database.length > 0 ? database : url.hostname,
-    host: host.length > 0 ? host : base.host,
-    port: url.port.length > 0 ? Number(url.port) : base.port,
-    database: database.length > 0 ? database : base.database,
-    username: url.username.length > 0 ? decodeURIComponent(url.username) : base.username,
-    password: url.password.length > 0 ? decodeURIComponent(url.password) : null,
-    sslMode,
+    engine,
+    input: {
+      ...base,
+      name: database.length > 0 ? database : host.length > 0 ? host : meta.label,
+      host: host.length > 0 ? host : base.host,
+      port: srv ? null : (parts.port ?? base.port),
+      database: database.length > 0 ? database : base.database,
+      username: parts.username ?? base.username,
+      password: parts.password,
+      sslMode: resolvedSsl,
+      extra: { ...base.extra, uriParams: kept.length > 0 ? kept.join("&") : null, srv, tls },
+    },
+    notes,
   };
+}
+
+export function parseConnectionString(raw: string): ConnectionInput | null {
+  return parseConnectionStringDetailed(raw)?.input ?? null;
+}
+
+// WHAT:  The message when a pasted string belongs to a different engine than the form.
+// HOW:   Engines on the same adapter are interchangeable here, so a Postgres URL
+//        pasted into a CockroachDB form is accepted.
+export function connectionStringMismatch(current: Engine, parsed: Engine): string | null {
+  if (current === parsed || sharesAdapter(current, parsed)) return null;
+  return `This looks like a ${REGISTRY[parsed].label} connection string, but this form is for ${REGISTRY[current].label}.`;
 }

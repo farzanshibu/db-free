@@ -1,10 +1,12 @@
 // SOT: mongodb-integration, mongodb-adapter, document-mapping, bson-value-decoding, mongo-command-console, mongo-object-explorer, mongo-server-stats
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::cloud_auth::{self, MongoAuth};
 use crate::integrations::http::objects_to_result_set;
+use crate::integrations::mongo_shell::{self, Shell};
 use crate::integrations::{Capabilities, Integration};
 use crate::model::{
-    CodeLanguage, ColumnInfo, ColumnMeta, Engine, FilterOp, FilterRule, ObjectAction, ObjectDetail, ObjectKind,
+    CodeLanguage, ColumnInfo, ColumnMeta, ConnectionSummary, Engine, FilterOp, FilterRule, ObjectAction, ObjectDetail, ObjectKind,
     ObjectRef, ObjectSummary, PageQuery, ResolvedConnection, ResultSet, SchemaCatalog, SchemaInfo, ServerStats,
     SortRule, SslMode, Stat, StatGroup, StatementResult, TableInfo, TableKind, TableRef, Value,
 };
@@ -12,7 +14,7 @@ use async_trait::async_trait;
 use base64::Engine as _;
 use futures::TryStreamExt;
 use mongodb::bson::{doc, oid::ObjectId, Bson, Document};
-use mongodb::options::{ClientOptions, Tls, TlsOptions};
+use mongodb::options::{AuthMechanism, ClientOptions, Credential, Tls, TlsOptions};
 use mongodb::{Client, Collection, Database};
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,6 +52,9 @@ const ID_FIELD: &str = "_id";
 pub struct MongoIntegration {
     client: Client,
     database: String,
+    /// The SQL guard cannot read Mongo commands, so a read-only connection is
+    /// enforced here: `execute` refuses every command not known to only read.
+    read_only: bool,
 }
 
 // WHAT:  Percent-encodes user info so `@`, `:` and `/` in credentials survive the URI.
@@ -66,10 +71,71 @@ fn encode_userinfo(raw: &str) -> String {
     out
 }
 
+// WHAT:  `host`, `host:27017`, `[::1]` or a comma list → each entry with a port.
+// WHY:   The URI wants `host:port` for every member of a replica set, and the
+//        form has one port field: it fills the entries that name none.
+fn with_default_port(hosts: &str, port: Option<u16>) -> String {
+    let port = port.unwrap_or(27017);
+    hosts
+        .split(',')
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .map(|h| {
+            if h.starts_with('[') {
+                if h.contains("]:") { h.to_string() } else { format!("{h}:{port}") }
+            } else if h.matches(':').count() > 1 {
+                format!("[{h}]:{port}")
+            } else if h.contains(':') {
+                h.to_string()
+            } else {
+                format!("{h}:{port}")
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+// WHAT:  The connection string the driver parses, built from the saved fields.
+// WHY:   B7 — it used to be `mongodb://host:port/db?authSource=admin` always:
+//        `mongodb+srv://` clusters (Atlas) could not be reached and a user created
+//        in another database could not sign in. Now the scheme follows `extra.srv`
+//        (no port, DNS SRV lookup) and the query is the URI parameters the user
+//        kept (`authSource`, `replicaSet`, `retryWrites`…), nothing invented.
+//        When no `authSource` is given the driver applies its own default: the
+//        database named in the path, else `admin`.
+// HOW:   Credentials are percent-encoded; a scheme pasted into the host field is
+//        dropped; a comma list is a replica-set seed list.
+fn build_uri(s: &ConnectionSummary, secret: Option<&str>, database: &str) -> String {
+    let scheme = if s.extra.srv { "mongodb+srv" } else { "mongodb" };
+    let raw = s.host.as_deref().map(str::trim).filter(|h| !h.is_empty()).unwrap_or("localhost");
+    let raw = raw.strip_prefix("mongodb+srv://").or_else(|| raw.strip_prefix("mongodb://")).unwrap_or(raw);
+    let hosts = if s.extra.srv {
+        // An SRV name is one DNS name; a port on it would make the driver refuse the URI.
+        raw.split(',').next().unwrap_or(raw).trim().split(':').next().unwrap_or(raw).to_string()
+    } else {
+        with_default_port(raw, s.port)
+    };
+    let username = s.username.as_deref().map(str::trim).filter(|u| !u.is_empty());
+    let userinfo = match (username, secret) {
+        (Some(user), Some(secret)) => format!("{}:{}@", encode_userinfo(user), encode_userinfo(secret)),
+        (Some(user), None) => format!("{}@", encode_userinfo(user)),
+        (None, _) => String::new(),
+    };
+    let params: Vec<&str> = s.extra.uri_params.as_deref().unwrap_or_default().split('&').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let query = if params.is_empty() { String::new() } else { format!("?{}", params.join("&")) };
+    format!("{scheme}://{userinfo}{hosts}/{}{query}", encode_userinfo(database))
+}
+
+// WHAT:  The certificate files of a connection as driver TLS options.
+// HOW:   The driver takes one PEM holding the client certificate and its key, so
+//        `cert_path` is that file and `key_path` is not used here.
+fn tls_options(s: &ConnectionSummary) -> TlsOptions {
+    let path = |p: &Option<String>| p.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(crate::model::connection::expand_home);
+    TlsOptions::builder().ca_file_path(path(&s.extra.tls.ca_path)).cert_key_file_path(path(&s.extra.tls.cert_path)).build()
+}
+
 pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
     let s = &conn.summary;
-    let host = s.host.as_deref().map(str::trim).filter(|h| !h.is_empty()).unwrap_or("localhost");
-    let port = s.port.unwrap_or(27017);
     let database = s
         .database
         .as_deref()
@@ -77,24 +143,58 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .filter(|d| !d.is_empty())
         .unwrap_or(DEFAULT_DATABASE)
         .to_string();
-    let username = s.username.as_deref().map(str::trim).filter(|u| !u.is_empty());
-    let userinfo = match (username, conn.secret.as_deref()) {
-        (Some(user), Some(secret)) => format!("{}:{}@", encode_userinfo(user), encode_userinfo(secret)),
-        (Some(user), None) => format!("{}@", encode_userinfo(user)),
-        (None, _) => String::new(),
-    };
-    // Credentials normally live in `admin`; a database in the path would otherwise be used.
-    let query = if username.is_some() { "?authSource=admin" } else { "" };
-    let uri = format!("mongodb://{userinfo}{host}:{port}/{database}{query}");
+    let uri = build_uri(s, conn.secret.as_deref(), &database);
     let mut options = ClientOptions::parse(&uri).await?;
     options.app_name = Some("db-free".to_string());
     options.server_selection_timeout = Some(Duration::from_secs(8));
     options.connect_timeout = Some(Duration::from_secs(8));
-    if matches!(s.ssl_mode, SslMode::Require | SslMode::VerifyCa | SslMode::VerifyFull) {
-        options.tls = Some(Tls::Enabled(TlsOptions::default()));
+    // An SSH tunnel forwards exactly one host: replica-set discovery would hand the
+    // driver member addresses that exist only on the far side.
+    if s.extra.tunnel_origin_host.is_some() && !s.extra.srv {
+        options.direct_connection = Some(true);
+    }
+    let files = !s.extra.tls.is_empty();
+    match s.ssl_mode {
+        SslMode::Disable => options.tls = Some(Tls::Disabled),
+        SslMode::Prefer if !files => {}
+        _ => options.tls = Some(Tls::Enabled(tls_options(s))),
+    }
+    // MongoDB Atlas workload identity (MONGODB-AWS / MONGODB-OIDC) replaces the password
+    // login, over TLS: Atlas accepts nothing else.
+    if let Some(mechanism) = cloud_auth::mongo_auth(conn).await? {
+        options.credential = Some(atlas_credential(mechanism));
+        options.tls = Some(Tls::Enabled(tls_options(s)));
     }
     let client = Client::with_options(options)?;
-    Ok(Arc::new(MongoIntegration { client, database }))
+    Ok(Arc::new(MongoIntegration { client, database, read_only: s.read_only }))
+}
+
+// WHAT:  The driver credential for an Atlas sign-in method.
+// HOW:   AWS identities arrive resolved (access key, secret, optional session
+//        token); OIDC names a built-in workload-identity environment and the
+//        audience the token is requested for. The source defaults to `$external`.
+fn atlas_credential(mechanism: MongoAuth) -> Credential {
+    match mechanism {
+        MongoAuth::Aws { access_key_id, secret_access_key, session_token } => {
+            let mut properties = Document::new();
+            if let Some(token) = session_token {
+                properties.insert("AWS_SESSION_TOKEN", token);
+            }
+            Credential::builder()
+                .mechanism(AuthMechanism::MongoDbAws)
+                .username(access_key_id)
+                .password(secret_access_key)
+                .mechanism_properties(if properties.is_empty() { None } else { Some(properties) })
+                .build()
+        }
+        MongoAuth::Oidc { environment, token_resource } => {
+            let mut properties = doc! { "ENVIRONMENT": environment };
+            if let Some(resource) = token_resource {
+                properties.insert("TOKEN_RESOURCE", resource);
+            }
+            Credential::builder().mechanism(AuthMechanism::MongoDbOidc).mechanism_properties(properties).build()
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -284,6 +384,7 @@ fn predicate(rule: &FilterRule) -> Document {
         FilterOp::Lt => Bson::Document(doc! { "$lt": lenient_value(column, value) }),
         FilterOp::Lte => Bson::Document(doc! { "$lte": lenient_value(column, value) }),
         FilterOp::Contains => Bson::Document(regex_predicate(escape_regex(value))),
+        FilterOp::NotContains => Bson::Document(doc! { "$not": Bson::Document(regex_predicate(escape_regex(value))) }),
         FilterOp::StartsWith => Bson::Document(regex_predicate(format!("^{}", escape_regex(value)))),
         FilterOp::EndsWith => Bson::Document(regex_predicate(format!("{}$", escape_regex(value)))),
         FilterOp::In => {
@@ -305,7 +406,11 @@ fn filter_document(filters: &[FilterRule]) -> Document {
     match filters {
         [] => Document::new(),
         [single] => predicate(single),
-        many => doc! { "$and": many.iter().map(|f| Bson::Document(predicate(f))).collect::<Vec<Bson>>() },
+        many => {
+            // "Any" mode (`sql::with_filter_mode`) needs one rule to hold, not all of them.
+            let joiner = if crate::integrations::sql::current_filter_mode() == crate::model::FilterMode::Any { "$or" } else { "$and" };
+            doc! { joiner: many.iter().map(|f| Bson::Document(predicate(f))).collect::<Vec<Bson>>() }
+        }
     }
 }
 
@@ -324,14 +429,22 @@ fn sort_document(sort: &[SortRule]) -> Document {
 // Command console
 // ---------------------------------------------------------------------------
 
-// WHAT:  Splits console input into statements on blank lines.
-fn split_statements(text: &str) -> Vec<String> {
-    let mut out = Vec::new();
+// WHAT:  Splits console input into statements on blank lines; a block of mongosh
+//        text is cut further by the shell's own rules (`;`, one statement per line).
+// WHY:   A pasted shell snippet has no blank lines between its statements, and a
+//        JSON command document may span many lines, so the two split differently.
+pub fn split_statements(text: &str) -> Vec<String> {
+    // A session written in the shell is cut by the shell's rules from the start:
+    // a blank line inside an object literal must not end the statement.
+    if mongo_shell::is_shell(text) {
+        return mongo_shell::split(text);
+    }
+    let mut blocks = Vec::new();
     let mut current = String::new();
     for line in text.lines() {
         if line.trim().is_empty() {
             if !current.trim().is_empty() {
-                out.push(std::mem::take(&mut current));
+                blocks.push(std::mem::take(&mut current));
             }
             current.clear();
         } else {
@@ -340,9 +453,12 @@ fn split_statements(text: &str) -> Vec<String> {
         }
     }
     if !current.trim().is_empty() {
-        out.push(current);
+        blocks.push(current);
     }
-    out
+    blocks
+        .into_iter()
+        .flat_map(|block| if mongo_shell::is_shell(&block) { mongo_shell::split(&block) } else { vec![block] })
+        .collect()
 }
 
 fn json_to_document(raw: &str) -> AppResult<Document> {
@@ -1354,6 +1470,88 @@ impl MongoIntegration {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Console: shell statements and command documents
+// ---------------------------------------------------------------------------
+
+/// Documents asked of the server per round trip while a cursor is drained.
+const CURSOR_BATCH: i64 = 5_000;
+
+// WHAT:  A translated shell command (extended JSON) as a BSON command document.
+// HOW:   Deserialising through `Document` is what turns `{"$oid": …}`, `{"$date": …}`,
+//        `{"$numberLong": …}` and friends into real ObjectIds, dates and longs.
+fn command_document(command: serde_json::Value) -> AppResult<Document> {
+    serde_json::from_value::<Document>(command).map_err(|e| AppError::invalid_input(format!("The command could not be converted to BSON: {e}")))
+}
+
+/// `(cursor id, namespace)` of a reply that opened a cursor.
+fn cursor_handle(reply: &Document) -> Option<(i64, String)> {
+    let cursor = reply.get_document("cursor").ok()?;
+    Some((cursor.get_i64("id").ok()?, cursor.get_str("ns").ok()?.to_string()))
+}
+
+impl MongoIntegration {
+    // WHAT:  Runs one command document — typed as JSON or translated from the
+    //        shell — against `db` and shapes the reply for the grid.
+    // WHY:   One path for both, so the read-only lock, `$db` routing and cursor
+    //        draining apply to everything the console runs.
+    // HOW:   A read-only connection refuses any command not on the read list
+    //        (`mongo_shell::is_read_command`); the SQL guard cannot read these.
+    async fn run_console_command(&self, db: &str, command: Document, max_rows: usize) -> AppResult<StatementResult> {
+        if self.read_only && !mongo_shell::is_read_command(&doc_json(command.clone())) {
+            let name = command.keys().next().map_or("this command", String::as_str);
+            return Err(AppError::read_only(format!("This connection is read-only. Blocked: {name}")));
+        }
+        let (target, command) = split_target(command);
+        let database = self.client.database(target.as_deref().unwrap_or(db));
+        let reply = database.run_command(command).await?;
+        Ok(reply_to_result(self.drain_cursor(&database, reply, max_rows).await?, max_rows))
+    }
+
+    // WHAT:  Follows a cursor with `getMore` until `max_rows` + 1 documents are in
+    //        hand (the extra one tells the UI the result was cut) or it runs dry.
+    // WHY:   A command returns only its first batch (101 documents for a find), so
+    //        without this the row cap would never be reached.
+    async fn drain_cursor(&self, database: &Database, mut reply: Document, max_rows: usize) -> AppResult<Document> {
+        let Some((mut open, namespace)) = cursor_handle(&reply).filter(|(id, _)| *id != 0) else {
+            return Ok(reply);
+        };
+        let collection = namespace.split_once('.').map_or(namespace.as_str(), |(_, c)| c).to_string();
+        let mut docs: Vec<Bson> = reply.get_document("cursor").ok().and_then(|c| c.get_array("firstBatch").ok()).cloned().unwrap_or_default();
+        while open != 0 && docs.len() <= max_rows {
+            let more = database.run_command(doc! { "getMore": open, "collection": collection.as_str(), "batchSize": CURSOR_BATCH }).await?;
+            let Ok(cursor) = more.get_document("cursor") else { break };
+            open = cursor.get_i64("id").unwrap_or(0);
+            if let Ok(next) = cursor.get_array("nextBatch") {
+                docs.extend(next.iter().cloned());
+            }
+        }
+        if open != 0 {
+            // Left open on purpose: the cap was reached. Free it on the server now.
+            let _ = database.run_command(doc! { "killCursors": collection.as_str(), "cursors": [open] }).await;
+        }
+        if let Ok(cursor) = reply.get_document_mut("cursor") {
+            cursor.insert("firstBatch", docs);
+            cursor.insert("id", 0_i64);
+        }
+        Ok(reply)
+    }
+
+    /// `show dbs`
+    async fn show_databases(&self) -> AppResult<StatementResult> {
+        let reply = self.command("admin", doc! { "listDatabases": 1 }).await?;
+        let databases: Vec<Json> = items(&reply, "databases").cloned().collect();
+        let result = rows_from(&databases, None).unwrap_or(ResultSet { columns: Vec::new(), rows: Vec::new(), truncated: false });
+        Ok(StatementResult::Rows { result })
+    }
+
+    /// `show collections`
+    async fn show_collections(&self, db: &str, max_rows: usize) -> AppResult<StatementResult> {
+        let reply = self.client.database(db).run_command(doc! { "listCollections": 1, "nameOnly": true }).await?;
+        Ok(reply_to_result(reply, max_rows))
+    }
+}
+
 // WHAT:  What this family offers the object explorer and the tool tabs.
 // WHY:   Declared here, next to the adapter that must answer `objects()` for
 //        every kind listed; rendered by the capability matrix for every engine.
@@ -1467,15 +1665,26 @@ impl Integration for MongoIntegration {
         if statements.is_empty() {
             return Err(AppError::invalid_input("Nothing to run."));
         }
-        let db = self.db();
+        // `use <db>` moves the statements after it, for this run only; the
+        // toolbar's database picker is what changes the session's own database.
+        let mut db_name = self.database.clone();
         let mut out = Vec::with_capacity(statements.len());
         for statement in statements {
-            let (target, command) = split_target(parse_command(&statement, max_rows)?);
-            let reply = match &target {
-                Some(name) => self.client.database(name).run_command(command).await?,
-                None => db.run_command(command).await?,
+            let result = if mongo_shell::is_shell(&statement) {
+                match mongo_shell::parse(&statement, max_rows).map_err(AppError::invalid_input)? {
+                    Shell::ShowDatabases => self.show_databases().await?,
+                    Shell::ShowCollections => self.show_collections(&db_name, max_rows).await?,
+                    Shell::Use(name) => {
+                        let notice = reply_to_result(doc! { "result": format!("switched to db {name}") }, max_rows);
+                        db_name = name;
+                        notice
+                    }
+                    Shell::Command(json) => self.run_console_command(&db_name, command_document(json)?, max_rows).await?,
+                }
+            } else {
+                self.run_console_command(&db_name, parse_command(&statement, max_rows)?, max_rows).await?
             };
-            out.push(reply_to_result(reply, max_rows));
+            out.push(result);
         }
         Ok(out)
     }
@@ -1588,6 +1797,77 @@ mod tests {
     use super::*;
     use crate::model::{ConnectionInput, ConnectionSummary, Environment};
 
+    fn uri_summary(host: &str, port: Option<u16>) -> ConnectionSummary {
+        let input = ConnectionInput {
+            name: "t".into(),
+            engine: Engine::Mongodb,
+            environment: Environment::Local,
+            read_only: false,
+            host: Some(host.into()),
+            port,
+            database: None,
+            username: None,
+            password: None,
+            file_path: None,
+            ssl_mode: SslMode::Prefer,
+            ssh: crate::model::SshTunnel::default(),
+            ssh_secret: None,
+            folder: None,
+            color: None,
+            favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
+        };
+        ConnectionSummary::draft(&input, false)
+    }
+
+    // WHAT:  B7 — SRV clusters get `mongodb+srv://` and no port; nothing forces `authSource=admin`.
+    #[test]
+    fn the_uri_follows_the_saved_fields_instead_of_inventing_an_auth_source() {
+        let mut s = uri_summary("localhost", Some(27018));
+        assert_eq!(build_uri(&s, None, "test"), "mongodb://localhost:27018/test");
+        s.username = Some("me".into());
+        assert_eq!(build_uri(&s, Some("p@ss:w/rd"), "app"), "mongodb://me:p%40ss%3Aw%2Frd@localhost:27018/app", "no authSource unless the user kept one");
+        s.extra.uri_params = Some("authSource=admin&replicaSet=rs0&&".into());
+        assert_eq!(build_uri(&s, None, "app"), "mongodb://me@localhost:27018/app?authSource=admin&replicaSet=rs0");
+
+        let mut srv = uri_summary("cluster0.abc.mongodb.net", Some(27017));
+        srv.extra.srv = true;
+        srv.username = Some("atlas".into());
+        srv.extra.uri_params = Some("retryWrites=true&w=majority".into());
+        assert_eq!(
+            build_uri(&srv, Some("pw"), "shop"),
+            "mongodb+srv://atlas:pw@cluster0.abc.mongodb.net/shop?retryWrites=true&w=majority",
+            "an SRV name takes no port, even when the port field still holds 27017"
+        );
+        let mut pasted = uri_summary("mongodb+srv://c.mongodb.net:27017", None);
+        pasted.extra.srv = true;
+        assert_eq!(build_uri(&pasted, None, "x"), "mongodb+srv://c.mongodb.net/x");
+    }
+
+    #[test]
+    fn replica_set_seed_lists_and_ipv6_hosts_get_ports_where_missing() {
+        assert_eq!(with_default_port("a, b:1,c", Some(9)), "a:9,b:1,c:9");
+        assert_eq!(with_default_port("[::1]", None), "[::1]:27017");
+        assert_eq!(with_default_port("[::1]:5", Some(9)), "[::1]:5");
+        assert_eq!(with_default_port("::1", Some(7)), "[::1]:7");
+        assert_eq!(with_default_port("", None), "");
+        let s = uri_summary("mongodb://h1:1,h2", Some(3));
+        assert_eq!(build_uri(&s, None, "d"), "mongodb://h1:1,h2:3/d");
+    }
+
+    #[test]
+    fn tls_files_become_driver_options() {
+        let mut s = uri_summary("h", None);
+        s.extra.tls.ca_path = Some(" /etc/ca.pem ".into());
+        s.extra.tls.cert_path = Some("/etc/client-both.pem".into());
+        let tls = tls_options(&s);
+        assert_eq!(tls.ca_file_path.as_deref(), Some(std::path::Path::new("/etc/ca.pem")));
+        assert_eq!(tls.cert_key_file_path.as_deref(), Some(std::path::Path::new("/etc/client-both.pem")));
+        assert_eq!(tls_options(&uri_summary("h", None)), TlsOptions::default());
+    }
+
     fn rule(column: &str, op: FilterOp, value: &str) -> FilterRule {
         FilterRule { column: column.into(), op, value: value.into() }
     }
@@ -1615,6 +1895,11 @@ mod tests {
                 { "_id": expected_id },
             ] }
         );
+        // "Any" mode joins the same predicates with $or.
+        let either = crate::integrations::sql::with_filter_mode_sync(crate::model::FilterMode::Any, || {
+            filter_document(&[rule("a", FilterOp::Eq, "x"), rule("b", FilterOp::IsNull, "")])
+        });
+        assert_eq!(either, doc! { "$or": [ { "a": "x" }, { "b": Bson::Null } ] });
         assert_eq!(filter_document(&[rule("x", FilterOp::IsNotNull, "")]), doc! { "x": { "$ne": Bson::Null } });
         assert_eq!(filter_document(&[rule("n", FilterOp::StartsWith, "ab")]), doc! { "n": { "$regex": "^ab", "$options": "i" } });
         assert_eq!(filter_document(&[]), Document::new());
@@ -1667,6 +1952,33 @@ mod tests {
         assert!(matches!(parse_command("SELECT 1", 10), Err(AppError::InvalidInput { .. })));
         assert!(matches!(parse_command("[1,2]", 10), Err(AppError::InvalidInput { .. })));
         assert_eq!(split_statements("{\"a\":1}\n\n\n{\"b\":2}\n").len(), 2);
+    }
+
+    #[test]
+    fn shell_sessions_split_by_the_shells_rules() {
+        let session = "use sales\ndb.orders.find({\n  a: 1,\n\n  b: 2\n})\nshow collections";
+        assert_eq!(split_statements(session), ["use sales", "db.orders.find({\n  a: 1,\n\n  b: 2\n})", "show collections"]);
+        // A JSON command document keeps the blank-line rule.
+        assert_eq!(split_statements("{\"ping\":1}\n\n{\"ping\":1}").len(), 2);
+    }
+
+    // The shell emits extended JSON; deserialising through `Document` is what makes
+    // an ObjectId, a date or a long out of it.
+    #[test]
+    fn shell_commands_become_typed_bson() {
+        let Ok(mongo_shell::Shell::Command(json)) = mongo_shell::parse(
+            "db.users.insertOne({ _id: ObjectId('507f1f77bcf86cd799439011'), at: ISODate('2024-05-01T10:00:00Z'), n: NumberLong('5'), name: /^a/i })",
+            100,
+        ) else {
+            panic!("a command");
+        };
+        let command = command_document(json).unwrap_or_default();
+        let document = command.get_array("documents").ok().and_then(|docs| docs.first()).and_then(Bson::as_document).cloned().unwrap_or_default();
+        assert_eq!(document.get_object_id("_id").ok(), ObjectId::parse_str("507f1f77bcf86cd799439011").ok());
+        assert_eq!(document.get_datetime("at").ok().map(|d| d.timestamp_millis()), Some(1_714_557_600_000));
+        assert_eq!(document.get_i64("n").ok(), Some(5));
+        assert!(matches!(document.get("name"), Some(Bson::RegularExpression(re)) if re.pattern.as_str() == "^a" && re.options.as_str() == "i"));
+        assert_eq!(command.keys().next().map(String::as_str), Some("insert"), "the command name leads the document");
     }
 
     #[test]
@@ -1939,6 +2251,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None }
     }
