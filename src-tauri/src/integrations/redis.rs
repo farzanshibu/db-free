@@ -5,8 +5,9 @@ use crate::integrations::{Capabilities, Integration};
 use crate::model::objects::format_number;
 use crate::model::{
     CodeLanguage, ColumnInfo, ColumnMeta, Engine, FilterOp, FilterRule, ObjectAction, ObjectDetail, ObjectKind,
-    ObjectRef, ObjectSummary, PageQuery, ResolvedConnection, ResultSet, SchemaCatalog, SchemaInfo, ServerStats,
-    SortRule, SslMode, Stat, StatGroup, StatementResult, TableInfo, TableKind, TableRef, Value,
+    ObjectRef, ObjectSummary, PageQuery, RedisKeyEntry, RedisKeyInfo, RedisKeyPage, RedisKeyScan, RedisKeyType,
+    ResolvedConnection, ResultSet, SchemaCatalog, SchemaInfo, ServerStats, SortRule, SslMode, Stat, StatGroup,
+    StatementResult, TableInfo, TableKind, TableRef, Value,
 };
 use async_trait::async_trait;
 use base64::Engine as _;
@@ -22,11 +23,16 @@ use std::sync::Arc;
 // WHAT:  Maps a key-value store onto the engine-neutral `Integration` contract.
 // WHY:   The UI (tables panel, grid, query tab) is written once against the
 //        trait; Redis has to look like "one schema whose tables are keys".
-// HOW:   catalog     = keys from SCAN (capped), one schema "db<N>"
-//        columns     = fixed per key type (string/hash/list/set/zset/stream)
+// HOW:   catalog     = the first page of keys from SCAN, one schema "db<N>"
+//        scan_keys   = one cursor-paged SCAN page for the sidebar's key tree,
+//                      with a server-side MATCH search and value previews
+//        key_info    = type, TTL, memory, encoding, idle time, size of one key
+//        columns     = fixed per key type (string/hash/list/set/zset/stream/json)
 //        fetch_page  = whole key loaded, filters + sort applied client-side,
-//                      then offset/limit sliced (Redis has no server-side paging)
-//        execute     = one Redis command per line, tokenised like redis-cli
+//                      then offset/limit sliced (Redis has no server-side paging);
+//                      a list in its own order is windowed with LRANGE instead
+//        execute     = one Redis command per line, tokenised like redis-cli;
+//                      writes are refused here when the connection is read-only
 //        objects     = one admin command per kind (INFO keyspace, SCAN TYPE
 //                      stream, XINFO, PUBSUB, FUNCTION LIST, ACL LIST, CONFIG
 //                      GET, CLIENT LIST, SLOWLOG GET, CLUSTER NODES, INFO
@@ -46,6 +52,17 @@ impl From<redis::RedisError> for AppError {
 
 const SCAN_BATCH: usize = 500;
 const MAX_KEYS: usize = 5_000;
+/// Keys the table catalog holds. The sidebar's key tree pages the whole keyspace
+/// itself (`scan_keys`); the catalog only has to say "this database has keys".
+const CATALOG_KEYS: usize = 1_000;
+/// Longest a single `scan_keys` page keeps scanning before it hands back its
+/// cursor, so a sparse search over millions of keys never freezes the sidebar.
+const SCAN_BUDGET_MS: u128 = 1_500;
+const MAX_SCAN_ROUNDS: usize = 2_000;
+const PREVIEW_CHARS: usize = 80;
+/// Bytes of a string value fetched for its preview: four per character covers
+/// any UTF-8 text without pulling a multi-megabyte value into the sidebar.
+const PREVIEW_BYTES: usize = PREVIEW_CHARS * 4;
 const MAX_STREAM_ENTRIES: usize = 5_000;
 const DEFAULT_DATABASES: u32 = 16;
 
@@ -54,6 +71,9 @@ pub struct RedisIntegration {
     db: i64,
     /// host:port — the node name when the server is not a cluster.
     addr: String,
+    /// The connection is locked against writes. The SQL guard cannot read this
+    /// language (`SET` is a SQL read to it), so `execute` refuses writes itself.
+    read_only: bool,
 }
 
 // WHAT:  Percent-encodes a userinfo component so `:`/`@`/`/` in passwords survive.
@@ -109,7 +129,7 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
     let (url, db) = build_url(conn);
     let client = Client::open(url)?;
     let connection = client.get_multiplexed_async_connection().await?;
-    Ok(Arc::new(RedisIntegration { conn: connection, db, addr: address(conn) }))
+    Ok(Arc::new(RedisIntegration { conn: connection, db, addr: address(conn), read_only: conn.summary.read_only }))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -120,6 +140,8 @@ enum KeyKind {
     Set,
     ZSet,
     Stream,
+    /// RedisJSON (`TYPE` answers `ReJSON-RL`): one JSON document per key.
+    Json,
 }
 
 impl KeyKind {
@@ -131,6 +153,7 @@ impl KeyKind {
             "set" => Some(KeyKind::Set),
             "zset" => Some(KeyKind::ZSet),
             "stream" => Some(KeyKind::Stream),
+            "ReJSON-RL" => Some(KeyKind::Json),
             _ => None,
         }
     }
@@ -151,7 +174,20 @@ impl KeyKind {
             KeyKind::Set => vec![col("member", "text", true, 1)],
             KeyKind::ZSet => vec![col("member", "text", true, 1), col("score", "float", false, 2)],
             KeyKind::Stream => vec![col("id", "text", true, 1), col("fields", "json", false, 2)],
+            KeyKind::Json => vec![col("value", "json", false, 1)],
         }
+    }
+}
+
+// WHAT:  `JSON.GET key $` reply → the document.
+// WHY:   A `$` path always answers a JSON array of matches (here, of the root),
+//        so the document is the array's only element. A server that answers the
+//        bare document (a legacy path) is read as it is.
+fn json_document(raw: &str) -> Value {
+    match serde_json::from_str::<serde_json::Value>(raw) {
+        Ok(serde_json::Value::Array(mut matches)) if matches.len() == 1 => matches.pop().map(Value::Json).unwrap_or(Value::Null),
+        Ok(other) => Value::Json(other),
+        Err(_) => Value::Text(raw.to_string()),
     }
 }
 
@@ -410,6 +446,7 @@ fn matches_rule(cell: &Value, rule: &FilterRule) -> bool {
         FilterOp::Lt => ordering() == Ordering::Less,
         FilterOp::Lte => ordering() != Ordering::Greater,
         FilterOp::Contains => lower.contains(&needle_lower),
+        FilterOp::NotContains => !lower.contains(&needle_lower),
         FilterOp::StartsWith => lower.starts_with(&needle_lower),
         FilterOp::EndsWith => lower.ends_with(&needle_lower),
         FilterOp::In => needle.split(',').map(str::trim).any(|item| item == text),
@@ -470,10 +507,6 @@ impl RedisIntegration {
         })
     }
 
-    async fn scan_keys(&self) -> AppResult<Vec<String>> {
-        self.scan(None).await
-    }
-
     // WHAT:  Loads every entry of one key as grid rows, shaped per `KeyKind::columns`.
     async fn load_entries(&self, key: &str, kind: KeyKind) -> AppResult<Vec<Vec<Value>>> {
         let mut con = self.con();
@@ -520,14 +553,37 @@ impl RedisIntegration {
                     .await?;
                 stream_rows(reply)
             }
+            KeyKind::Json => {
+                let document: Option<String> = redis::cmd("JSON.GET").arg(key).arg("$").query_async(&mut con).await?;
+                vec![vec![document.as_deref().map(json_document).unwrap_or(Value::Null)]]
+            }
         };
         Ok(rows)
+    }
+
+    // WHAT:  `size` rows of a list starting at `offset`, in list order.
+    // WHY:   A list is the one collection Redis can window server-side, and the
+    //        key tab pages it: LRANGE reads only the window instead of the
+    //        whole list on every page.
+    async fn list_window(&self, key: &str, offset: u64, size: usize) -> AppResult<Vec<Vec<Value>>> {
+        if size == 0 {
+            return Ok(Vec::new());
+        }
+        let mut con = self.con();
+        let start = i64::try_from(offset).unwrap_or(i64::MAX);
+        let stop = start.saturating_add(i64::try_from(size).unwrap_or(i64::MAX)).saturating_sub(1);
+        let items: Vec<Vec<u8>> = redis::cmd("LRANGE").arg(key).arg(start).arg(stop).query_async(&mut con).await?;
+        Ok(items
+            .into_iter()
+            .enumerate()
+            .map(|(i, value)| vec![Value::Int(start.saturating_add(i64::try_from(i).unwrap_or(0))), bulk_to_value(value)])
+            .collect())
     }
 
     async fn entry_count(&self, key: &str, kind: KeyKind) -> AppResult<i64> {
         let mut con = self.con();
         let command = match kind {
-            KeyKind::Str => return Ok(1),
+            KeyKind::Str | KeyKind::Json => return Ok(1),
             KeyKind::Hash => "HLEN",
             KeyKind::List => "LLEN",
             KeyKind::Set => "SCARD",
@@ -920,6 +976,191 @@ fn quote_arg(raw: &str) -> String {
     out
 }
 
+// ---------------------------------------------------------------------------
+// Read-only enforcement
+//
+// WHAT:  Which commands may run on a read-only connection.
+// WHY:   The SQL guard classifies a script by its leading keyword, which fits
+//        Redis badly in both directions: `SET key value` starts like the SQL
+//        `SET` (a read to the guard) while `GET key` is an unknown word (a
+//        write). So a lock on a Redis connection cannot be trusted to the guard
+//        alone; this adapter refuses writes itself, as `Integration` requires of
+//        every engine whose language the guard cannot parse.
+// HOW:   An allow-list, so a command this app has never heard of (a module's)
+//        is refused rather than waved through. A few commands read or write by
+//        sub-command (`CONFIG GET` / `CONFIG SET`) and are listed with the
+//        sub-commands that only read.
+// ---------------------------------------------------------------------------
+
+/// Commands that never change data, whatever their arguments.
+const READ_COMMANDS: &[&str] = &[
+    "GET", "MGET", "STRLEN", "GETRANGE", "SUBSTR", "LCS", "EXISTS", "TYPE", "TTL", "PTTL", "EXPIRETIME", "PEXPIRETIME", "KEYS",
+    "SCAN", "RANDOMKEY", "DBSIZE", "DUMP", "HGET", "HMGET", "HGETALL", "HKEYS", "HVALS", "HLEN", "HEXISTS", "HSTRLEN", "HSCAN",
+    "HRANDFIELD", "LRANGE", "LLEN", "LINDEX", "LPOS", "SMEMBERS", "SCARD", "SISMEMBER", "SMISMEMBER", "SRANDMEMBER", "SSCAN",
+    "SINTER", "SUNION", "SDIFF", "SINTERCARD", "ZRANGE", "ZRANGEBYSCORE", "ZRANGEBYLEX", "ZREVRANGE", "ZREVRANGEBYSCORE",
+    "ZREVRANGEBYLEX", "ZCARD", "ZCOUNT", "ZLEXCOUNT", "ZSCORE", "ZMSCORE", "ZRANK", "ZREVRANK", "ZSCAN", "ZRANDMEMBER", "ZINTER",
+    "ZUNION", "ZDIFF", "ZINTERCARD", "XRANGE", "XREVRANGE", "XLEN", "XREAD", "XPENDING", "BITCOUNT", "BITPOS", "GETBIT",
+    "BITFIELD_RO", "PFCOUNT", "GEOPOS", "GEODIST", "GEOHASH", "GEORADIUS_RO", "GEORADIUSBYMEMBER_RO", "GEOSEARCH", "PING", "ECHO",
+    "TIME", "INFO", "LASTSAVE", "ROLE", "SELECT", "HELLO", "AUTH", "QUIT", "RESET", "READONLY", "READWRITE", "LOLWUT", "WAIT",
+    "EVAL_RO", "EVALSHA_RO", "FCALL_RO", "SORT_RO", "MULTI", "EXEC", "DISCARD", "WATCH", "UNWATCH", "JSON.GET", "JSON.MGET",
+    "JSON.TYPE", "JSON.STRLEN", "JSON.ARRLEN", "JSON.OBJLEN", "JSON.OBJKEYS", "JSON.RESP", "JSON.ARRINDEX", "FT.SEARCH",
+    "FT.AGGREGATE", "FT.INFO", "FT._LIST", "FT.EXPLAIN", "FT.TAGVALS", "FT.SPELLCHECK", "TS.GET", "TS.MGET", "TS.RANGE",
+    "TS.REVRANGE", "TS.MRANGE", "TS.MREVRANGE", "TS.INFO", "TS.QUERYINDEX", "BF.EXISTS", "BF.MEXISTS", "BF.INFO", "CF.EXISTS",
+    "CF.MEXISTS", "CF.COUNT", "CF.INFO", "CMS.QUERY", "CMS.INFO", "TOPK.QUERY", "TOPK.LIST", "TOPK.COUNT", "TOPK.INFO",
+    "TDIGEST.CDF", "TDIGEST.QUANTILE", "TDIGEST.MIN", "TDIGEST.MAX", "TDIGEST.INFO",
+];
+
+/// Commands that read or write by sub-command, with the sub-commands that only read.
+const READ_SUBCOMMANDS: &[(&str, &[&str])] = &[
+    ("CONFIG", &["GET", "HELP"]),
+    ("CLIENT", &["LIST", "INFO", "GETNAME", "ID", "TRACKINGINFO", "GETREDIR", "HELP"]),
+    (
+        "CLUSTER",
+        &[
+            "NODES", "INFO", "SLOTS", "SHARDS", "MYID", "MYSHARDID", "KEYSLOT", "COUNTKEYSINSLOT", "GETKEYSINSLOT", "LINKS", "REPLICAS",
+            "SLAVES", "COUNT-FAILURE-REPORTS", "HELP",
+        ],
+    ),
+    ("SLOWLOG", &["GET", "LEN", "HELP"]),
+    ("LATENCY", &["LATEST", "HISTORY", "GRAPH", "DOCTOR", "HISTOGRAM", "HELP"]),
+    ("ACL", &["LIST", "USERS", "WHOAMI", "GETUSER", "CAT", "GENPASS", "LOG", "DRYRUN", "HELP"]),
+    ("MODULE", &["LIST", "HELP"]),
+    ("FUNCTION", &["LIST", "STATS", "DUMP", "HELP"]),
+    ("SCRIPT", &["EXISTS", "HELP"]),
+    ("MEMORY", &["USAGE", "STATS", "DOCTOR", "MALLOC-STATS", "HELP"]),
+    ("OBJECT", &["ENCODING", "FREQ", "IDLETIME", "REFCOUNT", "HELP"]),
+    ("XINFO", &["STREAM", "GROUPS", "CONSUMERS", "HELP"]),
+    ("PUBSUB", &["CHANNELS", "NUMSUB", "NUMPAT", "SHARDCHANNELS", "SHARDNUMSUB", "HELP"]),
+    ("COMMAND", &["COUNT", "DOCS", "GETKEYS", "GETKEYSANDFLAGS", "INFO", "LIST", "HELP"]),
+];
+
+// WHAT:  True when running these tokens cannot change data.
+pub fn is_read_only_command(tokens: &[String]) -> bool {
+    let Some(first) = tokens.first() else {
+        return true;
+    };
+    let name = first.to_ascii_uppercase();
+    if READ_COMMANDS.contains(&name.as_str()) {
+        return true;
+    }
+    // SORT only writes through STORE.
+    if name == "SORT" {
+        return !tokens.iter().skip(1).any(|t| t.eq_ignore_ascii_case("STORE"));
+    }
+    match READ_SUBCOMMANDS.iter().find(|(command, _)| *command == name) {
+        // `COMMAND` on its own lists every command; the others need a sub-command.
+        Some((command, subs)) => match tokens.get(1) {
+            None => *command == "COMMAND",
+            Some(sub) => subs.contains(&sub.to_ascii_uppercase().as_str()),
+        },
+        None => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Key browsing helpers
+// ---------------------------------------------------------------------------
+
+// WHAT:  The text typed in the key search box → a `SCAN MATCH` pattern.
+// WHY:   Searching "user" should find `app:user:7`, so plain text becomes a
+//        substring pattern; text that already holds glob characters is the
+//        user's own pattern and is kept (wrapped in `*` only when it has none,
+//        so `user:*` still means "starts with user:").
+fn scan_pattern(search: Option<&str>) -> String {
+    let text = search.map(str::trim).unwrap_or_default();
+    if text.is_empty() {
+        return "*".to_string();
+    }
+    if text.contains(['*', '?', '[']) {
+        return if text.contains('*') { text.to_string() } else { format!("*{text}*") };
+    }
+    format!("*{}*", text.replace('\\', "\\\\"))
+}
+
+// WHAT:  True when a list page may be read as a window of the list itself: no
+//        sort, or the list's own order (index ascending).
+fn is_list_order(sort: &[SortRule]) -> bool {
+    sort.iter().all(|rule| rule.column == "index" && !rule.desc)
+}
+
+// WHAT:  A string value → the 80-character single-line preview the key tree shows.
+fn string_preview(bytes: &[u8]) -> String {
+    let text = String::from_utf8_lossy(bytes);
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if flat.chars().count() > PREVIEW_CHARS {
+        format!("{}…", flat.chars().take(PREVIEW_CHARS - 1).collect::<String>())
+    } else {
+        flat
+    }
+}
+
+fn collection_hint(kind: RedisKeyType, len: i64) -> Option<String> {
+    let (one, many) = match kind {
+        RedisKeyType::Hash => ("field", "fields"),
+        RedisKeyType::List => ("item", "items"),
+        RedisKeyType::Set | RedisKeyType::Zset => ("member", "members"),
+        RedisKeyType::Stream => ("entry", "entries"),
+        RedisKeyType::String | RedisKeyType::Json | RedisKeyType::Other => return None,
+    };
+    Some(format!("{} {}", format_number(len as f64), if len == 1 { one } else { many }))
+}
+
+// WHAT:  The command that reports how many elements a key of this type holds.
+fn length_command(kind: RedisKeyType) -> Option<&'static str> {
+    match kind {
+        RedisKeyType::String => Some("STRLEN"),
+        RedisKeyType::Hash => Some("HLEN"),
+        RedisKeyType::List => Some("LLEN"),
+        RedisKeyType::Set => Some("SCARD"),
+        RedisKeyType::Zset => Some("ZCARD"),
+        RedisKeyType::Stream => Some("XLEN"),
+        RedisKeyType::Json | RedisKeyType::Other => None,
+    }
+}
+
+fn reply_int(reply: &redis::Value) -> Option<i64> {
+    match reply {
+        redis::Value::Int(n) => Some(*n),
+        redis::Value::BulkString(bytes) => std::str::from_utf8(bytes).ok().and_then(|t| t.trim().parse().ok()),
+        redis::Value::SimpleString(text) => text.trim().parse().ok(),
+        _ => None,
+    }
+}
+
+fn reply_string(reply: &redis::Value) -> Option<String> {
+    match reply {
+        redis::Value::BulkString(bytes) => Some(String::from_utf8_lossy(bytes).into_owned()),
+        redis::Value::SimpleString(text) => Some(text.clone()),
+        redis::Value::VerbatimString { text, .. } => Some(text.clone()),
+        _ => None,
+    }
+}
+
+// WHAT:  The five replies of the key-info pipeline (TYPE, PTTL, MEMORY USAGE,
+//        OBJECT ENCODING, OBJECT IDLETIME) → what the key tab shows.
+// WHY:   Any of the last three can fail on a given server (old Redis, a managed
+//        service that blocks MEMORY, an LFU policy that tracks no idle time);
+//        each degrades to None on its own instead of failing the whole key.
+struct KeyFigures {
+    type_name: String,
+    ttl_ms: i64,
+    memory_bytes: Option<i64>,
+    encoding: Option<String>,
+    idle_seconds: Option<i64>,
+}
+
+fn key_figures(replies: &[redis::Value]) -> Option<KeyFigures> {
+    let type_name = replies.first().and_then(reply_string)?;
+    let ttl_ms = replies.get(1).and_then(reply_int)?;
+    Some(KeyFigures {
+        type_name,
+        ttl_ms,
+        memory_bytes: replies.get(2).and_then(reply_int),
+        encoding: replies.get(3).and_then(reply_string).filter(|e| !e.is_empty()),
+        idle_seconds: replies.get(4).and_then(reply_int),
+    })
+}
+
 fn result_set(columns: &[&str], rows: Vec<Vec<Value>>) -> ResultSet {
     ResultSet { columns: meta(columns), rows, truncated: false }
 }
@@ -1116,6 +1357,160 @@ impl RedisIntegration {
         keys.dedup();
         keys.truncate(MAX_KEYS);
         Ok(keys)
+    }
+
+    // WHAT:  Rounds of `SCAN cursor MATCH pattern COUNT count` from `cursor` until
+    //        `limit` names were gathered, the cursor wrapped to 0, or the time
+    //        budget ran out; returns the names and the cursor to continue from.
+    // WHY:   One SCAN round returns about `count` *visited* keys, so a selective
+    //        pattern answers many empty rounds before it fills a page. Looping
+    //        here keeps the sidebar to one request per page, and the budget
+    //        keeps one slow search from holding it for minutes.
+    // HOW:   Keys that are not UTF-8 are skipped (they cannot be addressed back
+    //        through the text command line). SCAN may repeat a key across
+    //        rounds, so names are de-duplicated in order.
+    async fn scan_names(&self, start: u64, pattern: &str, count: usize, limit: usize) -> AppResult<(Vec<String>, u64)> {
+        let mut con = self.con();
+        let began = std::time::Instant::now();
+        let mut cursor = start;
+        let mut names: Vec<String> = Vec::new();
+        for _ in 0..MAX_SCAN_ROUNDS {
+            let (next, batch): (u64, Vec<Vec<u8>>) = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(pattern)
+                .arg("COUNT")
+                .arg(count)
+                .query_async(&mut con)
+                .await?;
+            names.extend(batch.into_iter().filter_map(|raw| String::from_utf8(raw).ok()));
+            cursor = next;
+            if cursor == 0 || names.len() >= limit || began.elapsed().as_millis() >= SCAN_BUDGET_MS {
+                break;
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|name| seen.insert(name.clone()));
+        Ok((names, cursor))
+    }
+
+    // WHAT:  `TYPE` of every key in one pipeline; None for a key that expired
+    //        between the scan and now.
+    async fn key_types(&self, names: &[String]) -> AppResult<Vec<Option<RedisKeyType>>> {
+        if names.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut pipe = redis::pipe();
+        pipe.ignore_errors();
+        for name in names {
+            pipe.cmd("TYPE").arg(name);
+        }
+        let mut con = self.con();
+        let replies: Vec<redis::Value> = pipe.query_async(&mut con).await?;
+        Ok(names
+            .iter()
+            .enumerate()
+            .map(|(i, _)| replies.get(i).and_then(reply_string).and_then(|raw| RedisKeyType::parse(&raw)))
+            .collect())
+    }
+
+    // WHAT:  Value previews for one page: the first 80 characters of a string,
+    //        the element count of a collection, all in one pipeline.
+    // WHY:   Previews are a convenience. A key that changed type under the scan,
+    //        or a server that refuses a command, must not fail the page.
+    async fn attach_previews(&self, keys: &mut [RedisKeyEntry]) {
+        let mut pipe = redis::pipe();
+        pipe.ignore_errors();
+        let mut slots: Vec<usize> = Vec::new();
+        for (i, key) in keys.iter().enumerate() {
+            match key.kind {
+                RedisKeyType::String => {
+                    pipe.cmd("GETRANGE").arg(&key.name).arg(0).arg(PREVIEW_BYTES - 1);
+                    slots.push(i);
+                }
+                other => {
+                    if let Some(command) = length_command(other) {
+                        pipe.cmd(command).arg(&key.name);
+                        slots.push(i);
+                    }
+                }
+            }
+        }
+        if slots.is_empty() {
+            return;
+        }
+        let mut con = self.con();
+        let replies: Vec<redis::Value> = match pipe.query_async(&mut con).await {
+            Ok(replies) => replies,
+            Err(err) => {
+                log::debug!("redis key previews unavailable: {err}");
+                return;
+            }
+        };
+        for (slot, reply) in slots.into_iter().zip(replies) {
+            let Some(key) = keys.get_mut(slot) else {
+                continue;
+            };
+            key.preview = match (key.kind, &reply) {
+                (RedisKeyType::String, redis::Value::BulkString(bytes)) => Some(string_preview(bytes)),
+                (kind, other) => reply_int(other).and_then(|len| collection_hint(kind, len)),
+            };
+        }
+    }
+
+    // WHAT:  One page of the key browser (see `RedisKeyScan`).
+    async fn scan_page(&self, scan: &RedisKeyScan) -> AppResult<RedisKeyPage> {
+        let cursor: u64 = scan.cursor.trim().parse().map_err(|_| AppError::invalid_input("The scan cursor must be a number."))?;
+        let pattern = scan_pattern(scan.search.as_deref());
+        let count = (scan.count as usize).clamp(10, 10_000);
+        let limit = (scan.limit as usize).clamp(1, MAX_KEYS);
+        let (names, next) = self.scan_names(cursor, &pattern, count, limit).await?;
+        let kinds = self.key_types(&names).await?;
+        let mut keys: Vec<RedisKeyEntry> = names
+            .into_iter()
+            .zip(kinds)
+            .filter_map(|(name, kind)| kind.map(|kind| RedisKeyEntry { name, kind, preview: None }))
+            .collect();
+        if scan.previews {
+            self.attach_previews(&mut keys).await;
+        }
+        let mut con = self.con();
+        let total: Option<i64> = redis::cmd("DBSIZE").query_async(&mut con).await.ok();
+        Ok(RedisKeyPage { keys, cursor: next.to_string(), done: next == 0, total })
+    }
+
+    // WHAT:  Type, TTL, memory, encoding, idle time and size of one key.
+    async fn key_details(&self, key: &str) -> AppResult<RedisKeyInfo> {
+        let mut pipe = redis::pipe();
+        pipe.ignore_errors();
+        pipe.cmd("TYPE").arg(key);
+        pipe.cmd("PTTL").arg(key);
+        pipe.cmd("MEMORY").arg("USAGE").arg(key);
+        pipe.cmd("OBJECT").arg("ENCODING").arg(key);
+        pipe.cmd("OBJECT").arg("IDLETIME").arg(key);
+        let mut con = self.con();
+        let replies: Vec<redis::Value> = pipe.query_async(&mut con).await?;
+        if let Some(redis::Value::ServerError(err)) = replies.first() {
+            return Err(AppError::driver(err));
+        }
+        let figures = key_figures(&replies).ok_or_else(|| AppError::driver("The server did not answer TYPE / PTTL for this key."))?;
+        let kind = RedisKeyType::parse(&figures.type_name).ok_or_else(|| AppError::not_found(format!("Key \"{key}\" does not exist.")))?;
+        let length = match length_command(kind) {
+            Some(command) => {
+                let reply: redis::Value = redis::cmd(command).arg(key).query_async(&mut con).await?;
+                reply_int(&reply)
+            }
+            None => None,
+        };
+        Ok(RedisKeyInfo {
+            kind,
+            type_name: figures.type_name,
+            ttl_ms: figures.ttl_ms,
+            memory_bytes: figures.memory_bytes,
+            encoding: figures.encoding,
+            idle_seconds: figures.idle_seconds,
+            length,
+        })
     }
 
     async fn stream_keys(&self) -> AppResult<Vec<String>> {
@@ -1708,7 +2103,9 @@ impl Integration for RedisIntegration {
     }
 
     async fn catalog(&self) -> AppResult<SchemaCatalog> {
-        let keys = self.scan_keys().await?;
+        // The first page only: the sidebar's key tree pages the rest through `scan_keys`.
+        let (mut keys, _) = self.scan_names(0, "*", SCAN_BATCH, CATALOG_KEYS).await?;
+        keys.sort();
         let tables = keys
             .into_iter()
             .map(|name| TableInfo { schema: None, name, kind: TableKind::Table, row_estimate: None })
@@ -1738,6 +2135,14 @@ impl Integration for RedisIntegration {
     async fn fetch_page(&self, table: &TableRef, query: &PageQuery) -> AppResult<ResultSet> {
         let kind = self.key_kind(&table.name).await?;
         let columns = kind.columns();
+        if kind == KeyKind::List && query.filters.is_empty() && is_list_order(&query.sort) {
+            let page = self.list_window(&table.name, query.offset, query.limit as usize).await?;
+            return Ok(ResultSet {
+                columns: columns.iter().map(|c| ColumnMeta { name: c.name.clone(), type_name: c.data_type.clone() }).collect(),
+                rows: page,
+                truncated: false,
+            });
+        }
         let rows = self.load_entries(&table.name, kind).await?;
         let mut rows = apply_filters(&columns, rows, &query.filters)?;
         apply_sort(&columns, &mut rows, &query.sort)?;
@@ -1755,6 +2160,12 @@ impl Integration for RedisIntegration {
         let commands = parse_commands(script)?;
         if commands.is_empty() {
             return Err(AppError::invalid_input("Nothing to run."));
+        }
+        if self.read_only {
+            if let Some(blocked) = commands.iter().find(|tokens| !is_read_only_command(tokens)) {
+                let name = blocked.first().map(|t| t.to_ascii_uppercase()).unwrap_or_default();
+                return Err(AppError::read_only(format!("This connection is read-only. Blocked: {name}")));
+            }
         }
         let mut con = self.con();
         let mut out = Vec::with_capacity(commands.len());
@@ -1812,6 +2223,14 @@ impl Integration for RedisIntegration {
         let info = self.info(None).await?;
         let maxclients = self.config_value("maxclients").await.unwrap_or(None).and_then(|v| v.parse::<f64>().ok());
         Ok(ServerStats::now(stats_groups(&info, maxclients)))
+    }
+
+    async fn scan_keys(&self, scan: &RedisKeyScan) -> AppResult<RedisKeyPage> {
+        self.scan_page(scan).await
+    }
+
+    async fn key_info(&self, key: &str) -> AppResult<RedisKeyInfo> {
+        self.key_details(key).await
     }
 
     async fn close(&self) {}
@@ -1917,6 +2336,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, true), secret: Some("p@ss:w/rd".into()) };
         let (url, db) = build_url(&resolved);
@@ -2085,6 +2507,83 @@ mod tests {
         assert!(!profile().object_kinds.contains(&ObjectKind::Script), "Redis has no command that lists loaded scripts");
     }
 
+    fn line(text: &str) -> Vec<String> {
+        parse_commands(text).unwrap_or_default().into_iter().next().unwrap_or_default()
+    }
+
+    #[test]
+    fn read_only_connections_refuse_everything_that_can_write() {
+        for read in ["GET a", "get a", "HGETALL h", "LRANGE l 0 -1", "SCAN 0 MATCH * COUNT 10", "INFO", "CONFIG GET maxmemory", "OBJECT ENCODING k", "MEMORY USAGE k", "JSON.GET k $", "COMMAND", "COMMAND COUNT", "SORT l", "SELECT 2", "PING"] {
+            assert!(is_read_only_command(&line(read)), "{read} reads");
+        }
+        for write in ["SET a 1", "set a 1", "DEL a", "HSET h f v", "RPUSH l x", "EXPIRE a 10", "RENAMENX a b", "FLUSHALL", "CONFIG SET maxmemory 1", "CLIENT KILL ID 4", "SORT l STORE out", "EVAL \"return 1\" 0", "JSON.SET k $ {}", "XADD s * a b", "PUBLISH ch msg", "SCRIPT FLUSH", "ACL SETUSER bob on", "SLOWLOG RESET", "NOT_A_COMMAND"] {
+            assert!(!is_read_only_command(&line(write)), "{write} writes");
+        }
+        assert!(!is_read_only_command(&line("CONFIG")), "a sub-command command with no sub-command is refused");
+        assert!(is_read_only_command(&[]), "an empty line runs nothing");
+    }
+
+    #[test]
+    fn search_text_becomes_a_scan_pattern() {
+        assert_eq!(scan_pattern(None), "*");
+        assert_eq!(scan_pattern(Some("   ")), "*");
+        assert_eq!(scan_pattern(Some("user")), "*user*");
+        assert_eq!(scan_pattern(Some(" user:7 ")), "*user:7*");
+        assert_eq!(scan_pattern(Some("a\\b")), "*a\\\\b*", "a backslash in plain text is escaped, not read as a glob escape");
+        assert_eq!(scan_pattern(Some("user:*")), "user:*", "the user's own glob is kept");
+        assert_eq!(scan_pattern(Some("h?llo")), "*h?llo*", "a glob without a star is wrapped");
+        assert_eq!(scan_pattern(Some("k[ab]")), "*k[ab]*");
+    }
+
+    #[test]
+    fn previews_are_one_line_and_eighty_characters() {
+        assert_eq!(string_preview(b"hello"), "hello");
+        assert_eq!(string_preview(b"a\n  b\t c"), "a b c");
+        let long = "x".repeat(200);
+        let preview = string_preview(long.as_bytes());
+        assert_eq!(preview.chars().count(), PREVIEW_CHARS);
+        assert!(preview.ends_with('…'));
+        assert_eq!(string_preview("é".repeat(100).as_bytes()).chars().count(), PREVIEW_CHARS, "counted in characters, not bytes");
+        assert_eq!(string_preview(b""), "");
+        assert_eq!(collection_hint(RedisKeyType::Hash, 1).as_deref(), Some("1 field"));
+        assert_eq!(collection_hint(RedisKeyType::List, 1500).as_deref(), Some("1,500 items"));
+        assert_eq!(collection_hint(RedisKeyType::String, 3), None);
+        assert_eq!(length_command(RedisKeyType::Zset), Some("ZCARD"));
+        assert_eq!(length_command(RedisKeyType::Json), None);
+    }
+
+    #[test]
+    fn key_figures_degrade_one_field_at_a_time() {
+        let bulk = |s: &str| redis::Value::BulkString(s.as_bytes().to_vec());
+        let ok = [redis::Value::SimpleString("hash".into()), redis::Value::Int(-1), redis::Value::Int(4_096), bulk("listpack"), redis::Value::Int(12)];
+        let figures = key_figures(&ok).unwrap_or_else(|| panic!("figures"));
+        assert_eq!((figures.type_name.as_str(), figures.ttl_ms, figures.memory_bytes), ("hash", -1, Some(4_096)));
+        assert_eq!((figures.encoding.as_deref(), figures.idle_seconds), (Some("listpack"), Some(12)));
+        // A server without MEMORY / OBJECT: those replies are errors or nil, the key still opens.
+        let partial = [redis::Value::SimpleString("string".into()), redis::Value::Int(30_000), redis::Value::Nil, redis::Value::Nil, redis::Value::Nil];
+        let figures = key_figures(&partial).unwrap_or_else(|| panic!("figures"));
+        assert_eq!((figures.memory_bytes, figures.encoding, figures.idle_seconds), (None, None, None));
+        assert!(key_figures(&[redis::Value::SimpleString("string".into())]).is_none(), "no TTL reply, no figures");
+    }
+
+    #[test]
+    fn redisjson_replies_unwrap_the_path_array() {
+        assert_eq!(json_document("[{\"a\":1}]"), Value::Json(serde_json::json!({"a": 1})));
+        assert_eq!(json_document("[[1,2]]"), Value::Json(serde_json::json!([1, 2])));
+        assert_eq!(json_document("{\"a\":1}"), Value::Json(serde_json::json!({"a": 1})), "a bare document is read as it is");
+        assert_eq!(json_document("not json"), Value::Text("not json".into()));
+        assert_eq!(KeyKind::parse("ReJSON-RL"), Some(KeyKind::Json));
+        assert_eq!(KeyKind::Json.columns().len(), 1);
+    }
+
+    #[test]
+    fn lists_are_windowed_only_in_their_own_order() {
+        assert!(is_list_order(&[]));
+        assert!(is_list_order(&[SortRule { column: "index".into(), desc: false }]));
+        assert!(!is_list_order(&[SortRule { column: "index".into(), desc: true }]));
+        assert!(!is_list_order(&[SortRule { column: "value".into(), desc: false }]));
+    }
+
     // WHAT:  Live round trip. Skipped unless DB_FREE_REDIS_URL is set (e.g. redis://127.0.0.1:6379/15).
     #[tokio::test]
     async fn live_round_trip_when_configured() {
@@ -2124,6 +2623,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: password };
         let redis = connect(&resolved).await.unwrap_or_else(|e| panic!("connect: {e}"));
