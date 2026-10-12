@@ -22,12 +22,12 @@
         "hiddenTitle": true,
         "trafficLightPosition": {
           "x": 14,
-          "y": 16
+          "y": 10
         }
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http:; font-src 'self' data:"
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://*.basemaps.cartocdn.com https: http:; font-src 'self' data:"
     }
   },
   "bundle": {
@@ -36,6 +36,16 @@
     "createUpdaterArtifacts": true,
     "category": "DeveloperTool",
     "shortDescription": "Lightweight native database workbench",
+    "fileAssociations": [
+      {
+        "ext": ["db", "sqlite", "sqlite3", "db3"],
+        "name": "SQLite database",
+        "description": "SQLite database file",
+        "mimeType": "application/vnd.sqlite3",
+        "role": "Editor",
+        "rank": "Alternate"
+      }
+    ],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -10,12 +10,15 @@ import {
   conflictsOf,
   normalizeChord,
   resolveKeymap,
+  scopeLabel,
   withBinding,
   type ShortcutAction,
+  type ShortcutMeta,
 } from "@/lib/keymap";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
 
@@ -62,16 +65,18 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
 
   return (
     <>
-      <div className="flex items-center gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Shortcuts</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-[13px] font-semibold text-foreground">Shortcuts</h2>
         <Button size="sm" variant="ghost" className="ml-auto" disabled={bindings.length === 0} onClick={() => onChange([])}>
           <Icon name="refresh" size={12} />
           Reset all
         </Button>
       </div>
-      <p className="text-xs text-muted">Click Record, then press the new chord. Esc cancels. Changes apply when you save.</p>
+      <p className="text-xs text-muted">
+        Click Record, then press the new chord. Esc cancels; the cross unbinds. Actions in different areas (SQL editor, data grid) may share a chord. Changes apply when you save.
+      </p>
       {conflictCount > 0 ? (
-        <Alert variant="warning" className="rounded-xl">
+        <Alert variant="warning" className="rounded-lg">
           <AlertIndicator />
           <AlertContent>
             <AlertTitle className="text-xs font-semibold">{conflictCount === 1 ? "A chord is bound twice" : `${conflictCount} chords are bound twice`}</AlertTitle>
@@ -91,10 +96,19 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
                 const clash = conflicts.get(action);
                 const isDefault = chord === normalizeChord(SHORTCUTS[action].keys);
                 const live = recording === action;
+                const meta: ShortcutMeta = SHORTCUTS[action];
+                const scope = scopeLabel(meta.scope);
                 return (
-                  <li key={action} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+                  <li key={action} className="flex items-center gap-2 px-2.5 py-1 text-xs">
                     <div className="min-w-0 flex-1">
-                      <p className="text-foreground">{SHORTCUTS[action].label}</p>
+                      <p className="flex items-center gap-2 text-foreground">
+                        {SHORTCUTS[action].label}
+                        {scope !== null ? (
+                          <Badge size="sm" variant="soft" className="text-[9.5px] font-medium tracking-wider uppercase">
+                            {scope}
+                          </Badge>
+                        ) : null}
+                      </p>
                       {clash !== undefined ? (
                         <p className="mt-0.5 flex items-center gap-1 text-[11px] text-warning">
                           <Icon name="alert" size={11} />
@@ -120,6 +134,9 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
                     <Button size="sm" variant={live ? "soft" : "secondary"} onClick={() => setRecording(live ? null : action)} aria-pressed={live}>
                       {live ? "Cancel" : "Record"}
                     </Button>
+                    <Button size="icon-sm" variant="ghost" aria-label={`Unbind ${SHORTCUTS[action].label}`} title="Unbind" disabled={chord.length === 0} onClick={() => onChange(withBinding(bindings, action, ""))}>
+                      <Icon name="x" size={12} />
+                    </Button>
                     <Button size="icon-sm" variant="ghost" aria-label={`Reset ${SHORTCUTS[action].label}`} title="Reset to default" disabled={isDefault} onClick={() => onChange(withBinding(bindings, action, null))}>
                       <Icon name="refresh" size={12} />
                     </Button>
@@ -134,7 +151,7 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
         <h3 className="text-[11px] font-semibold tracking-wider text-muted uppercase">Fixed</h3>
         <ul className="divide-y divide-separator rounded-md border border-border bg-surface">
           {FIXED.map((s) => (
-            <li key={s.keys} className="flex items-center px-3 py-2 text-[13px]">
+            <li key={s.keys} className="flex items-center px-2.5 py-1 text-xs">
               <span className="text-foreground">{s.action}</span>
               <span className="ml-auto font-mono text-xs text-muted">{s.keys}</span>
             </li>

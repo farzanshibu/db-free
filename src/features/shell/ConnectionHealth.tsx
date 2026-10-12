@@ -90,7 +90,7 @@ function HealthLine({ id }: { id: string }) {
 
   if (health.state === "lost") {
     return (
-      <div role="status" className="flex items-center gap-2 border-t border-border/40 px-3 py-2 text-xs">
+      <div role="status" className="flex items-center gap-2 border-t border-border/40 px-2.5 py-1.5 text-xs">
         <span aria-hidden className="size-2 shrink-0 rounded-full bg-danger" />
         <Tooltip>
           <TooltipTrigger asChild>
@@ -109,7 +109,7 @@ function HealthLine({ id }: { id: string }) {
   const label =
     health.state === "ok" ? `${health.latencyMs} ms` : health.state === "reconnecting" ? "Reconnecting…" : "Checking…";
   return (
-    <div role="status" className="flex items-center gap-2 border-t border-border/40 px-3 py-2 text-[11px] text-muted">
+    <div role="status" className="flex items-center gap-2 border-t border-border/40 px-2.5 py-1.5 text-[11px] text-muted">
       {health.state === "ok" ? (
         <span aria-hidden className={cn("size-2 shrink-0 rounded-full", latencyTone(health.latencyMs) === "ok" ? "bg-success" : "bg-warning")} />
       ) : (

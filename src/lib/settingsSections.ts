@@ -17,33 +17,8 @@ export type SettingsSection =
   | "security"
   | "updates"
   | "advanced"
-  // @parity wf
-  // @end wf
-  // @parity dash
-  // @end dash
-  // @parity diag
-  // @end diag
-  // @parity lib
-  // @end lib
-  // @parity grid
-  // @end grid
-  // @parity schema
-  // @end schema
-  // @parity editor
-  // @end editor
-  // @parity rx
-  // @end rx
-  // @parity conn
-  // @end conn
-  // @parity auth
-  // @end auth
-  // @parity shell
-  // @end shell
-  // @parity ai
-  // @end ai
-  // @parity engine
-  // @end engine
-  ;
+  | "schedules"
+  | "home";
 
 export const SETTINGS_SECTIONS: readonly { id: SettingsSection; label: string; icon: IconName }[] = [
   { id: "general", label: "General", icon: "settings" },
@@ -56,30 +31,6 @@ export const SETTINGS_SECTIONS: readonly { id: SettingsSection; label: string; i
   { id: "security", label: "Security & Privacy", icon: "lock" },
   { id: "updates", label: "Updates", icon: "download" },
   { id: "advanced", label: "Advanced", icon: "columns" },
-  // @parity wf
-  // @end wf
-  // @parity dash
-  // @end dash
-  // @parity diag
-  // @end diag
-  // @parity lib
-  // @end lib
-  // @parity grid
-  // @end grid
-  // @parity schema
-  // @end schema
-  // @parity editor
-  // @end editor
-  // @parity rx
-  // @end rx
-  // @parity conn
-  // @end conn
-  // @parity auth
-  // @end auth
-  // @parity shell
-  // @end shell
-  // @parity ai
-  // @end ai
-  // @parity engine
-  // @end engine
+  { id: "schedules", label: "Schedules", icon: "clock" },
+  { id: "home", label: "Home", icon: "home" },
 ];

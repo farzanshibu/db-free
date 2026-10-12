@@ -1,19 +1,11 @@
 // SOT: settings-page, preferences-ui, ai-settings-ui
-import { useEffect, useState } from "react";
-import type {
-  AgentAutonomy,
-  AgentSkill,
-  AiProvider,
-  AppSettings,
-  ExecutionMode,
-  RunScope,
-  UpdateProgress,
-  UpdateStatus,
-} from "@/lib/bindings";
-import { ipc, normalizeError, onUpdateProgress } from "@/lib/ipc";
+import { useState } from "react";
+import type { AppSettings, ExecutionMode, RunScope } from "@/lib/bindings";
+import { normalizeError } from "@/lib/ipc";
+import { LAYOUT_PRESETS } from "@/lib/layouts";
 import { useWorkspace } from "@/stores/workspace";
 import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
-import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
+import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
@@ -22,42 +14,34 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
+import { AiSection } from "./AiSection";
 import { ShortcutsSection } from "./ShortcutsSection";
+import { HomeSection } from "./HomeSection";
+import { SchedulesSection } from "./SchedulesSection";
 import { SnippetsSection } from "./SnippetsSection";
-import { THEME_OPTIONS, isThemeChoice, type ThemeChoice } from "@/stores/useTheme";
+import { SettingsRow as Row } from "./SettingsRow";
+import { ThemesSection } from "./ThemesSection";
+import { UpdatesSection } from "./UpdatesSection";
+import { useSystemTheme } from "@/stores/useTheme";
 
-const ACCENTS = [
-  { value: "blue", label: "Blue" },
-  { value: "violet", label: "Violet" },
-  { value: "green", label: "Green" },
-  { value: "orange", label: "Orange" },
-  { value: "rose", label: "Rose" },
+/// Whole-app zoom stops, as the ⌘+ / ⌘- shortcuts step through them.
+const ZOOM_OPTIONS = [
+  { value: "0.9", label: "90%" },
+  { value: "1", label: "100%" },
+  { value: "1.1", label: "110%" },
+  { value: "1.25", label: "125%" },
+  { value: "1.5", label: "150%" },
 ] satisfies readonly { value: string; label: string }[];
-
-const PROVIDERS: readonly { value: AiProvider; label: string }[] = [
-  { value: "none", label: "Off" },
-  { value: "anthropic", label: "Anthropic" },
-  { value: "openai", label: "OpenAI" },
-  { value: "openrouter", label: "OpenRouter" },
-  { value: "ollama", label: "Ollama (local)" },
-];
-
-// WHAT:  How far the assistant may act before it stops and asks.
-// WHY:   The agent runs statements against a live database. This is the one
-//        setting that decides what it may do without a human reading it first.
-const AUTONOMY: readonly { value: AgentAutonomy; label: string }[] = [
-  { value: "read_only", label: "Read only" },
-  { value: "ask_on_write", label: "Ask before writing" },
-  { value: "full", label: "Write without asking" },
-];
 
 // WHAT:  Settings page mirroring DB Manager's sections; edits a draft of AppSettings.
 //        A floating dock appears while the draft differs from the saved settings
-//        (Reset / Save). The AI key is written separately and never echoed.
+//        (Reset / Save). The AI section keeps its own draft and Save (it carries
+//        keys, which are written separately and never echoed): the dock ignores
+//        `ai`, and the server keeps the assistant's settings out of this save.
 export function SettingsPage() {
   const settings = useWorkspace((s) => s.settings);
   if (!settings) return null;
-  return <SettingsBody key={settings.ai.hasApiKey ? "k" : "n"} initial={settings} />;
+  return <SettingsBody initial={settings} />;
 }
 
 function SettingsBody({ initial }: { initial: AppSettings }) {
@@ -69,39 +53,30 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
   const section = useWorkspace((s) => (s.page.kind === "settings" ? (s.page.section ?? "general") : "general"));
   const setSection = useWorkspace((s) => s.goSettingsSection);
   const [draft, setDraft] = useState<AppSettings | null>(initial);
-  const [apiKey, setApiKey] = useState("");
-  const [clearKey, setClearKey] = useState(false);
+  // Settings saved in another window arrive as a new `initial`. With nothing edited here
+  // the draft follows them; with unsaved edits the draft is left alone (Reset picks them up).
+  const [seen, setSeen] = useState(initial);
+  if (initial !== seen) {
+    setSeen(initial);
+    if (draft !== null && sameSettings({ ...draft, ai: seen.ai }, seen)) setDraft(initial);
+  }
+  const systemScheme = useSystemTheme();
+  const applyLayout = useWorkspace((s) => s.applyLayout);
   const [saving, setSaving] = useState(false);
-  const [skills, setSkills] = useState<AgentSkill[]>([]);
-
-  // Compiled into the binary, so this is a cheap read and never fails in a way
-  // worth surfacing — an empty list just hides the row's detail.
-  useEffect(() => {
-    void (async () => {
-      try {
-        setSkills(await ipc("agent_skills"));
-      } catch {
-        setSkills([]);
-      }
-    })();
-  }, []);
 
   if (!draft) return null;
-  const dirty = !sameSettings(draft, initial) || apiKey.trim().length > 0 || clearKey;
+  // The assistant's settings are the AI section's own (draft, Save and keys); the
+  // draft's copy of them is only ever the one the page opened with.
+  const dirty = !sameSettings({ ...draft, ai: initial.ai }, initial);
   const reset = () => {
     setDraft(initial);
-    setApiKey("");
-    setClearKey(false);
   };
   const patch = (partial: Partial<AppSettings>) => setDraft((d) => (d ? { ...d, ...partial } : d));
-  const patchAi = (partial: Partial<AppSettings["ai"]>) => setDraft((d) => (d ? { ...d, ai: { ...d.ai, ...partial } } : d));
 
   const save = async () => {
     setSaving(true);
     try {
-      await saveSettings(draft, clearKey ? "" : apiKey.trim().length > 0 ? apiKey.trim() : null);
-      setApiKey("");
-      setClearKey(false);
+      await saveSettings(draft, null);
       showInfo("Settings saved.");
     } catch (raw) {
       showError(normalizeError(raw));
@@ -112,18 +87,18 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 
   return (
     <div className="grid-bg relative flex h-full min-h-0 flex-1 flex-col">
-      <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
+      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
         <Button variant="ghost" size="sm" onClick={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
           <Icon name="chevron-left" size={14} />
           Back
         </Button>
-        <span className="text-sm font-semibold text-foreground tracking-tight" data-tauri-drag-region>
+        <span className="text-[13px] font-semibold text-foreground tracking-tight" data-tauri-drag-region>
           Preferences
         </span>
         <div className="drag-region h-full flex-1" data-tauri-drag-region />
       </div>
       <div className="flex min-h-0 flex-1">
-        <nav className="w-56 shrink-0 space-y-0.5 px-2.5 py-4 glass-sidebar" aria-label="Settings sections">
+        <nav className="w-48 shrink-0 space-y-0.5 px-2 py-2.5 glass-sidebar" aria-label="Settings sections">
           {SETTINGS_SECTIONS.map((s) => (
             <Button
               key={s.id}
@@ -131,7 +106,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
               size="sm"
               onClick={() => setSection(s.id)}
               className={cn(
-                "flex h-8 w-full items-center justify-start gap-2.5 rounded-lg px-2.5 text-left text-[12.5px] font-medium liquid-hover",
+                "flex h-6.5 w-full items-center justify-start gap-2 rounded-md px-2 text-left text-xs font-medium liquid-hover",
                 section === s.id ? "bg-accent/12 text-accent" : "text-muted hover:bg-surface-secondary/60 hover:text-foreground",
               )}
             >
@@ -141,33 +116,42 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
           ))}
         </nav>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto flex w-full max-w-[720px] flex-col gap-4 px-8 py-6">
+          <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-5 py-3">
             {section === "general" ? (
               <>
-                <h2 className="text-sm font-semibold text-foreground">General</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">General</h2>
                 <Row title="Confirm destructive statements" body="DROP, TRUNCATE and DELETE/UPDATE without WHERE ask before running.">
                   <Toggle checked={draft.confirmDestructive} onChange={(v) => patch({ confirmDestructive: v })} label="" />
                 </Row>
-                <Row title="Default row density" body="Applies to new grids; the rail button cycles it per session.">
+                <Row title="Density" body="Row height and spacing of grids, lists and panels. Compact is the default.">
                   <AppSelect ariaLabel="Density" value={draft.gridDensity} options={[{ value: "compact", label: "Compact" }, { value: "cozy", label: "Cozy" }, { value: "comfortable", label: "Comfortable" }]} onChange={(v) => patch({ gridDensity: v })} className="w-44" />
+                </Row>
+                <Row title="Open connections in a new window" body="Each connection gets its own window (created, or brought forward if it is already open). New Window is always available from the File menu.">
+                  <Toggle checked={draft.openConnectionsInNewWindow} onChange={(v) => patch({ openConnectionsInNewWindow: v })} label="" />
+                </Row>
+                <Row title="Reuse table preview tab" body="A single click on a table opens an italic preview tab that the next click replaces; double-click, edit or click the tab to keep it. Off opens every table in its own tab.">
+                  <Toggle checked={draft.reuseTablePreviewTab} onChange={(v) => patch({ reuseTablePreviewTab: v })} label="" />
+                </Row>
+                <Row title="Zoom" body="Scales the whole interface. ⌘+ and ⌘- step through the same sizes, ⌘0 resets.">
+                  <AppSelect ariaLabel="Zoom" value={String(draft.uiZoom)} options={ZOOM_OPTIONS} onChange={(v) => patch({ uiZoom: Number(v) })} className="w-32" />
+                </Row>
+                <Row title="Layout" body="Sidebar and inspector arrangements. Applies at once, to this window.">
+                  <div className="flex flex-wrap justify-end gap-1.5">
+                    {LAYOUT_PRESETS.map((preset) => (
+                      <Button key={preset.id} size="sm" variant="secondary" title={preset.description} onClick={() => { applyLayout(preset.id); }}>
+                        {preset.label}
+                      </Button>
+                    ))}
+                  </div>
                 </Row>
               </>
             ) : null}
             {section === "themes" ? (
-              <>
-                <h2 className="text-sm font-semibold text-foreground">Themes</h2>
-                <p className="text-xs text-muted">Black by default; light for bright rooms. System follows the OS and switches with it.</p>
-                <Row title="Theme" body="Dark, light, or match the operating system.">
-                  <Segmented<ThemeChoice> label="Theme" value={isThemeChoice(draft.theme) ? draft.theme : "dark"} options={THEME_OPTIONS} onChange={(v) => patch({ theme: v })} />
-                </Row>
-                <Row title="Accent" body="Buttons, selections, links.">
-                  <AppSelect ariaLabel="Accent" value={draft.accent} options={ACCENTS} onChange={(v) => patch({ accent: v })} className="w-44" />
-                </Row>
-              </>
+              <ThemesSection theme={draft.theme} accent={draft.accent} customThemes={draft.customThemes} system={systemScheme} onChange={patch} />
             ) : null}
             {section === "fonts" ? (
               <>
-                <h2 className="text-sm font-semibold text-foreground">Fonts</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Fonts</h2>
                 <p className="text-xs text-muted">Every family is bundled with the app, so the picker works offline.</p>
                 <Row title="Interface font" body="Menus, panels, labels.">
                   <AppSelect ariaLabel="Interface font" value={draft.uiFont} options={UI_FONT_OPTIONS} onChange={(v) => patch({ uiFont: v })} className="w-44" />
@@ -185,12 +169,21 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             ) : null}
             {section === "grid" ? (
               <>
-                <h2 className="text-sm font-semibold text-foreground">Data Grid</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Data Grid</h2>
                 <Row title="Alternating row colours" body="Zebra striping in every grid, for reading long rows across.">
                   <Toggle checked={draft.alternatingRows} onChange={(v) => patch({ alternatingRows: v })} label="" />
                 </Row>
                 <Row title="Remember table sort and filter" body="Reopen each table with the sort and filters you last used, across restarts.">
                   <Toggle checked={draft.rememberTableState} onChange={(v) => patch({ rememberTableState: v })} label="" />
+                </Row>
+                <Row title="Default page size" body="Rows per page when a table opens. A connection whose page size you change keeps its own.">
+                  <AppSelect
+                    ariaLabel="Default page size"
+                    value={String(draft.defaultPageSize)}
+                    options={["25", "50", "100", "200", "500", "1000"].map((n) => ({ value: n, label: `${n} rows` }))}
+                    onChange={(v) => patch({ defaultPageSize: Number(v) })}
+                    className="w-44"
+                  />
                 </Row>
                 <Row title="Table column preview" body="Expandable column list under each table in the sidebar.">
                   <Toggle checked={draft.columnPreview} onChange={(v) => patch({ columnPreview: v })} label="" />
@@ -198,11 +191,17 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 <Row title="NULL display" body="Text shown for NULL cells.">
                   <Field label="" value={draft.nullDisplay} onChange={(v) => patch({ nullDisplay: v })} className="w-32 [&_label]:hidden" mono />
                 </Row>
+                <Row title="Scrollbar size" body="Standard is thin; Large is easier to grab with a mouse.">
+                  <AppSelect ariaLabel="Scrollbar size" value={draft.gridScrollbarSize === "large" ? "large" : "standard"} options={[{ value: "standard", label: "Standard" }, { value: "large", label: "Large" }]} onChange={(v) => patch({ gridScrollbarSize: v })} className="w-36" />
+                </Row>
+                <Row title="Date picker" body="Show a calendar button on date and time fields. Off keeps them text-only, for keyboard editing.">
+                  <Toggle checked={draft.datePickerEnabled} onChange={(v) => patch({ datePickerEnabled: v })} label="" />
+                </Row>
               </>
             ) : null}
             {section === "editor" ? (
               <>
-                <h2 className="text-sm font-semibold text-foreground">Query Behaviour</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Query Behaviour</h2>
                 <Row title="Max query rows" body="Caps how many rows a query in the editor returns. Larger results are trimmed to this limit to keep the app fast; the results banner says when that happened.">
                   <AppSelect
                     ariaLabel="Max query rows"
@@ -213,6 +212,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                       { value: "10000", label: "10,000 rows" },
                       { value: "50000", label: "50,000 rows" },
                       { value: "100000", label: "100,000 rows" },
+                      { value: "0", label: "Unlimited" },
                     ]}
                     onChange={(v) => patch({ maxQueryRows: Number(v) })}
                     className="w-40"
@@ -227,28 +227,59 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 <Row title="Run Without a Selection" body="Run every statement in the editor, or just the statement your cursor is in.">
                   <AppSelect<RunScope> ariaLabel="Run scope" value={draft.runScope} options={[{ value: "all", label: "All statements" }, { value: "current", label: "Current statement" }]} onChange={(v) => patch({ runScope: v })} className="w-48" />
                 </Row>
+                <Row title="Keep Query Log For" body="Statements the app logs are deleted after this long, when the app starts. The log is what the History tab and the editor's history panel show.">
+                  <AppSelect
+                    ariaLabel="Query log retention"
+                    value={String(draft.logRetentionDays)}
+                    options={[
+                      { value: "7", label: "7 days" },
+                      { value: "14", label: "14 days" },
+                      { value: "30", label: "30 days" },
+                      { value: "60", label: "60 days" },
+                      { value: "90", label: "90 days" },
+                      { value: "0", label: "Forever" },
+                    ]}
+                    onChange={(v) => patch({ logRetentionDays: Number(v) })}
+                    className="w-40"
+                  />
+                </Row>
+                <Row title="Keep AI Prompt as a Comment" body="When the editor's inline AI (⌘I) writes code, put your instruction above it as a comment.">
+                  <Toggle checked={draft.inlineAiPromptAsComment} onChange={(v) => patch({ inlineAiPromptAsComment: v })} label="" />
+                </Row>
                 <Row title="Execution Mode" body="Review Mode queues changes for review before applying. Direct Mode applies changes immediately.">
                   <AppSelect<ExecutionMode> ariaLabel="Execution mode" value={draft.executionMode} options={[{ value: "review", label: "Review Mode" }, { value: "direct", label: "Direct Mode" }]} onChange={(v) => patch({ executionMode: v })} className="w-48" />
                 </Row>
                 <Separator />
-                <h2 className="text-sm font-semibold text-foreground">Command Menu</h2>
-                <p className="text-xs text-muted">Order of sections in the command menu (⌘K). Use the arrows to reorder.</p>
+                <h2 className="text-[13px] font-semibold text-foreground">Command Menu</h2>
+                <p className="text-xs text-muted">Order of sections in the command menu (⌘K). Use the arrows to reorder and the eye to hide a section.</p>
                 <ul className="flex flex-col gap-1">
-                  {draft.commandMenuSections.map((name, i) => (
-                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px]">
-                      <span className="capitalize">{name.replace("_", " ")}</span>
+                  {draft.commandMenuSections.map((name, i) => {
+                    const hidden = draft.commandMenuHiddenSections.includes(name);
+                    return (
+                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1 text-xs">
+                      <span className={cn("capitalize", hidden && "text-muted line-through")}>{name.replace("_", " ")}</span>
                       <span className="ml-auto flex gap-1">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          aria-label={hidden ? `Show ${name.replace("_", " ")}` : `Hide ${name.replace("_", " ")}`}
+                          aria-pressed={hidden}
+                          onClick={() => patch({ commandMenuHiddenSections: hidden ? draft.commandMenuHiddenSections.filter((h) => h !== name) : [...draft.commandMenuHiddenSections, name] })}
+                        >
+                          <Icon name={hidden ? "eye-off" : "eye"} size={12} />
+                        </Button>
                         <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
                         <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.commandMenuSections.length - 1} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
                       </span>
                     </li>
-                  ))}
+                    );
+                  })}
                 </ul>
-                <h2 className="text-sm font-semibold text-foreground">Inspector Tabs</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Inspector Tabs</h2>
                 <p className="text-xs text-muted">Order of the tabs in the record inspector. The top tab is the default.</p>
                 <ul className="flex flex-col gap-1">
                   {draft.inspectorTabs.map((name, i) => (
-                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-3 py-1.5 text-[13px]">
+                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1 text-xs">
                       <span className="uppercase">{name}</span>
                       <span className="ml-auto flex gap-1">
                         <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
@@ -262,52 +293,10 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
               </>
             ) : null}
             {section === "shortcuts" ? <ShortcutsSection bindings={draft.keybindings} onChange={(keybindings) => patch({ keybindings })} /> : null}
-            {section === "ai" ? (
-              <>
-                <h2 className="text-sm font-semibold text-foreground">AI (bring your own key)</h2>
-                <p className="text-xs text-muted">A database assistant that reads your schema, samples rows and runs queries to answer questions. Your prompt, the schema it looks up, and the rows its queries return are sent to the provider. The key is encrypted at rest.</p>
-                <Row title="Provider" body="Off keeps the app fully offline.">
-                  <AppSelect<AiProvider> ariaLabel="Provider" value={draft.ai.provider} options={PROVIDERS} onChange={(v) => patchAi({ provider: v })} className="w-48" />
-                </Row>
-                <Row title="Model" body="e.g. claude-opus-5, gpt-4.1, llama3.1">
-                  <Field label="" value={draft.ai.model} onChange={(v) => patchAi({ model: v })} className="w-64 [&_label]:hidden" mono />
-                </Row>
-                <Row title="Base URL" body="Optional. Proxies, OpenRouter, or a remote Ollama.">
-                  <Field label="" value={draft.ai.baseUrl ?? ""} onChange={(v) => patchAi({ baseUrl: v.trim().length > 0 ? v.trim() : null })} className="w-72 [&_label]:hidden" mono />
-                </Row>
-                <Row title="API key" body={draft.ai.hasApiKey ? "A key is stored. Enter a new one to replace it." : "No key stored."}>
-                  <div className="flex flex-col items-end gap-1">
-                    <Field label="" type="password" value={apiKey} onChange={setApiKey} className="w-72 [&_label]:hidden" mono />
-                    {draft.ai.hasApiKey ? <Toggle checked={clearKey} onChange={setClearKey} label="Remove stored key on save" /> : null}
-                  </div>
-                </Row>
-                <Row
-                  title="What it may do on its own"
-                  body="Reads always run unattended. A statement that writes or deletes is shown to you for approval first — unless you turn that off here. A read-only connection refuses writes whatever this says."
-                >
-                  <AppSelect<AgentAutonomy>
-                    ariaLabel="Autonomy"
-                    value={draft.ai.autonomy}
-                    options={AUTONOMY}
-                    onChange={(v) => patchAi({ autonomy: v })}
-                    className="w-52"
-                  />
-                </Row>
-                <Row
-                  title="Task guides"
-                  body={
-                    skills.length > 0
-                      ? `Loaded on demand rather than sent with every message: ${skills.map((skill) => skill.name).join(", ")}.`
-                      : "Short playbooks the assistant loads when a task calls for one."
-                  }
-                >
-                  <span className="text-xs text-muted tabular-nums">{skills.length}</span>
-                </Row>
-              </>
-            ) : null}
+            {section === "ai" ? <AiSection /> : null}
             {section === "security" ? (
               <>
-                <h2 className="text-sm font-semibold text-foreground">Security & Privacy</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Security & Privacy</h2>
                 <Row title="Telemetry" body="Zero telemetry, always. Nothing leaves this machine except your own database and AI requests.">
                   <span className="text-xs text-success">off</span>
                 </Row>
@@ -315,44 +304,22 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                   <Toggle checked={draft.crashReportsOptIn} onChange={(v) => patch({ crashReportsOptIn: v })} label="" />
                 </Row>
                 <Row title="Credentials" body="Passwords and API keys are sealed with AES-256-GCM; the master key lives in the OS keychain.">
-                  <Icon name="lock" size={16} className="text-muted" />
+                  <Icon name="lock" size={14} className="text-muted" />
                 </Row>
               </>
             ) : null}
-            {section === "updates" ? <UpdatesSection /> : null}
-            {/* @parity wf */}
-            {/* @end wf */}
-            {/* @parity dash */}
-            {/* @end dash */}
-            {/* @parity diag */}
-            {/* @end diag */}
-            {/* @parity lib */}
-            {/* @end lib */}
-            {/* @parity grid */}
-            {/* @end grid */}
-            {/* @parity schema */}
-            {/* @end schema */}
-            {/* @parity editor */}
-            {/* @end editor */}
-            {/* @parity rx */}
-            {/* @end rx */}
-            {/* @parity conn */}
-            {/* @end conn */}
-            {/* @parity auth */}
-            {/* @end auth */}
-            {/* @parity shell */}
-            {/* @end shell */}
-            {/* @parity ai */}
-            {/* @end ai */}
-            {/* @parity engine */}
-            {/* @end engine */}
+            {section === "updates" ? <UpdatesSection checkOnLaunch={draft.checkUpdatesOnLaunch} onCheckOnLaunch={(v) => patch({ checkUpdatesOnLaunch: v })} /> : null}
+            {section === "schedules" ? <SchedulesSection /> : null}
+            {section === "home" ? (
+              <HomeSection showPinned={draft.showPinned} showRecents={draft.showRecents} onChange={(partial) => patch(partial)} />
+            ) : null}
             {section === "advanced" ? (
               <>
-                <h2 className="text-sm font-semibold text-foreground">Advanced</h2>
-                <Card className="rounded-xl glass-card border-border/40 px-4 py-3.5 shadow-xs">
-                  <CardContent className="flex flex-col gap-3 p-0">
+                <h2 className="text-[13px] font-semibold text-foreground">Advanced</h2>
+                <Card className="rounded-lg glass-card border-border/40 px-3 py-2 shadow-xs">
+                  <CardContent className="flex flex-col gap-2 p-0">
                     <div>
-                      <p className="text-[13px] font-semibold text-foreground tracking-tight">Backup tools</p>
+                      <p className="text-xs font-semibold text-foreground tracking-tight">Backup tools</p>
                       <p className="text-xs text-muted mt-0.5">Backup / Restore runs pg_dump, mysqldump and mongodump. Leave a field empty to use PATH, or point it at the program or its folder.</p>
                     </div>
                     <NativeToolPaths value={draft.nativeToolPaths} onChange={(nativeToolPaths) => patch({ nativeToolPaths })} />
@@ -370,9 +337,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
       </div>
       {dirty ? (
         <div className="pointer-events-none absolute inset-x-0 bottom-5 flex justify-center">
-          <div role="status" className="pointer-events-auto flex items-center gap-3 rounded-2xl glass-modal py-2 pr-2 pl-4 shadow-2xl">
-            <Icon name="info" size={15} className="text-accent" />
-            <span className="mr-3 text-[13px] font-medium text-foreground">Unsaved changes</span>
+          <div role="status" className="pointer-events-auto flex items-center gap-2 rounded-lg glass-modal py-1 pr-1.5 pl-2.5 shadow-xl">
+            <Icon name="info" size={14} className="text-accent" />
+            <span className="mr-3 text-xs font-medium text-foreground">Unsaved changes</span>
             <Button size="sm" variant="danger-soft" onClick={reset} disabled={saving} className="rounded-lg liquid-hover">
               Reset
             </Button>
@@ -392,22 +359,10 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 //        level, so a nested key missing from it would compare as equal).
 function sameSettings(a: AppSettings, b: AppSettings): boolean {
   const nested = [...a.keybindings, ...b.keybindings, ...a.snippets, ...b.snippets].flatMap((k) => Object.keys(k));
-  const keys = [...new Set([...Object.keys(a), ...Object.keys(a.ai), ...Object.keys(a.nativeToolPaths), ...Object.keys(b.nativeToolPaths), ...nested])].sort();
+  // A custom theme is an object of colours keyed by token name: every one of those names counts.
+  const themeKeys = [...a.customThemes, ...b.customThemes].flatMap((t) => [...Object.keys(t), ...Object.keys(t.colors)]);
+  const keys = [...new Set([...Object.keys(a), ...Object.keys(a.ai), ...Object.keys(a.nativeToolPaths), ...Object.keys(b.nativeToolPaths), ...nested, ...themeKeys])].sort();
   return JSON.stringify(a, keys) === JSON.stringify(b, keys);
-}
-
-function Row({ title, body, children }: { title: string; body: string; children: React.ReactNode }) {
-  return (
-    <Card className="rounded-xl glass-card border-border/40 px-4 py-3.5 shadow-xs">
-      <CardContent className="flex flex-row items-center gap-6 p-0 w-full">
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-foreground tracking-tight">{title}</p>
-          <p className="text-xs text-muted mt-0.5">{body}</p>
-        </div>
-        <div className="shrink-0">{children}</div>
-      </CardContent>
-    </Card>
-  );
 }
 
 function clamp(n: number, lo: number, hi: number): number {
@@ -421,97 +376,15 @@ function move<T>(list: readonly T[], from: number, to: number): T[] {
   return copy;
 }
 
-// WHAT:  Self-update panel: the running version, what the release feed offers,
-//        and one button that installs it and restarts.
-// WHY:   Installers were download-by-hand; the feed is the signed latest.json
-//        published with each GitHub release.
-// WHERE: src-tauri/src/services/updates.rs, .github/workflows/release.yml
-function UpdatesSection() {
-  const showError = useWorkspace((s) => s.showError);
-  const [status, setStatus] = useState<UpdateStatus | null>(null);
-  const [busy, setBusy] = useState<"check" | "install" | null>(null);
-  const [progress, setProgress] = useState<UpdateProgress | null>(null);
-
-  // Subscribed while the panel is open: the download reports bytes as they land.
-  useEffect(() => {
-    const pending = onUpdateProgress(setProgress);
-    return () => {
-      void pending.then((unlisten) => unlisten());
-    };
-  }, []);
-
-  const check = async () => {
-    setBusy("check");
-    try {
-      setStatus(await ipc("check_update"));
-    } catch (raw) {
-      showError(normalizeError(raw));
-    } finally {
-      setBusy(null);
-    }
-  };
-
-  const install = async () => {
-    setBusy("install");
-    try {
-      // The app restarts into the new version, so nothing after this runs.
-      await ipc("install_update");
-    } catch (raw) {
-      showError(normalizeError(raw));
-      setBusy(null);
-    }
-  };
-
-  return (
-    <>
-      <h2 className="text-sm font-semibold text-foreground">Updates</h2>
-      <p className="text-xs text-muted">Signed builds are published for every commit on main; the app verifies the signature before installing.</p>
-      <Row title="Version" body={status ? `Running ${status.current}` : "Check to compare this build against the latest release."}>
-        <Button size="sm" variant="secondary" pending={busy === "check"} onClick={() => void check()}>
-          <Icon name="refresh" size={13} />
-          Check for updates
-        </Button>
-      </Row>
-      {status?.available ? (
-        <Row title={`Version ${status.available} is available`} body={progress ? downloadLabel(progress) : (status.notes ?? status.published ?? "Installs and restarts the app.")}>
-          <Button size="sm" pending={busy === "install"} onClick={() => void install()}>
-            <Icon name="download" size={13} />
-            Install and restart
-          </Button>
-        </Row>
-      ) : status ? (
-        <Row title="Up to date" body={`No release newer than ${status.current}.`}>
-          <Icon name="check" size={15} className="text-success" />
-        </Row>
-      ) : null}
-      {progress ? (
-        <div className="h-1 w-full overflow-hidden rounded-full bg-surface-secondary">
-          <div
-            className="h-full rounded-full bg-accent transition-[width] duration-200"
-            style={{ width: progress.total ? `${Math.min(100, Math.round((progress.downloaded / progress.total) * 100))}%` : "100%" }}
-          />
-        </div>
-      ) : null}
-    </>
-  );
-}
-
-/// "18.4 MB of 41.5 MB" while downloading, then what happens next.
-function downloadLabel(progress: UpdateProgress): string {
-  if (progress.done) return "Downloaded. Installing, then the app restarts.";
-  const mb = (bytes: number) => `${(bytes / 1_048_576).toFixed(1)} MB`;
-  return progress.total ? `Downloading ${mb(progress.downloaded)} of ${mb(progress.total)}…` : `Downloading ${mb(progress.downloaded)}…`;
-}
-
 function defaultSettings(): AppSettings {
   return {
     theme: "dark",
     accent: "blue",
     uiFont: "jetbrains-mono",
     editorFont: "jetbrains-mono",
-    uiFontSize: 13,
+    uiFontSize: 12,
     editorFontSize: 13,
-    gridDensity: "cozy",
+    gridDensity: "compact",
     alternatingRows: true,
     rememberTableState: true,
     columnPreview: true,
@@ -525,9 +398,22 @@ function defaultSettings(): AppSettings {
     inspectorTabs: ["fields", "json", "sql"],
     confirmDestructive: true,
     crashReportsOptIn: false,
-    ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false, autonomy: "ask_on_write" },
+    ai: { provider: "none", model: "claude-opus-5", baseUrl: null, hasApiKey: false, autonomy: "ask_on_write", dataAccess: "full", defaultProfile: null, profiles: [], maxSteps: 12 },
     nativeToolPaths: {},
     keybindings: [],
     snippets: [],
+    openConnectionsInNewWindow: false,
+    uiZoom: 1,
+    reuseTablePreviewTab: false,
+    gridScrollbarSize: "standard",
+    datePickerEnabled: true,
+    commandMenuHiddenSections: [],
+    customThemes: [],
+    checkUpdatesOnLaunch: true,
+    logRetentionDays: 30,
+    inlineAiPromptAsComment: true,
+    showPinned: true,
+    showRecents: true,
+    defaultPageSize: 50,
   };
 }

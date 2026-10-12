@@ -3,6 +3,8 @@ import type { DocumentKind, ObjectKind, ObjectRef, TableRef, Tool } from "@/lib/
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { parseJson } from "@/lib/json";
 import { OBJECT_KINDS, TOOLS } from "@/lib/objects";
+import { initialPanes, type PaneLayout, type PaneNode } from "@/lib/panes";
+import { windowContext } from "@/lib/shellEvents";
 import type { Tab } from "./workspace";
 
 // WHAT:  The open tabs (every kind, in order) and the active one, written to
@@ -18,32 +20,77 @@ import type { Tab } from "./workspace";
 // WHERE: src/stores/workspace.ts (bootstrap, subscribe)
 const TABS_KEY = "db-free:open-tabs";
 
+// WHAT:  Where this window keeps its tabs: the main window the original key, a
+//        connection window one of its own, and a plain extra window none.
+// WHY:   Every window shares one localStorage, so two windows writing one key
+//        would erase each other's tabs. Connection windows have a stable label
+//        and so come back with their tabs; `win-N` windows are throwaway.
+function storageKey(): string | null {
+  const { label } = windowContext();
+  if (label === "main") return TABS_KEY;
+  return label.startsWith("conn-") ? `${TABS_KEY}:${label}` : null;
+}
+
 export interface StoredTabs {
   tabs: Tab[];
   active: string | null;
+  /// The pane layout the tabs were in; null for tabs stored before panes existed.
+  layout: PaneLayout | null;
 }
 
+const NOTHING_STORED: StoredTabs = { tabs: [], active: null, layout: null };
+
 export function readStoredTabs(): StoredTabs {
+  const key = storageKey();
+  if (key === null) return NOTHING_STORED;
   let raw: string | null = null;
   try {
-    raw = localStorage.getItem(TABS_KEY);
+    raw = localStorage.getItem(key);
   } catch {
-    return { tabs: [], active: null };
+    return NOTHING_STORED;
   }
   const root = raw === null ? undefined : parseJson(raw);
   const obj = record(root);
-  if (!obj) return { tabs: [], active: null };
+  if (!obj) return NOTHING_STORED;
   const list = Array.isArray(obj.tabs) ? obj.tabs : [];
-  return { tabs: list.flatMap((t) => decodeTab(t) ?? []), active: text(obj.active) };
+  return { tabs: list.flatMap((t) => decodeTab(t) ?? []), active: text(obj.active), layout: decodeLayout(obj.layout) };
 }
 
-export function writeStoredTabs(tabs: readonly Tab[], active: string | null): void {
+export function writeStoredTabs(tabs: readonly Tab[], active: string | null, layout: PaneLayout): void {
+  const key = storageKey();
+  if (key === null) return;
   const stored = tabs.map(storable);
   try {
-    localStorage.setItem(TABS_KEY, JSON.stringify({ tabs: stored, active }));
+    localStorage.setItem(key, JSON.stringify({ tabs: stored, active, layout }));
   } catch {
     // storage unavailable: the workspace just will not come back next launch
   }
+}
+
+// WHAT:  Tab ids that other windows have claimed (their stored tab lists).
+// WHY:   A query tab's text lives in a buffer keyed by tab id, and the main
+//        window restores every buffer that has text. Without this it would also
+//        restore the buffers of tabs a connection window owns, and the same
+//        script would be open in two windows at once.
+export function tabIdsOfOtherWindows(): Set<string> {
+  const mine = storageKey();
+  const ids = new Set<string>();
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key === null || key === mine || !key.startsWith(`${TABS_KEY}:`)) continue;
+      const raw = localStorage.getItem(key);
+      const list = record(raw === null ? undefined : parseJson(raw))?.tabs;
+      if (!Array.isArray(list)) continue;
+      for (const entry of list) {
+        const id = text(record(entry)?.id);
+        if (id !== null) ids.add(id);
+      }
+    }
+  } catch {
+    // storage unavailable: nothing is claimed, which only risks a duplicate editor
+  }
+  return ids;
 }
 
 /// Drops the fields that only mean something the moment a tab is opened.
@@ -90,6 +137,46 @@ function objectRef(value: JsonValue | undefined): ObjectRef | null {
   return { kind, name, parent: text(obj.parent) };
 }
 
+const MAX_STORED_DEPTH = 4;
+
+function decodeNode(value: JsonValue | undefined, depth: number): PaneNode | null {
+  const obj = record(value);
+  const id = text(obj?.id);
+  const kind = text(obj?.kind);
+  if (!obj || id === null || kind === null || depth > MAX_STORED_DEPTH) return null;
+  if (kind === "leaf") return { kind: "leaf", id };
+  if (kind !== "split") return null;
+  const direction = text(obj.direction);
+  const first = decodeNode(obj.first, depth + 1);
+  const second = decodeNode(obj.second, depth + 1);
+  const ratio = obj.ratio;
+  if ((direction !== "row" && direction !== "column") || first === null || second === null || typeof ratio !== "number") return null;
+  return { kind: "split", id, direction, ratio, first, second };
+}
+
+// WHAT:  The pane layout saved with the tabs, or null when it is missing or
+//        does not check out (the tabs then restore into one pane).
+function decodeLayout(value: JsonValue | undefined): PaneLayout | null {
+  const obj = record(value);
+  const root = decodeNode(obj?.root, 0);
+  const focused = text(obj?.focused);
+  const counter = obj?.counter;
+  if (!obj || root === null || focused === null || typeof counter !== "number") return null;
+  const active: Record<string, string | null> = {};
+  for (const [pane, tab] of Object.entries(record(obj.active) ?? {})) active[pane] = text(tab);
+  const owner: Record<string, string> = {};
+  for (const [tab, pane] of Object.entries(record(obj.owner) ?? {})) {
+    const owned = text(pane);
+    if (owned !== null) owner[tab] = owned;
+  }
+  return { root, focused, active, owner, counter };
+}
+
+/// The layout to start from: the stored one, or a single pane.
+export function startingLayout(stored: StoredTabs): PaneLayout {
+  return stored.layout ?? initialPanes();
+}
+
 function decodeTab(value: JsonValue): Tab | null {
   const obj = record(value);
   const id = text(obj?.id);
@@ -117,32 +204,6 @@ function decodeTab(value: JsonValue): Tab | null {
       return { id, kind, connectionId, schema: text(obj.schema) };
     case "data-compare":
       return { id, kind, connectionId, table: tableRef(obj.table) };
-    // @parity wf
-    // @end wf
-    // @parity dash
-    // @end dash
-    // @parity diag
-    // @end diag
-    // @parity lib
-    // @end lib
-    // @parity grid
-    // @end grid
-    // @parity schema
-    // @end schema
-    // @parity editor
-    // @end editor
-    // @parity rx
-    // @end rx
-    // @parity conn
-    // @end conn
-    // @parity auth
-    // @end auth
-    // @parity shell
-    // @end shell
-    // @parity ai
-    // @end ai
-    // @parity engine
-    // @end engine
     case "object": {
       const reference = objectRef(obj.reference);
       return reference ? { id, kind, connectionId, reference } : null;
