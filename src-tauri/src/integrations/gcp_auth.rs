@@ -107,16 +107,75 @@ impl GcpAuth {
     }
 }
 
+// WHAT:  The signed JWT-bearer assertion for a service-account key, at `now`.
+// WHY:   Split from the HTTP call so the claims can be checked with a fixed clock.
+fn claims<'a>(key: &'a ServiceAccount, scope: &'a str, token_uri: &'a str, now: i64) -> Claims<'a> {
+    Claims { iss: &key.client_email, scope, aud: token_uri, iat: now, exp: now + 3600 }
+}
+
+fn build_assertion(key: &ServiceAccount, scope: &str, token_uri: &str, now: i64) -> AppResult<String> {
+    let claims = claims(key, scope, token_uri, now);
+    let enc = EncodingKey::from_rsa_pem(key.private_key.as_bytes()).map_err(|e| AppError::invalid_input(format!("Service-account private key is not a valid RSA PEM: {e}")))?;
+    jsonwebtoken::encode(&Header::new(Algorithm::RS256), &claims, &enc).map_err(|e| AppError::crypto(e.to_string()))
+}
+
 async fn exchange(key: &ServiceAccount, scope: &str) -> AppResult<(String, u64)> {
     let token_uri = key.token_uri.clone().unwrap_or_else(|| "https://oauth2.googleapis.com/token".into());
-    let now = chrono::Utc::now().timestamp();
-    let claims = Claims { iss: &key.client_email, scope, aud: &token_uri, iat: now, exp: now + 3600 };
-    let enc = EncodingKey::from_rsa_pem(key.private_key.as_bytes()).map_err(|e| AppError::invalid_input(format!("Service-account private key is not a valid RSA PEM: {e}")))?;
-    let assertion = jsonwebtoken::encode(&Header::new(Algorithm::RS256), &claims, &enc).map_err(|e| AppError::crypto(e.to_string()))?;
+    let assertion = build_assertion(key, scope, &token_uri, chrono::Utc::now().timestamp())?;
 
     let client = HttpClient::new(token_uri.clone(), Auth::None, false)?;
     let form = format!("grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion={assertion}");
     let body = client.post_raw(&token_uri, "application/x-www-form-urlencoded", form, Some("application/json")).await?;
     let resp: TokenResponse = serde_json::from_str(&body).map_err(|e| AppError::driver(format!("Token response was not JSON: {e}")))?;
     Ok((resp.access_token, resp.expires_in.unwrap_or(3600)))
+}
+
+// WHAT:  A service-account key (the JSON file's text) → an access token for
+//        `scope`, and its lifetime in seconds.
+// WHY:   Cloud SQL IAM sign-in holds the key itself rather than in the
+//        connection's password field, so it needs the exchange without a
+//        `ResolvedConnection`.
+// WHERE: src-tauri/src/integrations/cloud_auth.rs (GCP Cloud SQL IAM)
+pub async fn service_account_token(key_json: &str, scope: &str) -> AppResult<(String, u64)> {
+    let key: ServiceAccount =
+        serde_json::from_str(key_json.trim()).map_err(|e| AppError::invalid_input(format!("Service-account JSON is not valid: {e}")))?;
+    exchange(&key, scope).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key() -> ServiceAccount {
+        ServiceAccount {
+            client_email: "sa@proj.iam.gserviceaccount.com".into(),
+            private_key: "not a pem".into(),
+            project_id: Some("proj".into()),
+            token_uri: None,
+        }
+    }
+
+    #[test]
+    fn the_claims_name_the_scope_audience_and_a_one_hour_lifetime() {
+        let key = key();
+        let claims = claims(&key, "https://www.googleapis.com/auth/sqlservice.admin", "https://oauth2.googleapis.com/token", 1_700_000_000);
+        let json = serde_json::to_value(&claims).unwrap_or_default();
+        assert_eq!(json["iss"], "sa@proj.iam.gserviceaccount.com");
+        assert_eq!(json["scope"], "https://www.googleapis.com/auth/sqlservice.admin");
+        assert_eq!(json["aud"], "https://oauth2.googleapis.com/token");
+        assert_eq!(json["iat"], 1_700_000_000);
+        assert_eq!(json["exp"], 1_700_003_600);
+    }
+
+    #[test]
+    fn a_key_that_is_not_a_pem_is_reported_as_invalid_input() {
+        let err = build_assertion(&key(), "scope", "https://oauth2.googleapis.com/token", 0);
+        assert!(matches!(err, Err(AppError::InvalidInput { .. })), "{err:?}");
+    }
+
+    #[test]
+    fn service_account_json_that_is_not_json_is_rejected_before_any_request() {
+        let outcome = futures::executor::block_on(service_account_token("{nope", "scope"));
+        assert!(matches!(outcome, Err(AppError::InvalidInput { .. })), "{outcome:?}");
+    }
 }
