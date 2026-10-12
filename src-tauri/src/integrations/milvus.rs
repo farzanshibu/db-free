@@ -111,6 +111,7 @@ fn filter_expr(filters: &[FilterRule]) -> AppResult<String> {
             FilterOp::Lt => format!("{col} < {}", literal(&f.value)),
             FilterOp::Lte => format!("{col} <= {}", literal(&f.value)),
             FilterOp::Contains => format!("{col} like {}", quote_string(&format!("%{}%", f.value.trim()))),
+            FilterOp::NotContains => format!("not ({col} like {})", quote_string(&format!("%{}%", f.value.trim()))),
             FilterOp::StartsWith => format!("{col} like {}", quote_string(&format!("{}%", f.value.trim()))),
             FilterOp::EndsWith => format!("{col} like {}", quote_string(&format!("%{}", f.value.trim()))),
             FilterOp::In => {
@@ -1243,8 +1244,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_MILVUS_SECRET").ok(),
         };

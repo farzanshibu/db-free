@@ -11,32 +11,17 @@ pub mod history;
 pub mod saved_queries;
 pub mod settings;
 pub mod migrations;
-// @parity wf
-// @end wf
-// @parity dash
-// @end dash
-// @parity diag
-// @end diag
-// @parity lib
-// @end lib
-// @parity grid
-// @end grid
-// @parity schema
-// @end schema
-// @parity editor
-// @end editor
-// @parity rx
-// @end rx
-// @parity conn
-// @end conn
-// @parity auth
-// @end auth
-// @parity shell
-// @end shell
-// @parity ai
-// @end ai
-// @parity engine
-// @end engine
+pub mod diagram_customizations;
+pub mod document_versions;
+pub mod home;
+pub mod library;
+pub mod fk_remaps;
+pub mod tags;
+pub mod connection_org;
+pub mod demo;
+pub mod connection_auth;
+pub mod ai_chats;
+pub mod schema_cache;
 
 // WHAT:  The app's own SQLite file: saved connections, query history, editor buffers.
 // WHY:   One embedded store, no server; every sub-module is a table family.

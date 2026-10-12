@@ -2,4 +2,19 @@
 import type { DashboardVariable } from "./DashboardVariable";
 import type { Widget } from "./Widget";
 
-export type DashboardBody = { widgets: Array<Widget>, variables: Array<DashboardVariable>, refreshSeconds: number, };
+export type DashboardBody = { widgets: Array<Widget>, 
+/**
+ * Typed variables. Dashboards saved before types existed stored plain
+ * `{name, value}` strings; `variables_compat` reads those as `Text`.
+ */
+variables: Array<DashboardVariable>, refreshSeconds: number, 
+/**
+ * Heading drawn over the grid; absent or empty = none.
+ */
+title?: string, 
+/**
+ * Grid geometry the `x/y/w/h` of every widget are written in. Absent (0)
+ * is the first grid, 120 px rows; 1 is 12 columns of 60 px rows. The
+ * editor converts older dashboards on open and writes 1 when it saves.
+ */
+layoutVersion?: number, };

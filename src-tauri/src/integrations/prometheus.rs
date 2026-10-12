@@ -95,6 +95,7 @@ fn matcher(rule: &FilterRule) -> Option<String> {
         FilterOp::Eq => format!("{l}={}", label_string(v)),
         FilterOp::Ne => format!("{l}!={}", label_string(v)),
         FilterOp::Contains => format!("{l}=~{}", label_string(&format!(".*{}.*", regex_escape(v)))),
+        FilterOp::NotContains => format!("{l}!~{}", label_string(&format!(".*{}.*", regex_escape(v)))),
         FilterOp::StartsWith => format!("{l}=~{}", label_string(&format!("{}.*", regex_escape(v)))),
         FilterOp::EndsWith => format!("{l}=~{}", label_string(&format!(".*{}", regex_escape(v)))),
         FilterOp::In => {
@@ -1344,6 +1345,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None };
         let p = connect(&resolved).await.unwrap_or_else(|e| panic!("connect: {e}"));

@@ -20,6 +20,8 @@
     confirmDestructive: true, crashReportsOptIn: false,
     ai: { provider: "openai", model: "gpt-4o-mini", baseUrl: null, hasApiKey: false, autonomy: "ask" },
     keybindings: [],
+    openConnectionsInNewWindow: false, uiZoom: 1, reuseTablePreviewTab: false, gridScrollbarSize: "standard", datePickerEnabled: true,
+    commandMenuHiddenSections: [], customThemes: [], checkUpdatesOnLaunch: true,
     snippets: [{ prefix: "audit", name: "Audit columns", body: "created_at, updated_at, created_by", language: "sql" }],
   };
 

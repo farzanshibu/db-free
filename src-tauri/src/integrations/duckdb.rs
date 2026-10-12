@@ -1265,6 +1265,33 @@ impl Integration for DuckdbIntegration {
         self.blocking(move |conn| table_columns(conn, &table)).await
     }
 
+    // WHAT:  Column defaults; a `nextval(…)` default is a sequence-backed key.
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        let table = table.clone();
+        self.blocking(move |conn| {
+            let mut stmt = conn.prepare(
+                "SELECT column_name, column_default FROM information_schema.columns \
+                 WHERE table_schema = ? AND table_name = ? ORDER BY ordinal_position",
+            )?;
+            let rows = stmt
+                .query_map(params![schema_of(&table), table.name], |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)))?
+                .collect::<duckdb::Result<Vec<_>>>()?;
+            Ok(rows
+                .into_iter()
+                .map(|(name, default)| crate::model::ColumnTraits {
+                    name,
+                    enum_values: Vec::new(),
+                    multi: false,
+                    has_default: default.is_some(),
+                    auto_increment: default.as_deref().is_some_and(|d| d.starts_with("nextval(")),
+                    default_expr: default,
+                    generated: false,
+                })
+                .collect())
+        })
+        .await
+    }
+
     async fn row_estimate(&self, table: &TableRef) -> AppResult<Option<i64>> {
         let table = table.clone();
         self.blocking(move |conn| {
@@ -1420,8 +1447,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: None,
         }

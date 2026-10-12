@@ -116,7 +116,7 @@ pub async fn backup(
     if method == BackupMethod::FileCopy {
         refuse_live_session(state, summary, "backing it up").await?;
     }
-    let secret = connection::resolve(state, &summary.id)?.connection.secret;
+    let secret = connection::native_tool_secret(state, &summary.id).await?;
     let overrides = settings::get(state)?.native_tool_paths;
     let dir_existed = path.is_dir();
     let started = Instant::now();
@@ -157,7 +157,7 @@ pub async fn restore(
     if matches!(method, BackupMethod::SqliteCopy | BackupMethod::FileCopy) {
         refuse_live_session(state, summary, "restoring it").await?;
     }
-    let secret = connection::resolve(state, &summary.id)?.connection.secret;
+    let secret = connection::native_tool_secret(state, &summary.id).await?;
     let overrides = settings::get(state)?.native_tool_paths;
     let started = Instant::now();
     let job = Job { summary, secret: secret.as_deref(), options, path, overrides: &overrides };
@@ -220,6 +220,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let summary = store.insert_connection(&input, None).unwrap_or_else(|e| panic!("{e}"));
         (AppState::new(store, Box::new(MemoryKeyProvider::default())), summary)

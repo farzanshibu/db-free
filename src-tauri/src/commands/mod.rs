@@ -18,32 +18,13 @@ pub mod settings;
 pub mod transfer;
 pub mod updates;
 pub mod workflows;
-// @parity wf
-// @end wf
-// @parity dash
-// @end dash
-// @parity diag
-// @end diag
-// @parity lib
-// @end lib
-// @parity grid
-// @end grid
-// @parity schema
-// @end schema
-// @parity editor
-// @end editor
-// @parity rx
-// @end rx
-// @parity conn
-// @end conn
-// @parity auth
-// @end auth
-// @parity shell
-// @end shell
-// @parity ai
-// @end ai
-// @parity engine
-// @end engine
+pub mod diagrams;
+pub mod tags;
+pub mod keys;
+pub mod connection_files;
+pub mod connection_org;
+pub mod windows;
+pub mod sessions;
 
 // WHAT:  Every IPC command name, as one enum.
 // WHY:   Exported to TS so `src/lib/ipc.ts` must declare a signature for each —
@@ -119,32 +100,102 @@ pub enum CommandName {
     PingSession,
     SchemaDiff,
     CompareTableData,
-    // @parity wf
-    // @end wf
-    // @parity dash
-    // @end dash
-    // @parity diag
-    // @end diag
-    // @parity lib
-    // @end lib
-    // @parity grid
-    // @end grid
-    // @parity schema
-    // @end schema
-    // @parity editor
-    // @end editor
-    // @parity rx
-    // @end rx
-    // @parity conn
-    // @end conn
-    // @parity auth
-    // @end auth
-    // @parity shell
-    // @end shell
-    // @parity ai
-    // @end ai
-    // @parity engine
-    // @end engine
+    CancelWorkflow,
+    ListWorkflowSchedules,
+    TestWorkflowRegex,
+    WorkflowLastNodeConfig,
+    ListDiagramCustomizations,
+    SaveDiagramCustomizations,
+    AutosaveDocument,
+    CheckpointDocument,
+    ListDocumentVersions,
+    RestoreDocumentVersion,
+    DeleteDocumentVersion,
+    DiagramDdl,
+    SaveDiagramExport,
+    ListLibrary,
+    CreateLibraryFolder,
+    RenameLibraryFolder,
+    MoveLibraryFolder,
+    DeleteLibraryFolder,
+    MoveLibraryItem,
+    RenameDocument,
+    DuplicateDocument,
+    RenameSavedQuery,
+    DuplicateSavedQuery,
+    ListSavedQueryVersions,
+    RestoreSavedQueryVersion,
+    ExportSavedQueries,
+    ListPins,
+    PinItem,
+    UnpinItem,
+    ReorderPins,
+    ListRecents,
+    RecordRecent,
+    ClearRecents,
+    RowsAsSql,
+    FetchRows,
+    ListFkRemaps,
+    SaveFkRemap,
+    DeleteFkRemap,
+    ListTableTags,
+    SaveTableTag,
+    DeleteTableTag,
+    ReorderTableTags,
+    TagTable,
+    SetTagCollapsed,
+    MoveTaggedTable,
+    DdlProfile,
+    DescribeTable,
+    PreviewDdl,
+    ExecuteBatch,
+    ListHistoryPage,
+    ListEditorHistory,
+    ReadSqlFile,
+    ScanKeys,
+    KeyInfo,
+    PreviewExport,
+    PreviewImport,
+    PlanJsonImport,
+    RunJsonImport,
+    InspectSqlFile,
+    ImportSqlFile,
+    DuplicateConnection,
+    ValidateConnection,
+    CredentialStatus,
+    ResetCredentials,
+    ListConnectionOrg,
+    SaveConnectionTag,
+    DeleteConnectionTag,
+    SaveConnectionFolder,
+    DeleteConnectionFolder,
+    SetConnectionOrg,
+    ExportConnections,
+    ImportConnections,
+    OpenDatabaseFile,
+    SaveTransientConnection,
+    ListSshConfigHosts,
+    CreateDemoConnection,
+    OpenWindow,
+    CloseWindow,
+    SetUiZoom,
+    SetWindowTheme,
+    OpenExternal,
+    OpenLogFolder,
+    LogUiError,
+    SetMenuShortcuts,
+    ExportThemeFile,
+    ImportThemeFile,
+    AppInfo,
+    AiSettingsSave,
+    AiModels,
+    AiTest,
+    AiChatList,
+    AiChatLoad,
+    AiChatRename,
+    AiChatDelete,
+    AiDiagramFromSchema,
+    CloseSession,
 }
 
 impl CommandName {
@@ -213,32 +264,102 @@ impl CommandName {
         CommandName::PingSession,
         CommandName::SchemaDiff,
         CommandName::CompareTableData,
-        // @parity wf
-        // @end wf
-        // @parity dash
-        // @end dash
-        // @parity diag
-        // @end diag
-        // @parity lib
-        // @end lib
-        // @parity grid
-        // @end grid
-        // @parity schema
-        // @end schema
-        // @parity editor
-        // @end editor
-        // @parity rx
-        // @end rx
-        // @parity conn
-        // @end conn
-        // @parity auth
-        // @end auth
-        // @parity shell
-        // @end shell
-        // @parity ai
-        // @end ai
-        // @parity engine
-        // @end engine
+        CommandName::CancelWorkflow,
+        CommandName::ListWorkflowSchedules,
+        CommandName::TestWorkflowRegex,
+        CommandName::WorkflowLastNodeConfig,
+        CommandName::ListDiagramCustomizations,
+        CommandName::SaveDiagramCustomizations,
+        CommandName::AutosaveDocument,
+        CommandName::CheckpointDocument,
+        CommandName::ListDocumentVersions,
+        CommandName::RestoreDocumentVersion,
+        CommandName::DeleteDocumentVersion,
+        CommandName::DiagramDdl,
+        CommandName::SaveDiagramExport,
+        CommandName::ListLibrary,
+        CommandName::CreateLibraryFolder,
+        CommandName::RenameLibraryFolder,
+        CommandName::MoveLibraryFolder,
+        CommandName::DeleteLibraryFolder,
+        CommandName::MoveLibraryItem,
+        CommandName::RenameDocument,
+        CommandName::DuplicateDocument,
+        CommandName::RenameSavedQuery,
+        CommandName::DuplicateSavedQuery,
+        CommandName::ListSavedQueryVersions,
+        CommandName::RestoreSavedQueryVersion,
+        CommandName::ExportSavedQueries,
+        CommandName::ListPins,
+        CommandName::PinItem,
+        CommandName::UnpinItem,
+        CommandName::ReorderPins,
+        CommandName::ListRecents,
+        CommandName::RecordRecent,
+        CommandName::ClearRecents,
+        CommandName::RowsAsSql,
+        CommandName::FetchRows,
+        CommandName::ListFkRemaps,
+        CommandName::SaveFkRemap,
+        CommandName::DeleteFkRemap,
+        CommandName::ListTableTags,
+        CommandName::SaveTableTag,
+        CommandName::DeleteTableTag,
+        CommandName::ReorderTableTags,
+        CommandName::TagTable,
+        CommandName::SetTagCollapsed,
+        CommandName::MoveTaggedTable,
+        CommandName::DdlProfile,
+        CommandName::DescribeTable,
+        CommandName::PreviewDdl,
+        CommandName::ExecuteBatch,
+        CommandName::ListHistoryPage,
+        CommandName::ListEditorHistory,
+        CommandName::ReadSqlFile,
+        CommandName::ScanKeys,
+        CommandName::KeyInfo,
+        CommandName::PreviewExport,
+        CommandName::PreviewImport,
+        CommandName::PlanJsonImport,
+        CommandName::RunJsonImport,
+        CommandName::InspectSqlFile,
+        CommandName::ImportSqlFile,
+        CommandName::DuplicateConnection,
+        CommandName::ValidateConnection,
+        CommandName::CredentialStatus,
+        CommandName::ResetCredentials,
+        CommandName::ListConnectionOrg,
+        CommandName::SaveConnectionTag,
+        CommandName::DeleteConnectionTag,
+        CommandName::SaveConnectionFolder,
+        CommandName::DeleteConnectionFolder,
+        CommandName::SetConnectionOrg,
+        CommandName::ExportConnections,
+        CommandName::ImportConnections,
+        CommandName::OpenDatabaseFile,
+        CommandName::SaveTransientConnection,
+        CommandName::ListSshConfigHosts,
+        CommandName::CreateDemoConnection,
+        CommandName::OpenWindow,
+        CommandName::CloseWindow,
+        CommandName::SetUiZoom,
+        CommandName::SetWindowTheme,
+        CommandName::OpenExternal,
+        CommandName::OpenLogFolder,
+        CommandName::LogUiError,
+        CommandName::SetMenuShortcuts,
+        CommandName::ExportThemeFile,
+        CommandName::ImportThemeFile,
+        CommandName::AppInfo,
+        CommandName::AiSettingsSave,
+        CommandName::AiModels,
+        CommandName::AiTest,
+        CommandName::AiChatList,
+        CommandName::AiChatLoad,
+        CommandName::AiChatRename,
+        CommandName::AiChatDelete,
+        CommandName::AiDiagramFromSchema,
+        CommandName::CloseSession,
     ];
 
     pub fn as_str(self) -> &'static str {
@@ -307,32 +428,102 @@ impl CommandName {
             CommandName::PingSession => "ping_session",
             CommandName::SchemaDiff => "schema_diff",
             CommandName::CompareTableData => "compare_table_data",
-            // @parity wf
-            // @end wf
-            // @parity dash
-            // @end dash
-            // @parity diag
-            // @end diag
-            // @parity lib
-            // @end lib
-            // @parity grid
-            // @end grid
-            // @parity schema
-            // @end schema
-            // @parity editor
-            // @end editor
-            // @parity rx
-            // @end rx
-            // @parity conn
-            // @end conn
-            // @parity auth
-            // @end auth
-            // @parity shell
-            // @end shell
-            // @parity ai
-            // @end ai
-            // @parity engine
-            // @end engine
+            CommandName::CancelWorkflow => "cancel_workflow",
+            CommandName::ListWorkflowSchedules => "list_workflow_schedules",
+            CommandName::TestWorkflowRegex => "test_workflow_regex",
+            CommandName::WorkflowLastNodeConfig => "workflow_last_node_config",
+            CommandName::ListDiagramCustomizations => "list_diagram_customizations",
+            CommandName::SaveDiagramCustomizations => "save_diagram_customizations",
+            CommandName::AutosaveDocument => "autosave_document",
+            CommandName::CheckpointDocument => "checkpoint_document",
+            CommandName::ListDocumentVersions => "list_document_versions",
+            CommandName::RestoreDocumentVersion => "restore_document_version",
+            CommandName::DeleteDocumentVersion => "delete_document_version",
+            CommandName::DiagramDdl => "diagram_ddl",
+            CommandName::SaveDiagramExport => "save_diagram_export",
+            CommandName::ListLibrary => "list_library",
+            CommandName::CreateLibraryFolder => "create_library_folder",
+            CommandName::RenameLibraryFolder => "rename_library_folder",
+            CommandName::MoveLibraryFolder => "move_library_folder",
+            CommandName::DeleteLibraryFolder => "delete_library_folder",
+            CommandName::MoveLibraryItem => "move_library_item",
+            CommandName::RenameDocument => "rename_document",
+            CommandName::DuplicateDocument => "duplicate_document",
+            CommandName::RenameSavedQuery => "rename_saved_query",
+            CommandName::DuplicateSavedQuery => "duplicate_saved_query",
+            CommandName::ListSavedQueryVersions => "list_saved_query_versions",
+            CommandName::RestoreSavedQueryVersion => "restore_saved_query_version",
+            CommandName::ExportSavedQueries => "export_saved_queries",
+            CommandName::ListPins => "list_pins",
+            CommandName::PinItem => "pin_item",
+            CommandName::UnpinItem => "unpin_item",
+            CommandName::ReorderPins => "reorder_pins",
+            CommandName::ListRecents => "list_recents",
+            CommandName::RecordRecent => "record_recent",
+            CommandName::ClearRecents => "clear_recents",
+            CommandName::RowsAsSql => "rows_as_sql",
+            CommandName::FetchRows => "fetch_rows",
+            CommandName::ListFkRemaps => "list_fk_remaps",
+            CommandName::SaveFkRemap => "save_fk_remap",
+            CommandName::DeleteFkRemap => "delete_fk_remap",
+            CommandName::ListTableTags => "list_table_tags",
+            CommandName::SaveTableTag => "save_table_tag",
+            CommandName::DeleteTableTag => "delete_table_tag",
+            CommandName::ReorderTableTags => "reorder_table_tags",
+            CommandName::TagTable => "tag_table",
+            CommandName::SetTagCollapsed => "set_tag_collapsed",
+            CommandName::MoveTaggedTable => "move_tagged_table",
+            CommandName::DdlProfile => "ddl_profile",
+            CommandName::DescribeTable => "describe_table",
+            CommandName::PreviewDdl => "preview_ddl",
+            CommandName::ExecuteBatch => "execute_batch",
+            CommandName::ListHistoryPage => "list_history_page",
+            CommandName::ListEditorHistory => "list_editor_history",
+            CommandName::ReadSqlFile => "read_sql_file",
+            CommandName::ScanKeys => "scan_keys",
+            CommandName::KeyInfo => "key_info",
+            CommandName::PreviewExport => "preview_export",
+            CommandName::PreviewImport => "preview_import",
+            CommandName::PlanJsonImport => "plan_json_import",
+            CommandName::RunJsonImport => "run_json_import",
+            CommandName::InspectSqlFile => "inspect_sql_file",
+            CommandName::ImportSqlFile => "import_sql_file",
+            CommandName::DuplicateConnection => "duplicate_connection",
+            CommandName::ValidateConnection => "validate_connection",
+            CommandName::CredentialStatus => "credential_status",
+            CommandName::ResetCredentials => "reset_credentials",
+            CommandName::ListConnectionOrg => "list_connection_org",
+            CommandName::SaveConnectionTag => "save_connection_tag",
+            CommandName::DeleteConnectionTag => "delete_connection_tag",
+            CommandName::SaveConnectionFolder => "save_connection_folder",
+            CommandName::DeleteConnectionFolder => "delete_connection_folder",
+            CommandName::SetConnectionOrg => "set_connection_org",
+            CommandName::ExportConnections => "export_connections",
+            CommandName::ImportConnections => "import_connections",
+            CommandName::OpenDatabaseFile => "open_database_file",
+            CommandName::SaveTransientConnection => "save_transient_connection",
+            CommandName::ListSshConfigHosts => "list_ssh_config_hosts",
+            CommandName::CreateDemoConnection => "create_demo_connection",
+            CommandName::OpenWindow => "open_window",
+            CommandName::CloseWindow => "close_window",
+            CommandName::SetUiZoom => "set_ui_zoom",
+            CommandName::SetWindowTheme => "set_window_theme",
+            CommandName::OpenExternal => "open_external",
+            CommandName::OpenLogFolder => "open_log_folder",
+            CommandName::LogUiError => "log_ui_error",
+            CommandName::SetMenuShortcuts => "set_menu_shortcuts",
+            CommandName::ExportThemeFile => "export_theme_file",
+            CommandName::ImportThemeFile => "import_theme_file",
+            CommandName::AppInfo => "app_info",
+            CommandName::AiSettingsSave => "ai_settings_save",
+            CommandName::AiModels => "ai_models",
+            CommandName::AiTest => "ai_test",
+            CommandName::AiChatList => "ai_chat_list",
+            CommandName::AiChatLoad => "ai_chat_load",
+            CommandName::AiChatRename => "ai_chat_rename",
+            CommandName::AiChatDelete => "ai_chat_delete",
+            CommandName::AiDiagramFromSchema => "ai_diagram_from_schema",
+            CommandName::CloseSession => "close_session",
         }
     }
 }

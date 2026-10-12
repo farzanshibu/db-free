@@ -1420,6 +1420,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection {
             summary: ConnectionSummary::draft(&input, false),

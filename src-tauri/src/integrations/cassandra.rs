@@ -537,7 +537,7 @@ fn predicate(rule: &FilterRule, data_type: &str) -> Option<String> {
             format!("{col} IN ({})", items.join(", "))
         }
         // CQL has no LIKE without a SASI index and no IS NULL; these run client-side.
-        FilterOp::Contains | FilterOp::StartsWith | FilterOp::EndsWith | FilterOp::IsNull | FilterOp::IsNotNull => return None,
+        FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith | FilterOp::IsNull | FilterOp::IsNotNull => return None,
     })
 }
 
@@ -2236,6 +2236,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: std::env::var("DBFREE_TEST_CASSANDRA_PASSWORD").ok() }
     }

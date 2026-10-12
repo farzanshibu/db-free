@@ -269,6 +269,7 @@ fn flux_predicate(rule: &FilterRule) -> Option<String> {
         FilterOp::Lt => format!("{f} < {}", flux_literal(v)),
         FilterOp::Lte => format!("{f} <= {}", flux_literal(v)),
         FilterOp::Contains => format!("strings.containsStr(v: string(v: {f}), substr: {})", flux_string(v)),
+        FilterOp::NotContains => format!("not strings.containsStr(v: string(v: {f}), substr: {})", flux_string(v)),
         FilterOp::StartsWith => format!("strings.hasPrefix(v: string(v: {f}), prefix: {})", flux_string(v)),
         FilterOp::EndsWith => format!("strings.hasSuffix(v: string(v: {f}), suffix: {})", flux_string(v)),
         FilterOp::In => {
@@ -281,7 +282,7 @@ fn flux_predicate(rule: &FilterRule) -> Option<String> {
 }
 
 fn needs_strings_import(filters: &[FilterRule]) -> bool {
-    filters.iter().any(|f| matches!(f.op, FilterOp::Contains | FilterOp::StartsWith | FilterOp::EndsWith))
+    filters.iter().any(|f| matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith))
 }
 
 // WHAT:  The pivoted table query for one measurement. Comparisons on `_time`
@@ -447,6 +448,7 @@ fn influxql_predicate(rule: &FilterRule) -> Option<String> {
         FilterOp::Lt => format!("{c} < {}", influxql_literal(v)),
         FilterOp::Lte => format!("{c} <= {}", influxql_literal(v)),
         FilterOp::Contains => format!("{c} =~ /{}/", regex_escape(v)),
+        FilterOp::NotContains => format!("{c} !~ /{}/", regex_escape(v)),
         FilterOp::StartsWith => format!("{c} =~ /^{}/", regex_escape(v)),
         FilterOp::EndsWith => format!("{c} =~ /{}$/", regex_escape(v)),
         FilterOp::In => {
@@ -1682,6 +1684,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let secret = std::env::var("DBFREE_TEST_INFLUXDB_TOKEN").ok();
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret };

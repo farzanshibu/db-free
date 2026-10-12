@@ -63,7 +63,13 @@ pub enum RunEnd {
 //        catalogs, so only real Postgres builds get pg_dump.
 pub fn method_for(engine: Engine) -> Option<BackupMethod> {
     match engine {
-        Engine::Postgres | Engine::Supabase | Engine::Neon | Engine::Timescaledb | Engine::Pgvector | Engine::Postgis => {
+        Engine::Postgres
+        | Engine::Supabase
+        | Engine::Neon
+        | Engine::PlanetscalePostgres
+        | Engine::Timescaledb
+        | Engine::Pgvector
+        | Engine::Postgis => {
             Some(BackupMethod::PgDump)
         }
         Engine::Mysql | Engine::Mariadb | Engine::Tidb | Engine::Planetscale => Some(BackupMethod::Mysqldump),
@@ -1009,6 +1015,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ConnectionSummary::draft(&input, true)
     }
@@ -1265,7 +1274,7 @@ mod tests {
         let (program, args) = shell("echo broken 1>&2 && exit 3");
         let (_tx, rx) = oneshot::channel();
         let err = run(Invocation { program, args, env: vec![], stdin: None, output: None }, Arc::new(Collect::default()), rx).await.err();
-        assert!(matches!(&err, Some(AppError::Driver { message }) if message.contains("exited with 3") && message.contains("broken")));
+        assert!(matches!(&err, Some(AppError::Driver { message, .. }) if message.contains("exited with 3") && message.contains("broken")));
     }
 
     #[tokio::test]
@@ -1344,6 +1353,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ConnectionSummary::draft(&input, false)
     }

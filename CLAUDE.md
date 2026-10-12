@@ -37,29 +37,40 @@ UI component → src/lib/ipc.ts (client block) → #[tauri::command] (src-tauri/
 
 | Feature | Rust | UI |
 |---|---|---|
-| Table browser, sort/filter, pager | `services/data.rs`, `integrations/sql.rs` | `features/grid/TableTab.tsx` |
-| Inline edit / insert / delete, Pending Changes (review mode), Commit | `services/changes.rs`, `commands/changes.rs` | `features/changes/PendingChangesPanel.tsx`, `DataGrid.tsx` |
-| Query tab: run, format, save, AI, explain | `guard/`, `services/ai.rs` | `features/editor/QueryPane.tsx` |
-| Saved queries / history | `store/saved_queries.rs`, `store/history.rs` | `features/queries`, `features/history` |
-| Export / import | `services/transfer.rs` | `features/transfer/TransferTab.tsx` |
-| ER diagram (from FKs) / schema designer | `Integration::foreign_keys`, `ddl` | `features/diagrams/{ErdTab,DesignerTab}.tsx` |
-| Dashboards / workflows | `store/documents.rs`, `commands/workflows.rs` | `features/dashboards`, `features/workflows` |
-| Redis key viewer | `integrations/redis.rs` | `features/keys/KeyTab.tsx` |
+| Table browser: AND/OR filters + typed filter bar, multi-sort, find, pager, hidden columns, FK peek / remap, editable inspector | `services/{data,fk_remaps}.rs`, `integrations/sql.rs`, `ColumnInfo` enum/default/generated metadata from each adapter's `columns()` | `features/grid/{TableTab,DataGrid,FilterBar,RecordInspector,copyFormats}`, `src/lib/{filterExpr,fields}.ts` |
+| Inline edit / insert / delete, Pending Changes (review mode, DDL entries), Commit in one transaction | `services/changes.rs`, `commands/changes.rs` | `features/changes/{PendingChangesPanel,commitPending,stageStatement}`, `DataGrid.tsx` |
+| Query tab: per-statement batch runs, error position/hint, format, find/replace, completion catalogs, ⌘S to the linked saved query, inline AI ⌘I, explain, `.sql` files | `guard/`, `services/{query,scripts,ai}.rs` (`execute_batch`), `integrations/error_detail.rs`, `guard/statement_info.rs` | `features/editor/{QueryPane,SqlEditor,completion,FindBar,InlineAiPrompt,SaveQueryDialog}`, `stores/queryRuns.ts`, `src/lib/sqlCatalog.ts` |
+| Saved queries (folders, versions, duplicate) / query log (paging, filters, retention) | `store/{saved_queries,library,history}.rs`, `services/{saved_queries,library,history}.rs` | `features/queries`, `features/history` |
+| Export (6 formats, options, ZIP / combined) / import (CSV mapping, upsert, JSON operations, streamed `.sql`) | `services/{transfer,export,sql_import}.rs` | `features/transfer/*` (`ExportDialog`, `ImportPanel`, `SqlImport`), `src/lib/export.ts` |
+| ER diagram (from FKs, saved layout/colours/bends) / schema designer (inspector, notes, autosave + versions, dialect SQL) | `Integration::foreign_keys`, `store/{diagram_customizations,document_versions}.rs`, `services/{diagrams,diagram_ddl,document_versions}.rs`, `commands/diagrams.rs` | `features/diagrams/*` |
+| Dashboards (typed variables, drag/resize grid, tile formats, conditions, map) | `model/documents.rs`, `store/documents.rs` | `features/dashboards/*` (`variables.ts`, `layout.ts`, `DashboardGrid.tsx`, `SlippyMap.tsx`) |
+| Workflows (node graph, Rust engine, scheduler, sealed SMTP/Slack secrets, JS sandbox) | `model/workflow.rs`, `services/workflows/`, `integrations/{js_sandbox,smtp}.rs`, `commands/workflows.rs` | `features/workflows/*`, `features/settings/SchedulesSection.tsx` |
+| Library: folders, duplicate, copy to connection; Home: pinned board + recents | `store/{library,home}.rs`, `services/{library,home,documents}.rs`, `commands/library.rs` | `features/{documents,home}/*`, `stores/{library,recents}.ts`, `src/lib/home.ts` |
+| Redis keys: cursor scan, tree, per-type editors, TTL, RedisJSON, create/rename, command catalog | `integrations/redis.rs`, `services/keys.rs`, `commands/keys.rs` | `features/keys/*`, `features/shell/KeyTree.tsx`, `src/lib/redisCommands.ts` |
 | Object explorer (views, functions, triggers, indexes, streams, labels, buckets… per family) | `model/objects.rs` (`ObjectKind`), `Integration::objects` / `object_detail`, `services/objects.rs` | `features/objects/{ObjectsPanel,ObjectTab}.tsx`, `src/lib/objects.ts` |
 | Server admin (sessions, locks, users, roles, settings, replication, nodes, slow queries) + monitoring | `Integration::server_stats`, admin `ObjectKind`s | `features/admin/AdminTab.tsx` |
 | Playground tools: vector search, search, metrics explorer, message viewer, pipeline builder, ledger history, graph view, pub/sub, XML viewer | `model/objects.rs` (`Tool`, request types), `Integration::{vector_search,search,query_range,history}` | `features/tools/*Tab.tsx` (`ToolTab.tsx` dispatches) |
 | Capability matrix (feature × engine) | `integrations::profile(family)` → `FamilyProfiles.gen.ts` | `features/engines/CapabilityMatrixPage.tsx` |
 | Settings (incl. AI keys) | `services/settings.rs` | `features/settings/SettingsPage.tsx` |
+| AI chat: saved chats, provider profiles + model lists, `@` mentions, data-access modes, step limit + Continue, AI-built dashboards / workflows / diagrams | `store/ai_chats.rs`, `services/{ai_chats,ai_profiles}.rs`, `services/agent/{mod,mentions}.rs`, `services/agent/documents/` | `features/chat/*`, `features/settings/AiSection.tsx` |
 | Keyboard shortcuts (rebindable) / editor snippets | `AppSettings.{keybindings,snippets}` | `src/lib/keymap.ts` + `stores/useShortcut.ts`, `src/lib/snippets.ts`, `features/settings/{Shortcuts,Snippets}Section.tsx` |
 | Command palette ⌘K | — | `features/palette/CommandPalette.tsx` |
 | Query results: sort / filter / inspect / edit a single-table SELECT, chart a result | — (`commit_changes`) | `features/editor/{ResultsPane,ResultGrid,ResultChart}.tsx`, `src/lib/editableSelect.ts` |
 | Stop query, manual transactions, visual explain plan | `guard/` (cancellation step), `Integration::{cancel,begin/commit/rollback_transaction}`, `integrations/plan.rs` | `features/editor/{QueryPane,PlanTree}.tsx`, `stores/transactions.ts` |
 | Query parameters (`:name`, `{{name}}`) | — | `src/lib/params.ts`, `QueryPane.tsx` |
-| Tabs: restore on restart, reopen closed, split view | — | `stores/{workspace,tabPersistence}.ts`, `features/shell/TabView.tsx` |
+| Engine shell commands in the query tab (psql `\dt` `\d users`, sqlite/DuckDB `.tables` `.schema`, SQL*Plus `DESC`, cqlsh `DESCRIBE`, Neo4j `:schema`, `help`…) | `integrations/shell_meta/` (one `Dialect` per family: commands + pure `plan`; `args.rs` quoting), `services/shell_commands.rs` (runs a plan), `guard/language.rs` (commands classify as reads), `mongo_shell.rs` (mongosh `show users`…) | `src/lib/shellCommands.ts` (+ generated `ShellCommands.gen.ts`), `features/editor/completion.ts`, `ResultsPane.tsx` |
+| Tabs: restore on restart, reopen closed, split view, connection identity on every tab | — | `stores/{workspace,tabPersistence}.ts`, `features/shell/{TabView,TabIdentity}.tsx`, `src/lib/tabIdentity.ts` |
 | SSH tunnel | `integrations/ssh_tunnel.rs` | `features/connections/ConnectionForm.tsx` |
-| Connection folders / favourites / colours, health ping | `commands/connections.rs` (`ping_session`) | `features/connections/ConnectionsPage.tsx`, `features/shell/ConnectionHealth.tsx` |
+| Connections: folders + tags, duplicate, import/export (JSON, DB Pro `.dbpro`, Navicat `.ncx`), open `.sqlite` from the OS, demo DB, `~/.ssh/config`, TLS files, credential status | `model/connection_org.rs`, `services/{connection,connection_org,connection_transfer,connection_formats,connection_files}.rs`, `store/{connection_org,demo}.rs`, `open_files.rs`, `adapters/keyring.rs`, `commands/connections.rs` (`ping_session`) | `features/connections/*`, `features/shell/ConnectionHealth.tsx` |
+| Sign-in methods: AWS RDS IAM, Azure AD, GCP Cloud SQL IAM, MongoDB Atlas (tokens cached + refreshed) | `model/auth.rs`, `integrations/cloud_auth.rs`, `store/connection_auth.rs` | `features/connections/AuthSection.tsx`, `src/lib/cloudAuth.ts` |
+| Schema sidebar (virtualized, table tags) and DDL forms: create / alter / duplicate / drop table, database, schema | `integrations/ddl/`, `Integration` DDL methods, `model/{ddl,tags}.rs`, `store/tags.rs`, `services/{schema,tags}.rs` | `features/shell/TablesPanel.tsx`, `features/schema/*`, `src/lib/tableTree.ts` |
+| Session per query tab, pooled-connection reset, transaction poolers, persisted schema cache, language-aware read-only | `integrations/pooling.rs`, `services/{sessions,schema_cache}.rs`, `store/schema_cache.rs`, `guard/language.rs` | `src/stores/sessions.ts` |
 | Schema compare / data compare | `services/{schema_diff,data_compare}.rs`, `commands/compare.rs` | `features/compare/*` |
 | Native backup / restore (pg_dump, mysqldump, mongodump, file copy) | `integrations/native_tools.rs`, `services/backup.rs`, guard native-tool step | `features/backup/*` |
+| Windows (one per connection, New Window), native menu, zoom, window state, rotating log + panic hook | `commands/windows.rs`, `menu.rs`, `diagnostics.rs` | `lib/shellEvents.ts`, `features/shell/{shellActions,useShellEffects}.ts` |
+| Panes (≤ 4, split/drop/close), tab drag-reorder, preview + unsaved-changes tabs, layout presets, inspector flag | — | `lib/{panes,layouts}.ts`, `stores/workspace.ts`, `features/shell/{PaneArea,TabBar,paneDrag,CloseConfirmDialog}` |
+| Themes (7 built-in + custom editor, JSON import/export incl. DB Pro files) | `model/shell.rs`, `services/theme_files.rs` | `lib/{themes,themeFile}.ts`, `features/settings/ThemesSection.tsx`, `styles/globals.css` |
+| Updates at launch + update bar, What's New, About | `commands/updates.rs` | `features/shell/{useUpdates,UpdateBar,WhatsNewPage,AboutDialog}` |
 
 Boundaries with a single audited escape: `src/lib/ipc.ts` (`unknown`), `src/lib/json.ts` (`JSON.parse` any).
 
@@ -70,7 +81,9 @@ Boundaries with a single audited escape: `src/lib/ipc.ts` (`unknown`), `src/lib/
 - **Non-SQL engines:** `execute` takes the engine's native language (Cypher, AQL, PromQL, SPARQL, Query DSL JSON, Redis commands…) and `fetch_page` maps the store onto tables (collections, indexes, labels, topics, graphs, keys). Client-side filter/sort/slice via `integrations::http::local::page` when the engine has no server-side paging. Adapters must refuse writes themselves when `read_only` is set, because the SQL guard cannot parse their language.
 - **Object kind / tool:** `model::ObjectKind` and `model::Tool` are registries. Add the variant (+ `ALL`, `scoped()` if namespace-bound), run `pnpm bindings`, and `src/lib/objects.ts` fails `satisfies Record<ObjectKind, …>` until it has a label, icon and section. A family exposes kinds/tools by listing them in its adapter's `profile()`; that is the promise `objects()` / `object_detail()` / the tool method must keep. Object *actions* are native statements run through `execute_query`, so the guard applies to them.
 - **Command:** add to `CommandName` (commands/mod.rs) → write the `#[tauri::command]` → register in `lib.rs` → export request type in the `export_bindings` test → `pnpm bindings` → add its signature to `CommandMap` in `src/lib/ipc.ts`.
+- **Shell command:** edit the family's `Dialect` in `integrations/shell_meta/<family>.rs` (list it in `COMMANDS`, recognise it in `plan`, emit only reads in the adapter's own language, quote user text with `args::string_literal`); `pnpm bindings` regenerates the editor's list.
 - **Block concern:** insert a numbered step in `guard/mod.rs`; never a second guard.
+- **Store table / column:** append a SQL step to the owning feature's list in `src-tauri/src/store/migrations/<feature>.rs` (applied once, in order, tracked in `store_migrations`); never edit a released step or the `user_version` chain in `store/mod.rs`.
 
 ## Run
 

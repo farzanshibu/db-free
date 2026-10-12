@@ -99,7 +99,7 @@ fn qdrant_condition(rule: &FilterRule) -> Option<Json> {
             let values: Vec<Json> = rule.value.split(',').map(parse_scalar).collect();
             Some(json!({"key": key, "match": {"any": values}}))
         }
-        FilterOp::Ne | FilterOp::Contains | FilterOp::StartsWith | FilterOp::EndsWith | FilterOp::IsNotNull => None,
+        FilterOp::Ne | FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith | FilterOp::IsNotNull => None,
     }
 }
 
@@ -1341,8 +1341,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_QDRANT_KEY").ok(),
         };

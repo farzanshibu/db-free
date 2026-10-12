@@ -89,7 +89,7 @@ fn filter_expr(rule: &FilterRule) -> Option<String> {
         }
         FilterOp::IsNull => format!("{attr} IS NULL"),
         FilterOp::IsNotNull => format!("{attr} EXISTS AND {attr} IS NOT NULL"),
-        FilterOp::Contains | FilterOp::StartsWith | FilterOp::EndsWith => return None,
+        FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith => return None,
     })
 }
 
@@ -1243,6 +1243,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let secret = std::env::var("DBFREE_TEST_MEILISEARCH_KEY").ok();
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret };

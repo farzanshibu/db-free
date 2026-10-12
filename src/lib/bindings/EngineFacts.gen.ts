@@ -59,6 +59,7 @@ export const ENGINE_FACTS = {
   cloudflare_d1: {"kind":"embedded","form":"http_token","defaultPort":null,"family":"cloudflare_d1"},
   supabase: {"kind":"relational","form":"server","defaultPort":5432,"family":"postgres"},
   planetscale: {"kind":"relational","form":"server","defaultPort":3306,"family":"mysql"},
+  planetscale_postgres: {"kind":"relational","form":"server","defaultPort":5432,"family":"postgres"},
   neon: {"kind":"relational","form":"server","defaultPort":5432,"family":"postgres"},
   immudb: {"kind":"ledger","form":"http_token","defaultPort":8080,"family":"immudb"},
   qldb: {"kind":"ledger","form":"aws","defaultPort":null,"family":"qldb"},

@@ -172,6 +172,10 @@ fn filter_clause(filters: &[FilterRule], binds: &mut Map<String, Json>) -> Strin
                 binds.insert(v.clone(), Json::String(format!("%{value}%")));
                 format!("LIKE(TO_STRING(d[@{c}]), @{v}, true)")
             }
+            FilterOp::NotContains => {
+                binds.insert(v.clone(), Json::String(format!("%{value}%")));
+                format!("NOT LIKE(TO_STRING(d[@{c}]), @{v}, true)")
+            }
             FilterOp::StartsWith => {
                 binds.insert(v.clone(), Json::String(format!("{value}%")));
                 format!("LIKE(TO_STRING(d[@{c}]), @{v}, true)")
@@ -1754,8 +1758,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_ARANGODB_PASSWORD").ok(),
         };

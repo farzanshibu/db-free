@@ -145,6 +145,7 @@ fn where_clause(filters: &[FilterRule]) -> String {
                 FilterOp::Lt => format!("{col} < {}", literal(&f.column, v)),
                 FilterOp::Lte => format!("{col} <= {}", literal(&f.column, v)),
                 FilterOp::Contains => format!("{col}.toString().toLowerCase() LIKE {}", quote_str(&format!("%{}%", v.to_lowercase()))),
+                FilterOp::NotContains => format!("{col}.toString().toLowerCase() NOT LIKE {}", quote_str(&format!("%{}%", v.to_lowercase()))),
                 FilterOp::StartsWith => format!("{col}.toString().toLowerCase() LIKE {}", quote_str(&format!("{}%", v.to_lowercase()))),
                 FilterOp::EndsWith => format!("{col}.toString().toLowerCase() LIKE {}", quote_str(&format!("%{}", v.to_lowercase()))),
                 FilterOp::In => {
@@ -1368,8 +1369,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_ORIENTDB_PASSWORD").ok(),
         };

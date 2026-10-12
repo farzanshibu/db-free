@@ -125,7 +125,7 @@ fn filter_expr(fields: &[Field], rule: &FilterRule) -> Option<String> {
             let items: Vec<String> = rule.value.split(',').map(str::trim).filter(|s| !s.is_empty()).map(|s| filter_value(fields, f, s)).collect();
             format!("{f}:=[{}]", items.join(","))
         }
-        FilterOp::Contains | FilterOp::StartsWith | FilterOp::EndsWith | FilterOp::IsNull | FilterOp::IsNotNull => return None,
+        FilterOp::Contains | FilterOp::NotContains | FilterOp::StartsWith | FilterOp::EndsWith | FilterOp::IsNull | FilterOp::IsNotNull => return None,
     })
 }
 
@@ -1439,6 +1439,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let secret = std::env::var("DBFREE_TEST_TYPESENSE_KEY").ok();
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret };
