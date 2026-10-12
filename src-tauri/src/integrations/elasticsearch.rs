@@ -276,6 +276,7 @@ fn filter_clause(rule: &FilterRule, fields: &[(String, FieldInfo)]) -> (Option<J
             FilterOp::In => (Some(json!({"ids": {"values": list()}})), None),
             FilterOp::IsNull => (None, Some(json!({"match_all": {}}))),
             FilterOp::IsNotNull => (Some(json!({"match_all": {}})), None),
+            FilterOp::NotContains => (None, Some(json!({"wildcard": {"_id": {"value": format!("*{}*", escape_wildcard(value))}}}))),
             _ => (Some(json!({"wildcard": {"_id": {"value": format!("*{}*", escape_wildcard(value))}}})), None),
         };
     }
@@ -295,6 +296,13 @@ fn filter_clause(rule: &FilterRule, fields: &[(String, FieldInfo)]) -> (Option<J
                 (Some(wildcard(format!("*{}*", escape_wildcard(value)))), None)
             }
         }
+        FilterOp::NotContains => {
+            if text_only {
+                (None, Some(json!({"match_phrase": {field: value}})))
+            } else {
+                (None, Some(wildcard(format!("*{}*", escape_wildcard(value)))))
+            }
+        }
         FilterOp::StartsWith => (Some(json!({"prefix": {exact.clone(): {"value": value, "case_insensitive": true}}})), None),
         FilterOp::EndsWith => (Some(wildcard(format!("*{}", escape_wildcard(value)))), None),
         FilterOp::In => (Some(json!({"terms": {exact.clone(): list()}})), None),
@@ -306,6 +314,24 @@ fn filter_clause(rule: &FilterRule, fields: &[(String, FieldInfo)]) -> (Option<J
 fn build_query(filters: &[FilterRule], fields: &[(String, FieldInfo)]) -> Json {
     if filters.is_empty() {
         return json!({"match_all": {}});
+    }
+    // "Any" mode (`sql::with_filter_mode`): each rule is a clause of its own and one must hold.
+    if filters.len() > 1 && crate::integrations::sql::current_filter_mode() == crate::model::FilterMode::Any {
+        let should: Vec<Json> = filters
+            .iter()
+            .map(|rule| {
+                let (yes, no) = filter_clause(rule, fields);
+                let mut one = Map::new();
+                if let Some(clause) = yes {
+                    one.insert("filter".into(), json!([clause]));
+                }
+                if let Some(clause) = no {
+                    one.insert("must_not".into(), json!([clause]));
+                }
+                json!({"bool": one})
+            })
+            .collect();
+        return json!({"bool": {"should": should, "minimum_should_match": 1}});
     }
     let mut must = Vec::new();
     let mut must_not = Vec::new();
@@ -1961,6 +1987,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret: secret.map(str::to_string) }
     }
@@ -2040,6 +2069,18 @@ mod tests {
         assert_eq!(body["query"]["bool"]["filter"][3]["terms"]["price"], json!([1, 2, 3]));
         assert_eq!(body["query"]["bool"]["must_not"][1]["exists"]["field"], "price");
         assert_eq!(build_query(&[], &fields), json!({"match_all": {}}));
+    }
+
+    #[test]
+    fn any_mode_makes_each_rule_an_alternative() {
+        let rule = |column: &str, op, value: &str| FilterRule { column: column.into(), op, value: value.into() };
+        let rules = [rule("a", FilterOp::Eq, "x"), rule("b", FilterOp::IsNull, "")];
+        let query = crate::integrations::sql::with_filter_mode_sync(crate::model::FilterMode::Any, || build_query(&rules, &[]));
+        assert_eq!(query["bool"]["minimum_should_match"], 1);
+        assert_eq!(query["bool"]["should"][0]["bool"]["filter"][0]["term"]["a"], "x");
+        assert_eq!(query["bool"]["should"][1]["bool"]["must_not"][0]["exists"]["field"], "b");
+        // Without the mode the same rules are all required.
+        assert!(build_query(&rules, &[])["bool"]["should"].is_null());
     }
 
     #[test]

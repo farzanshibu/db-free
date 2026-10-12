@@ -1,9 +1,10 @@
 // SOT: data-grid, virtualized-grid, grid-cell-rendering, column-sort-header, column-resize, row-selection, inline-cell-edit, foreign-key-link, change-highlighting, drag-select, grid-copy-paste, selection-stats
 import { useEffect, useMemo, useReducer, useRef, useState, type ClipboardEvent as ReactClipboardEvent, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import type { FilterRule, SortRule, Value } from "@/lib/bindings";
-import { cellClass, formatCell } from "@/lib/format";
-import { fieldKind, parseEdited } from "@/lib/fields";
+import type { ExportFormat, FilterRule, SortRule, SqlToken, Value } from "@/lib/bindings";
+import { cellClass, formatCell, formatCount } from "@/lib/format";
+import { tokenValue } from "@/lib/sqlTokens";
+import { fieldKind, parseEdited, type EnumTraits, type FieldKind } from "@/lib/fields";
 import { Icon, typeIcon } from "@/lib/icons";
 import { Check } from "@/components/global/Field";
 import { CellEditor, type LookupRow } from "@/components/global/ValueEditor";
@@ -13,6 +14,8 @@ import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { bounds, cellCount, clipboardText, formatStat, inBounds, parseTsv, rangeStats, STATS_CELL_LIMIT, toTsv, type CellPos, type CellRange, type RangeBounds } from "./cellRange";
+import { IS_MAC } from "@/lib/keymap";
+import { COPY_FORMATS, copyLabel } from "./copyFormats";
 
 export interface GridColumn {
   name: string;
@@ -20,12 +23,26 @@ export interface GridColumn {
   primaryKey?: boolean;
   /// Set when the column is a foreign key; cells get a link button.
   linkTo?: string;
+  /// Where the link came from: the schema's constraint, one the user made, or a guess from the name.
+  linkSource?: "constraint" | "remap" | "inferred" | undefined;
+  /// NOT NULL columns refuse "Set NULL" and Backspace-to-NULL.
+  nullable?: boolean | undefined;
+  /// The database computes this column (generated, identity ALWAYS): its cells are read-only.
+  readOnly?: boolean | undefined;
+  /// The database fills the column in on insert; the header says "Auto".
+  autoIncrement?: boolean | undefined;
+  /// ENUM / SET values: the cell edits as a pick-list.
+  enumValues?: readonly string[] | undefined;
+  /// Several of `enumValues` at once (SET, enum array).
+  multi?: boolean | undefined;
 }
 
 /// A cell with a staged (uncommitted) edit: what it shows now and what the database still holds.
+/// `raw` is set when the new value is DEFAULT / now() rather than a literal.
 export interface StagedCell {
   value: Value;
   old: Value;
+  raw?: SqlToken | undefined;
 }
 
 /// One cell write from a paste: grid coordinates and the parsed value.
@@ -33,7 +50,12 @@ export interface CellEdit {
   row: number;
   col: number;
   value: Value;
+  /// The value is this SQL token (DEFAULT, now()…), not `value`.
+  raw?: SqlToken | undefined;
 }
+
+/// Row formats the grid can ask its owner to copy (the exporter's: CSV, TSV, JSON, NDJSON, Markdown, SQL INSERT).
+export type RowCopyFormat = ExportFormat;
 
 interface DataGridProps {
   columns: readonly GridColumn[];
@@ -48,8 +70,9 @@ interface DataGridProps {
   selectedRows?: ReadonlySet<number>;
   onToggleRow?: (rowIndex: number) => void;
   onToggleAll?: () => void;
-  /// Present = cells are editable (double-click). Receives the edited Value.
-  onCellEdit?: (rowIndex: number, colIndex: number, next: Value) => void;
+  /// Present = cells are editable (double-click, Enter, F2). Receives the edited Value
+  /// and, for DEFAULT / now(), the SQL token that stands for it.
+  onCellEdit?: (rowIndex: number, colIndex: number, next: Value, raw?: SqlToken) => void;
   /// Batch form of onCellEdit for a paste: one call, so the owner stages or
   /// commits every pasted cell together. Falls back to onCellEdit per cell.
   onCellsEdit?: (edits: readonly CellEdit[]) => void;
@@ -81,15 +104,43 @@ interface DataGridProps {
   onDeleteRow?: (rowIndex: number) => void;
   /// Opens the owner's record inspector on the clicked cell.
   onInspect?: (rowIndex: number, colIndex: number) => void;
-  /// Copies whole rows in a format the owner knows how to build (JSON, CSV, SQL).
-  onCopyRows?: (rowIndex: number, format: "json" | "csv" | "sql") => void;
+  /// Hands the clicked row to the AI chat (only passed when the AI may read rows).
+  onAskAi?: (rowIndex: number) => void;
+  /// Copies whole rows in a format the owner knows how to build (every `RowCopyFormat`).
+  onCopyRows?: (rowIndex: number, format: RowCopyFormat) => void;
   /// Searches the table a foreign-key column points at, so the value is picked
   /// from real rows instead of copied from another tab.
   onLookup?: (colIndex: number, search: string) => Promise<LookupRow[]>;
+  /// Shift+click on a header adds the column as another sort rule.
+  onSortAdd?: (column: string) => void;
+  /// "Hide column" in the header menu.
+  onHideColumn?: (column: string) => void;
+  /// "Link to table…" in the header menu: choose which table and column this one references.
+  onLinkEdit?: (column: string) => void;
+  /// Cells matching the find bar ("row:col" keys) and the one it is on.
+  findMatches?: ReadonlySet<string>;
+  findCurrent?: { row: number; col: number } | null;
+  /// ⌘F / Ctrl+F while the grid has focus.
+  onFindRequest?: () => void;
+  /// Cells whose text was cut for the page ("row:col" -> real size). They show a
+  /// marker and are loaded in full before they are edited.
+  truncated?: ReadonlyMap<string, number>;
+  /// The whole value of a cell that was cut; null = it could not be loaded.
+  onLoadFull?: (rowIndex: number, colIndex: number) => Promise<Value | null>;
+  /// A foreign-key link button was clicked: show the referenced row near `anchor`.
+  onLinkPeek?: (rowIndex: number, colIndex: number, anchor: HTMLElement) => void;
+  /// Pasted text the owner can turn into new rows (JSON array, TSV with headers).
+  /// Returns true when it took the text, so it is not pasted into cells.
+  onPasteRows?: (text: string) => boolean;
+  /// The engine can set a column back to DEFAULT (`SET col = DEFAULT`).
+  allowDefaultToken?: boolean;
 }
 
-const HEADER_HEIGHT = 32;
-const CHECK_WIDTH = 40;
+/// How the platform spells its command key in the menus and notices.
+const MOD = IS_MAC ? "⌘" : "Ctrl+";
+
+const HEADER_HEIGHT = 28;
+const CHECK_WIDTH = 32;
 const MIN_COL_WIDTH = 56;
 /// A dragged column may still go wide; only the automatic sizing is capped.
 const MAX_COL_WIDTH = 1600;
@@ -153,15 +204,29 @@ export function DataGrid({
   onDuplicateRow,
   onDeleteRow,
   onInspect,
+  onAskAi,
   onCopyRows,
   onLookup,
+  onSortAdd,
+  onHideColumn,
+  onLinkEdit,
+  findMatches,
+  findCurrent = null,
+  onFindRequest,
+  truncated,
+  onLoadFull,
+  onLinkPeek,
+  onPasteRows,
+  allowDefaultToken = false,
 }: DataGridProps) {
   const parentRef = useRef<HTMLDivElement | null>(null);
   const rangeRef = useRef(onRangeChange);
   useEffect(() => {
     rangeRef.current = onRangeChange;
   });
-  const [editing, setEditing] = useState<{ row: number; col: number } | null>(null);
+  // `full` is the whole value of a cell that was cut for the page, loaded before it is edited.
+  const [editing, setEditing] = useState<{ row: number; col: number; full?: Value } | null>(null);
+  const [loadingFull, setLoadingFull] = useState<string | null>(null);
   // Dragged widths by column name, in a ref rather than state: a drag must not
   // wait for a state round-trip (setState -> memo -> measure()) to be visible,
   // and at one event per pixel that round-trip is what made the handle look
@@ -201,6 +266,14 @@ export function DataGrid({
   useEffect(() => {
     rowVirtualizer.measure();
   }, [rowHeight, rowVirtualizer]);
+  // Stepping through find results brings the current match into view.
+  const findRow = findCurrent?.row;
+  const findCol = findCurrent?.col;
+  useEffect(() => {
+    if (findRow === undefined || findCol === undefined) return;
+    rowVirtualizer.scrollToIndex(findRow, { align: "auto" });
+    colVirtualizer.scrollToIndex(findCol, { align: "auto" });
+  }, [findRow, findCol, rowVirtualizer, colVirtualizer]);
   // A new page or a different table re-reads the widths map, so a column keeps
   // the width it was dragged to and a new column starts from its estimate.
   useEffect(() => {
@@ -264,6 +337,55 @@ export function DataGrid({
   const copy = (text: string, what: string) => {
     void navigator.clipboard.writeText(text);
     onCopied?.(what);
+  };
+
+  // WHAT:  Whether a cell may be edited at all, and how an edit starts.
+  // WHY:   A generated column, a staged delete, a bool (it has its own toggle) and a
+  //        binary value are not typed into. A cell that was cut for the page is
+  //        edited only after its whole value has been loaded, never from the prefix
+  //        — saving that would overwrite the real value with the stub.
+  const canEditValue = (row: number, column: GridColumn | undefined, value: Value | undefined): boolean => {
+    if (onCellEdit === undefined || column === undefined || value === undefined || deletedRows?.has(row)) return false;
+    if (column.readOnly === true) return false;
+    const kind = kindOf(column, value);
+    return kind !== "bytes" && kind !== "bool";
+  };
+  const canEditCell = (row: number, col: number): boolean => canEditValue(row, columns[col], getRow(row)?.[col]);
+  const beginEdit = (row: number, col: number) => {
+    if (!canEditCell(row, col)) return;
+    const key = `${row}:${col}`;
+    if (truncated?.has(key)) {
+      if (onLoadFull === undefined) return;
+      setLoadingFull(key);
+      onLoadFull(row, col).then(
+        (full) => {
+          setLoadingFull(null);
+          if (full !== null) setEditing({ row, col, full });
+        },
+        () => setLoadingFull(null),
+      );
+      return;
+    }
+    setEditing({ row, col });
+  };
+  /// Writes one value into every cell of a range (Delete / Backspace → NULL), skipping the cells that cannot take it.
+  const fillRange = (target: RangeBounds, value: Value, raw?: SqlToken) => {
+    const edits: CellEdit[] = [];
+    for (let r = target.top; r <= target.bottom; r += 1) {
+      for (let c = target.left; c <= target.right; c += 1) {
+        const column = columns[c];
+        if (!canEditCell(r, c) || column === undefined) continue;
+        if (value.t === "null" && column.nullable === false) continue;
+        if (truncated?.has(`${r}:${c}`) && value.t !== "null") continue;
+        edits.push({ row: r, col: c, value, ...(raw !== undefined ? { raw } : {}) });
+      }
+    }
+    if (edits.length === 0) {
+      onPasteNotice?.(value.t === "null" ? "None of these cells can be set to NULL." : "None of these cells can be changed.");
+      return;
+    }
+    if (onCellsEdit) onCellsEdit(edits);
+    else for (const e of edits) onCellEdit?.(e.row, e.col, e.value, e.raw);
   };
 
   // WHAT:  Rectangular cell range in grid coordinates, driven by press-drag.
@@ -386,10 +508,16 @@ export function DataGrid({
     onCopied?.(rangeLabel(rangeBounds));
   };
   const onGridPaste = (event: ReactClipboardEvent<HTMLDivElement>) => {
-    if (!rangeBounds || !canPaste || !ownsEvent(event)) return;
+    if (!canPaste || !ownsEvent(event)) return;
+    if (!rangeBounds && onPasteRows === undefined) return;
     const text = event.clipboardData.getData("text/plain");
     if (text.length === 0) return;
     event.preventDefault();
+    // JSON rows / TSV with headers become new rows when the owner takes them — but only
+    // with rows ticked or no cell selected: a value pasted into one cell stays a value
+    // (a JSON cell may well hold a list of objects).
+    const wantsRows = (selectedRows?.size ?? 0) > 0 || rangeBounds === null;
+    if (wantsRows && onPasteRows?.(text) === true) return;
     pasteText(text);
   };
 
@@ -401,9 +529,29 @@ export function DataGrid({
       setRange({ anchor: { row: 0, col: 0 }, focus: { row: rowCount - 1, col: columns.length - 1 } });
       return;
     }
+    if (mod && !event.shiftKey && event.key.toLowerCase() === "f" && onFindRequest) {
+      event.preventDefault();
+      onFindRequest();
+      return;
+    }
     if (event.key === "Escape" && range) {
       setRange(null);
       return;
+    }
+    // Enter / F2 edit the cell the keyboard is on; Delete / Backspace set the range to NULL.
+    if (range && !mod && !event.altKey) {
+      if (event.key === "Enter" || event.key === "F2") {
+        if (canEditCell(range.focus.row, range.focus.col)) {
+          event.preventDefault();
+          beginEdit(range.focus.row, range.focus.col);
+        }
+        return;
+      }
+      if ((event.key === "Delete" || event.key === "Backspace") && onCellEdit !== undefined) {
+        event.preventDefault();
+        fillRange(bounds(range), { t: "null" });
+        return;
+      }
     }
     const step: Partial<Record<string, CellPos>> = { ArrowUp: { row: -1, col: 0 }, ArrowDown: { row: 1, col: 0 }, ArrowLeft: { row: 0, col: -1 }, ArrowRight: { row: 0, col: 1 } };
     const move = step[event.key];
@@ -451,6 +599,8 @@ export function DataGrid({
     { id: "copy-column", label: "Copy column name", icon: "copy", group: "copy" },
     { id: "fit-width", label: "Fit column to content", icon: "columns", group: "copy" },
     { id: "reset-width", label: "Reset column width", icon: "columns", group: "copy" },
+    ...(onLinkEdit ? ([{ id: "link-column", label: column.linkTo !== undefined ? "Change foreign key link…" : "Link to table…", icon: "link", group: "view" }] satisfies MenuEntry[]) : []),
+    ...(onHideColumn ? ([{ id: "hide-column", label: "Hide column", icon: "eye-off", group: "view" }] satisfies MenuEntry[]) : []),
   ];
 
   const onHeaderMenu = (event: ReactMouseEvent, column: GridColumn, index: number) =>
@@ -466,6 +616,8 @@ export function DataGrid({
       } else if (id === "copy-column") copy(column.name, "Column name");
       else if (id === "fit-width") fitColumn(column, index);
       else if (id === "reset-width") resetColumn(column, index);
+      else if (id === "hide-column") onHideColumn?.(column.name);
+      else if (id === "link-column") onLinkEdit?.(column.name);
     });
 
   const onCellMenu = (event: ReactMouseEvent, column: GridColumn | undefined, rowIndex: number, colIndex: number, value: Value | undefined) => {
@@ -482,19 +634,25 @@ export function DataGrid({
     const entries: MenuEntry[] = [
       ...(keep
         ? ([
-            { id: "copy-range", label: `Copy ${rangeLabel(target)}  (Ctrl+C)`, icon: "copy" },
+            { id: "copy-range", label: `Copy ${rangeLabel(target)}  (${MOD}C)`, icon: "copy" },
             { id: "copy-range-headers", label: "Copy selection with headers", icon: "copy" },
           ] satisfies MenuEntry[])
         : []),
-      ...(canPaste ? ([{ id: "paste", label: "Paste  (Ctrl+V)", icon: "clipboard" }] satisfies MenuEntry[]) : []),
+      ...(canPaste ? ([{ id: "paste", label: `Paste  (${MOD}V)`, icon: "clipboard" }] satisfies MenuEntry[]) : []),
       { id: "copy-value", label: "Copy value", icon: "copy" },
-      { id: "copy-row-json", label: "Copy row as JSON", icon: "braces" },
-      { id: "copy-row-csv", label: "Copy row as CSV", icon: "rows" },
+      // Without an owner that can write whole rows, the row is copied as the grid shows it.
+      ...(onCopyRows === undefined
+        ? ([
+            { id: "copy-row-json", label: "Copy row as JSON", icon: "braces" },
+            { id: "copy-row-csv", label: "Copy row as CSV", icon: "rows" },
+          ] satisfies MenuEntry[])
+        : []),
       ...(filterable
         ? ([
             { id: "filter-eq", label: `Filter: ${column.name} = ${short}`, icon: "filter", group: "filter" },
             { id: "filter-ne", label: `Filter: ${column.name} ≠ ${short}`, icon: "filter", group: "filter" },
             { id: "filter-contains", label: `Filter: ${column.name} contains ${short}`, icon: "search", group: "filter" },
+            { id: "filter-not-contains", label: `Filter: ${column.name} does not contain ${short}`, icon: "search", group: "filter" },
           ] satisfies MenuEntry[])
         : []),
       ...(onFilter && isNull ? ([{ id: "filter-null", label: `Filter: ${column.name} is NULL`, icon: "filter", group: "filter" }] satisfies MenuEntry[]) : []),
@@ -504,23 +662,31 @@ export function DataGrid({
             { id: "sort-desc", label: `Sort by ${column.name} descending`, icon: "arrow-down", group: "sort" },
           ] satisfies MenuEntry[])
         : []),
-      ...(onCellEdit !== undefined && value !== undefined
+      ...(onCellEdit !== undefined && value !== undefined && canEditCell(rowIndex, colIndex)
         ? ([
-            { id: "edit", label: "Edit cell", icon: "pencil", group: "edit" },
-            { id: "set-null", label: "Set NULL", icon: "minus", group: "edit", disabled: isNull },
+            { id: "edit", label: "Edit cell  (Enter)", icon: "pencil", group: "edit" },
+            { id: "set-null", label: "Set NULL  (Delete)", icon: "minus", group: "edit", disabled: isNull || column.nullable === false },
+            ...(allowDefaultToken ? ([{ id: "set-default", label: "Set DEFAULT", icon: "minus", group: "edit" }] satisfies MenuEntry[]) : []),
+            ...(isTextKind(kindOf(column, value)) ? ([{ id: "set-empty", label: "Set empty string", icon: "minus", group: "edit" }] satisfies MenuEntry[]) : []),
+            ...(isTemporalKind(kindOf(column, value)) ? ([{ id: "set-now", label: nowLabel(kindOf(column, value)), icon: "clock", group: "edit" }] satisfies MenuEntry[]) : []),
           ] satisfies MenuEntry[])
         : []),
       ...(column.linkTo !== undefined && onLinkOpen !== undefined
         ? ([{ id: "open-link", label: `Open ${column.linkTo} rows`, icon: "link", group: "link" }] satisfies MenuEntry[])
         : []),
       ...(onInspect ? ([{ id: "inspect", label: "Open inspector", icon: "expand", group: "row" }] satisfies MenuEntry[]) : []),
+      ...(onAskAi ? ([{ id: "ask-ai", label: "Ask AI about this row", icon: "braces", group: "row" }] satisfies MenuEntry[]) : []),
       ...(onCopyRows
-        ? ([
-            { id: "rows-json", label: "Copy rows as JSON", icon: "braces", group: "rows" },
-            { id: "rows-csv", label: "Copy rows as CSV", icon: "rows", group: "rows" },
-            { id: "rows-sql", label: "Copy rows as SQL INSERT", icon: "terminal", group: "rows" },
-          ] satisfies MenuEntry[])
+        ? COPY_FORMATS.map(
+            (format): MenuEntry => ({
+              id: `rows-${format}`,
+              label: `Copy ${(selectedRows?.size ?? 0) > 0 ? "selected rows" : "row"} as ${copyLabel(format)}`,
+              icon: format === "json" || format === "ndjson" ? "braces" : format === "sql" ? "terminal" : "rows",
+              group: "rows",
+            }),
+          )
         : []),
+      ...(onPasteRows ? ([{ id: "paste-rows", label: "Paste rows as new rows", icon: "clipboard", group: "write" }] satisfies MenuEntry[]) : []),
       ...(onInsertRow ? ([{ id: "insert-row", label: "Insert row", icon: "plus", group: "write" }] satisfies MenuEntry[]) : []),
       ...(onDuplicateRow ? ([{ id: "duplicate-row", label: "Duplicate row", icon: "copy", group: "write" }] satisfies MenuEntry[]) : []),
       ...(onDeleteRow ? ([{ id: "delete-row", label: "Delete row", icon: "trash", danger: true, group: "write" }] satisfies MenuEntry[]) : []),
@@ -534,23 +700,40 @@ export function DataGrid({
       else if (id === "paste") {
         // The menu path has no paste event to read from, so it asks the
         // Clipboard API; the webview may refuse, and Ctrl+V always works.
-        navigator.clipboard.readText().then((t) => { pasteText(t, target); }, () => onPasteNotice?.("Clipboard could not be read here. Use Ctrl+V."));
+        navigator.clipboard.readText().then((t) => { pasteText(t, target); }, () => onPasteNotice?.(`Clipboard could not be read here. Use ${MOD}V.`));
       } else if (id === "copy-value") copy(text, "Value");
       else if (id === "copy-row-json") copy(JSON.stringify(Object.fromEntries(columns.map((c, i) => [c.name, row?.[i] === undefined ? null : formatCell(row[i]).text])), null, 2), "Row");
       else if (id === "copy-row-csv") copy(columns.map((_, i) => csvCell(row?.[i])).join(","), "Row");
       else if (id === "filter-eq") onFilter?.({ column: column.name, op: "eq", value: text });
       else if (id === "filter-ne") onFilter?.({ column: column.name, op: "ne", value: text });
       else if (id === "filter-contains") onFilter?.({ column: column.name, op: "contains", value: text });
+      else if (id === "filter-not-contains") onFilter?.({ column: column.name, op: "not_contains", value: text });
       else if (id === "filter-null") onFilter?.({ column: column.name, op: "is_null", value: "" });
       else if (id === "sort-asc") (onSortSet ?? (() => onSortToggle?.(column.name)))({ column: column.name, desc: false });
       else if (id === "sort-desc") (onSortSet ?? (() => onSortToggle?.(column.name)))({ column: column.name, desc: true });
-      else if (id === "edit") setEditing({ row: rowIndex, col: colIndex });
-      else if (id === "set-null") onCellEdit?.(rowIndex, colIndex, { t: "null" });
+      else if (id === "edit") beginEdit(rowIndex, colIndex);
+      else if (id === "set-null") fillRange(target, { t: "null" });
+      else if (id === "set-default") fillRange(target, tokenValue("default"), "default");
+      else if (id === "set-empty") fillRange(target, { t: "text", v: "" });
+      else if (id === "set-now") {
+        const token = nowToken(kindOf(column, value));
+        fillRange(target, tokenValue(token), token);
+      }
       else if (id === "open-link") onLinkOpen?.(rowIndex, colIndex);
       else if (id === "inspect") onInspect?.(rowIndex, colIndex);
-      else if (id === "rows-json") onCopyRows?.(rowIndex, "json");
-      else if (id === "rows-csv") onCopyRows?.(rowIndex, "csv");
-      else if (id === "rows-sql") onCopyRows?.(rowIndex, "sql");
+      else if (id === "ask-ai") onAskAi?.(rowIndex);
+      else if (id === "paste-rows") {
+        navigator.clipboard.readText().then(
+          (t) => {
+            if (onPasteRows?.(t) !== true) onPasteNotice?.("The clipboard does not hold rows for this table (a JSON array of objects, or TSV with a header row).");
+          },
+          () => onPasteNotice?.(`Clipboard could not be read here. Use ${MOD}V.`),
+        );
+      }
+      else if (id.startsWith("rows-")) {
+        const format = COPY_FORMATS.find((f) => id === `rows-${f}`);
+        if (format !== undefined) onCopyRows?.(rowIndex, format);
+      }
       else if (id === "insert-row") onInsertRow?.();
       else if (id === "duplicate-row") onDuplicateRow?.(rowIndex);
       else if (id === "delete-row") onDeleteRow?.(rowIndex);
@@ -577,7 +760,7 @@ export function DataGrid({
       onCopy={onGridCopy}
       onPaste={onGridPaste}
       onMouseMove={autoScroll}
-      className="min-h-0 w-full flex-1 overflow-y-auto bg-background/60 font-mono text-[12px] select-none outline-none"
+      className="grid-scrollbar min-h-0 w-full flex-1 overflow-y-auto bg-background/60 font-mono text-[12px] select-none outline-none"
     >
       <div style={{ width: totalWidth + gutter, height: totalHeight + HEADER_HEIGHT, position: "relative" }}>
         <div className="sticky top-0 z-20 flex border-b border-border/50 glass-header" style={{ height: HEADER_HEIGHT, width: totalWidth + gutter }}>
@@ -590,21 +773,33 @@ export function DataGrid({
             {virtualCols.map((vc) => {
               const column = columns[vc.index];
               if (!column) return null;
-              const rule = sort.find((s) => s.column === column.name);
+              const ruleIndex = sort.findIndex((s) => s.column === column.name);
+              const rule = ruleIndex >= 0 ? sort[ruleIndex] : undefined;
               return (
                 <Button
                   variant="ghost"
                   key={vc.key}
                   disabled={onSortToggle === undefined}
-                  onClick={() => onSortToggle?.(column.name)}
+                  onClick={(e) => {
+                    // Shift+click adds another sort rule instead of replacing the sort.
+                    if (e.shiftKey && onSortAdd) onSortAdd(column.name);
+                    else onSortToggle?.(column.name);
+                  }}
                   onContextMenu={(e) => onHeaderMenu(e, column, vc.index)}
-                  className={cn("absolute top-0 flex h-full items-center justify-start gap-1.5 truncate border-r border-border/40 px-2.5 text-left font-sans liquid-hover rounded-none", onSortToggle ? "hover:bg-surface-secondary/70" : "cursor-default")}
+                  className={cn("absolute top-0 flex h-full items-center justify-start gap-1.5 truncate border-r border-border/40 px-2 text-left font-sans liquid-hover rounded-none", onSortToggle ? "hover:bg-surface-secondary/70" : "cursor-default")}
                   style={{ left: vc.start, width: vc.size }}
                 >
                   <Icon name={column.linkTo !== undefined && !column.primaryKey ? "link" : typeIcon(column.typeName, column.primaryKey)} size={12} className={cn("shrink-0", column.primaryKey ? "text-warning" : column.linkTo !== undefined ? "text-accent" : "text-muted")} />
                   <span className="truncate text-[12px] font-medium text-foreground">{column.name}</span>
                   {column.linkTo !== undefined ? <span className="truncate text-[10px] text-muted">→ {column.linkTo}</span> : null}
-                  {rule ? <Icon name={rule.desc ? "arrow-down" : "arrow-up"} size={11} className="ml-auto shrink-0 text-accent" /> : null}
+                  {column.readOnly === true ? <Icon name="lock" size={10} className="shrink-0 text-muted" aria-label="Generated by the database" /> : null}
+                  {column.autoIncrement === true && column.readOnly !== true ? <span className="shrink-0 rounded bg-surface-secondary px-1 text-[10px] font-medium uppercase text-muted">Auto</span> : null}
+                  {rule ? (
+                    <span className="ml-auto flex shrink-0 items-center gap-0.5 text-accent">
+                      {sort.length > 1 ? <span className="text-[10px] font-semibold tabular-nums">{ruleIndex + 1}</span> : null}
+                      <Icon name={rule.desc ? "arrow-down" : "arrow-up"} size={11} />
+                    </span>
+                  ) : null}
                 </Button>
               );
             })}
@@ -678,9 +873,15 @@ export function DataGrid({
                     const formatted = value === undefined ? null : formatCell(value);
                     const isSelected = isSelectedRow && selected.col === vc.index;
                     const isEditing = editing !== null && editing.row === vr.index && editing.col === vc.index;
-                    const kind = fieldKind(column?.typeName ?? "", value);
-                    const editable = onCellEdit !== undefined && !isDeleted && value !== undefined && kind !== "bytes" && kind !== "bool";
-                    const linked = column?.linkTo !== undefined && onLinkOpen !== undefined && value !== undefined && value.t !== "null";
+                    const cellKey = `${vr.index}:${vc.index}`;
+                    const editable = canEditValue(vr.index, column, value);
+                    const linked = column?.linkTo !== undefined && (onLinkOpen !== undefined || onLinkPeek !== undefined) && value !== undefined && value.t !== "null";
+                    const cutSize = truncated?.get(cellKey);
+                    const isFindHit = findMatches?.has(cellKey) ?? false;
+                    const isFindCurrent = findCurrent !== null && findCurrent.row === vr.index && findCurrent.col === vc.index;
+                    // A cut value shows its start and the real size; binary shows only the size.
+                    const shownText =
+                      cutSize !== undefined ? (value?.t === "bytes" ? `0x… (${formatCount(cutSize)} B)` : `${formatted?.text ?? ""}…`) : (formatted?.text ?? "");
                     // One colour per cell: a change state wins over the value-kind syntax colour.
                     const tone = stagedCell !== undefined ? "font-medium text-warning" : isDeleted ? "text-danger" : isInserted ? "text-success" : formatted ? cellClass(formatted.kind) : "";
                     const inRange = rangeBounds !== null && inBounds(rangeBounds, vr.index, vc.index);
@@ -692,7 +893,7 @@ export function DataGrid({
                         onMouseEnter={() => extendRange(pos)}
                         onClick={() => onCellSelect?.(vr.index, vc.index)}
                         onDoubleClick={() => {
-                          if (editable) setEditing({ row: vr.index, col: vc.index });
+                          if (editable) beginEdit(vr.index, vc.index);
                         }}
                         onContextMenu={(e) => onCellMenu(e, column, vr.index, vc.index, value)}
                         className={cn(
@@ -702,19 +903,31 @@ export function DataGrid({
                           isSelected ? "ring-1 ring-accent ring-inset" : "",
                           isSelected && stagedCell === undefined ? "bg-accent/20" : "",
                           inRange && !isSelected && stagedCell === undefined ? "bg-accent/15" : "",
+                          isFindHit && !isFindCurrent ? "bg-warning/25" : "",
+                          isFindCurrent ? "bg-warning/60 ring-1 ring-warning ring-inset" : "",
+                          column?.readOnly === true ? "text-muted" : "",
+                          stagedCell?.raw !== undefined ? "font-mono italic" : "",
                           isEditing ? "select-text" : "",
                         )}
                         style={{ left: vc.start, width: vc.size, ...(inRange ? rangeEdge(rangeBounds, vr.index, vc.index) : {}) }}
-                        title={stagedCell !== undefined ? `${formatted?.text ?? ""}\nwas: ${formatCell(stagedCell.old).text}` : formatted?.text}
+                        title={
+                          stagedCell !== undefined
+                            ? `${formatted?.text ?? ""}\nwas: ${formatCell(stagedCell.old).text}`
+                            : cutSize !== undefined
+                              ? `${shownText}\nOnly the start is loaded (${formatCount(cutSize)} ${value?.t === "bytes" ? "bytes" : "characters"} in all). Open the cell to see all of it.`
+                              : formatted?.text
+                        }
                       >
                         {isEditing && value !== undefined && onCellEdit ? (
                           <CellEditor
                             {...(onLookup && column?.linkTo !== undefined ? { lookup: (search: string) => onLookup(vc.index, search) } : {})}
                             typeName={column?.typeName ?? ""}
-                            value={value}
-                            onCommit={(next) => {
+                            value={editing.full ?? value}
+                            traits={enumTraits(column)}
+                            nullable={column?.nullable !== false}
+                            onCommit={(next, raw) => {
                               setEditing(null);
-                              onCellEdit(vr.index, vc.index, next);
+                              onCellEdit(vr.index, vc.index, next, raw);
                             }}
                             onCancel={() => setEditing(null)}
                           />
@@ -727,17 +940,20 @@ export function DataGrid({
                           />
                         ) : value?.t === "null" ? (
                           <span className={cn("truncate", stagedCell === undefined && !isDeleted && !isInserted ? "" : "italic")}>{nullDisplay}</span>
+                        ) : loadingFull === cellKey ? (
+                          <span className="truncate italic text-muted">Loading the full value…</span>
                         ) : (
-                          <span className="truncate">{formatted?.text ?? ""}</span>
+                          <span className="truncate">{shownText}</span>
                         )}
                         {stagedCell !== undefined && !isEditing ? <span aria-hidden="true" className="ml-auto size-1.5 shrink-0 rounded-full bg-warning" /> : null}
                         {linked && !isEditing ? (
                           <Button
                             variant="ghost"
                             size="sm"
-                            aria-label={`Open ${column.linkTo ?? "related"} rows`}
-                            onClick={() => {
-                              onLinkOpen(vr.index, vc.index);
+                            aria-label={onLinkPeek ? `Peek at the ${column.linkTo ?? "related"} row` : `Open ${column.linkTo ?? "related"} rows`}
+                            onClick={(e) => {
+                              if (onLinkPeek) onLinkPeek(vr.index, vc.index, e.currentTarget);
+                              else onLinkOpen?.(vr.index, vc.index);
                             }}
                             className="ml-auto flex size-4.5 min-w-4.5 p-0 shrink-0 rounded-sm text-accent opacity-60 hover:bg-accent-soft hover:opacity-100"
                           >
@@ -758,7 +974,7 @@ export function DataGrid({
     {stats ? (
       // WHAT:  Spreadsheet-style status strip for a multi-cell selection;
       //        clicking an aggregate copies the raw number.
-      <div className="flex h-6 shrink-0 items-center gap-3 border-t border-border/40 bg-surface px-2.5 font-mono text-[11px] text-muted tabular-nums" aria-live="polite">
+      <div className="flex h-6 shrink-0 items-center gap-2 border-t border-border/40 bg-surface px-2 font-mono text-[11px] text-muted tabular-nums" aria-live="polite">
         <span>Cells <span className="text-foreground">{formatStat(stats.cells)}</span></span>
         <span>Count <span className="text-foreground">{formatStat(stats.filled)}</span></span>
         {stats.numeric > 0 ? (
@@ -810,6 +1026,28 @@ function fitWidth(column: GridColumn, values: readonly string[]): number {
 
 function clampFit(width: number): number {
   return Math.min(MAX_FIT_WIDTH, Math.max(MIN_COL_WIDTH, Math.round(width)));
+}
+
+/// The part of a column's traits that picks its editor, in the shape `fieldKind` takes.
+function enumTraits(column: GridColumn | undefined): EnumTraits | undefined {
+  const values = column?.enumValues;
+  return values !== undefined && values.length > 0 ? { enumValues: [...values], multi: column?.multi ?? false } : undefined;
+}
+
+function kindOf(column: GridColumn, value: Value | undefined): FieldKind {
+  return fieldKind(column.typeName, value, enumTraits(column));
+}
+
+const isTextKind = (kind: FieldKind): boolean => kind === "text";
+const isTemporalKind = (kind: FieldKind): boolean => kind === "date" || kind === "time" || kind === "datetime";
+
+/// The token a "Set to now" item writes for a date, time or timestamp column.
+function nowToken(kind: FieldKind): SqlToken {
+  return kind === "date" ? "current_date" : kind === "time" ? "current_time" : "now";
+}
+
+function nowLabel(kind: FieldKind): string {
+  return kind === "date" ? "Set CURRENT_DATE" : kind === "time" ? "Set CURRENT_TIME" : "Set now()";
 }
 
 /// One CSV field: quoted when it holds a comma, quote or newline.

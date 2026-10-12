@@ -172,13 +172,34 @@ impl HttpClient {
         resp.text().await.map_err(map_reqwest)
     }
 
+    // WHAT:  One request with caller-chosen headers, answered whatever its status:
+    //        `(status, body)`. `body` is `(content type, payload)`.
+    // WHY:   Token endpoints (Entra, Google, STS, instance metadata) explain a
+    //        refusal in the body (`error_description`), which `send` would flatten
+    //        to a status line; and several need two or three custom headers.
+    // WHERE: src-tauri/src/integrations/cloud_auth.rs
+    pub async fn exchange(&self, method: &str, url: &str, headers: &[(&str, &str)], body: Option<(&str, String)>) -> AppResult<(u16, String)> {
+        let method = Method::from_bytes(method.as_bytes()).map_err(|e| AppError::internal(format!("bad HTTP method: {e}")))?;
+        let mut req = self.client.request(method, self.url(url));
+        for (name, value) in headers {
+            req = req.header(*name, *value);
+        }
+        if let Some((content_type, payload)) = body {
+            req = req.header(reqwest::header::CONTENT_TYPE, content_type).body(payload);
+        }
+        let resp = req.send().await.map_err(map_reqwest)?;
+        let status = resp.status().as_u16();
+        let text = resp.text().await.map_err(map_reqwest)?;
+        Ok((status, text))
+    }
+
     pub fn header(name: &str, value: &str) -> Auth {
         let _ = HeaderName::from_bytes(name.as_bytes());
         Auth::Header { name: name.to_string(), value: value.to_string() }
     }
 }
 
-fn map_reqwest(err: reqwest::Error) -> AppError {
+pub fn map_reqwest(err: reqwest::Error) -> AppError {
     if err.is_timeout() {
         AppError::timeout("The server did not respond in time.")
     } else if err.is_connect() {
@@ -306,6 +327,63 @@ pub fn json_result(value: serde_json::Value) -> ResultSet {
     }
 }
 
+// ---------------------------------------------------------------------------
+// One-off outbound requests (workflow HTTP and Slack nodes)
+// ---------------------------------------------------------------------------
+
+// WHAT:  A single HTTP request to any URL, and what came back.
+// WHY:   Workflows call arbitrary endpoints (a REST API, a Slack webhook) that are
+//        not database connections, so there is no base URL or saved auth to
+//        build a client from. `reqwest` stays confined to this module.
+// HOW:   Redirects are followed, connect timeout 10 s, total 60 s. The status is
+//        returned, not turned into an error: the caller decides what a 404 means.
+// WHERE: src-tauri/src/services/workflows/nodes/{io,notify}.rs
+#[derive(Debug, Clone)]
+pub struct OutboundRequest {
+    pub method: String,
+    pub url: String,
+    pub headers: Vec<(String, String)>,
+    pub body: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct OutboundReply {
+    pub status: u16,
+    pub status_text: String,
+    pub body: String,
+}
+
+pub async fn send_outbound(request: &OutboundRequest) -> AppResult<OutboundReply> {
+    let method = Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
+        .map_err(|_| AppError::invalid_input(format!("\"{}\" is not an HTTP method.", request.method)))?;
+    let client = Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(60))
+        .user_agent("db-free")
+        .build()
+        .map_err(|e| AppError::driver(e.to_string()))?;
+    let mut builder = client.request(method, request.url.as_str());
+    for (name, value) in &request.headers {
+        builder = builder.header(name.as_str(), value.as_str());
+    }
+    if let Some(body) = &request.body {
+        builder = builder.body(body.clone());
+    }
+    // The URL is dropped from every error: a Slack webhook URL is a credential.
+    let response = builder.send().await.map_err(|e| {
+        let e = e.without_url();
+        if e.is_builder() {
+            AppError::invalid_input(format!("The request is not valid: {e}"))
+        } else {
+            map_reqwest(e)
+        }
+    })?;
+    let status = response.status();
+    let status_text = status.canonical_reason().unwrap_or("").to_string();
+    let body = response.text().await.map_err(|e| map_reqwest(e.without_url()))?;
+    Ok(OutboundReply { status: status.as_u16(), status_text, body })
+}
+
 // WHAT:  Client-side filter + sort + slice for engines with no server-side paging.
 pub mod local {
     use crate::model::{FilterOp, FilterRule, PageQuery, SortRule, Value};
@@ -352,6 +430,8 @@ pub mod local {
             FilterOp::Lt => cmp() == Ordering::Less,
             FilterOp::Lte => cmp() != Ordering::Greater,
             FilterOp::Contains => text.to_lowercase().contains(&needle.to_lowercase()),
+            // A NULL holds no text, so it does not contain the needle.
+            FilterOp::NotContains => !text.to_lowercase().contains(&needle.to_lowercase()),
             FilterOp::StartsWith => text.to_lowercase().starts_with(&needle.to_lowercase()),
             FilterOp::EndsWith => text.to_lowercase().ends_with(&needle.to_lowercase()),
             FilterOp::In => needle.split(',').map(str::trim).any(|x| x == text),
@@ -364,16 +444,22 @@ pub mod local {
         if filters.is_empty() {
             return rows;
         }
+        let any = crate::integrations::sql::current_filter_mode() == crate::model::FilterMode::Any;
         rows.into_iter()
             .filter(|row| {
-                filters.iter().all(|f| {
+                let hit = |f: &FilterRule| {
                     columns
                         .iter()
                         .position(|c| c == &f.column)
                         .and_then(|i| row.get(i))
                         .map(|v| matches(f, v))
                         .unwrap_or(false)
-                })
+                };
+                if any {
+                    filters.iter().any(hit)
+                } else {
+                    filters.iter().all(hit)
+                }
             })
             .collect()
     }
@@ -430,8 +516,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: None,
         }
@@ -479,6 +568,28 @@ mod tests {
         assert_eq!(out.len(), 2);
         assert_eq!(out[0][0], Value::Text("a".into()));
         assert_eq!(out[1][0], Value::Text("c".into()));
+    }
+
+    #[tokio::test]
+    async fn local_page_not_contains_and_any_mode() {
+        use crate::integrations::sql::with_filter_mode;
+        use crate::model::{FilterMode, FilterOp, FilterRule, PageQuery};
+        let cols = vec!["k".to_string(), "n".to_string()];
+        let rows = vec![
+            vec![Value::Text("alpha".into()), Value::Int(1)],
+            vec![Value::Text("beta".into()), Value::Int(2)],
+            vec![Value::Null, Value::Int(3)],
+        ];
+        let not_alpha = FilterRule { column: "k".into(), op: FilterOp::NotContains, value: "alp".into() };
+        let n_is_1 = FilterRule { column: "n".into(), op: FilterOp::Eq, value: "1".into() };
+        let query = |filters: Vec<FilterRule>| PageQuery { sort: vec![], filters, offset: 0, limit: 10 };
+        // A NULL holds no text, so it passes "not contains".
+        let out = local::page(&cols, rows.clone(), &query(vec![not_alpha.clone()]));
+        assert_eq!(out.iter().map(|r| r[1].clone()).collect::<Vec<_>>(), vec![Value::Int(2), Value::Int(3)]);
+        // All: nothing is both "not alp" and n = 1. Any: alpha (n = 1) and the two non-alpha rows.
+        assert!(local::page(&cols, rows.clone(), &query(vec![not_alpha.clone(), n_is_1.clone()])).is_empty());
+        let any = with_filter_mode(FilterMode::Any, async { local::page(&cols, rows, &query(vec![not_alpha, n_is_1])) }).await;
+        assert_eq!(any.len(), 3);
     }
 
     #[test]
