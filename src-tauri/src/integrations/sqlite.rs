@@ -136,7 +136,7 @@ impl SqliteIntegration {
     async fn execute_run(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
         let sql = sql.to_string();
         let Some(run_id) = crate::integrations::current_run_id() else {
-            return self.blocking(move |conn| run_batch(conn, &sql, max_rows)).await;
+            return self.blocking(move |conn| run_batch_guarded(conn, &sql, max_rows)).await;
         };
         // The id is read here: the blocking pool runs the closure on another
         // thread, outside the block's task-local scope.
@@ -156,7 +156,7 @@ impl SqliteIntegration {
             if stopped.unwrap_or(false) {
                 return Err(AppError::cancelled("Cancelled by user"));
             }
-            let out = run_batch(conn, &sql, max_rows);
+            let out = run_batch_guarded(conn, &sql, max_rows);
             if let Ok(mut r) = runs.lock() {
                 r.active = None;
             }
@@ -188,6 +188,28 @@ impl SqliteIntegration {
         self.refresh_tx_flag().await;
         result
     }
+}
+
+// WHAT:  `run_batch` that never leaves behind a transaction the script opened and
+//        then failed to finish.
+// WHY:   SQLite has the one connection, so a script that did `BEGIN`, hit an error
+//        and stopped left every later request (a grid page, the next Run, a
+//        pending-changes commit) running inside that half-applied transaction,
+//        holding the file's write lock. This is the same bug sqlx's pools have,
+//        with no pool to hide it.
+// HOW:   Only a transaction this script started is rolled back: one the editor's
+//        Manual mode (or an earlier `BEGIN`) already had open belongs to the user,
+//        and a failed statement inside it leaves it open, as in any SQLite shell.
+//        A stopped run (interrupt) lands here as an error too.
+fn run_batch_guarded(conn: &Connection, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+    let was_autocommit = conn.is_autocommit();
+    let out = run_batch(conn, sql, max_rows);
+    if out.is_err() && was_autocommit && !conn.is_autocommit() {
+        if let Err(err) = conn.execute_batch("ROLLBACK") {
+            log::warn!("rollback after a failed script failed: {err}");
+        }
+    }
+    out
 }
 
 // WHAT:  Runs every statement in `sql` in order, collecting rows or change counts.
@@ -521,6 +543,31 @@ fn find_master(conn: &Connection, types: &[&str], name: &str, hint: Option<&str>
         }
     }
     Ok(None)
+}
+
+// WHAT:  Defaults and generated / rowid flags from `table_xinfo`.
+// HOW:   `hidden` 2 and 3 are VIRTUAL / STORED generated columns. A table's only
+//        INTEGER PRIMARY KEY column is the rowid alias: SQLite fills it in.
+fn table_traits(conn: &Connection, name: &str) -> AppResult<Vec<crate::model::ColumnTraits>> {
+    let mut stmt = conn.prepare("SELECT name, type, pk, dflt_value, hidden FROM pragma_table_xinfo(?1) WHERE hidden IN (0, 2, 3) ORDER BY cid")?;
+    let rows = stmt
+        .query_map(params![name], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?, row.get::<_, i64>(2)?, row.get::<_, Option<String>>(3)?, row.get::<_, i64>(4)?))
+        })?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    let key_parts = rows.iter().filter(|r| r.2 > 0).count();
+    Ok(rows
+        .into_iter()
+        .map(|(name, kind, pk, default, hidden)| crate::model::ColumnTraits {
+            name,
+            enum_values: Vec::new(),
+            multi: false,
+            has_default: default.is_some(),
+            default_expr: default,
+            generated: hidden == 2 || hidden == 3,
+            auto_increment: key_parts == 1 && pk == 1 && kind.eq_ignore_ascii_case("integer"),
+        })
+        .collect())
 }
 
 fn table_columns_in(conn: &Connection, db: &str, name: &str) -> AppResult<Vec<ColumnInfo>> {
@@ -1039,6 +1086,11 @@ impl Integration for SqliteIntegration {
         self.blocking(move |conn| table_columns(conn, &name)).await
     }
 
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        let name = table.name.clone();
+        self.blocking(move |conn| table_traits(conn, &name)).await
+    }
+
     async fn row_estimate(&self, table: &TableRef) -> AppResult<Option<i64>> {
         let sql = format!("SELECT count(*) FROM {}", quote_ident(&table.name));
         self.blocking(move |conn| {
@@ -1268,6 +1320,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, false), secret: None }
     }
@@ -1284,6 +1339,55 @@ mod tests {
         assert!(label.contains("SCAN"), "{label}");
         assert!(db.explain_tree("SELECT 1; DROP TABLE t").await.is_err(), "the second statement must not run");
         assert!(db.execute("SELECT * FROM t", 10).await.is_ok(), "t is still there");
+    }
+
+    async fn count_rows(db: &Arc<dyn Integration>) -> i64 {
+        match db.execute("SELECT count(*) FROM t", 10).await.unwrap_or_default().first() {
+            Some(StatementResult::Rows { result }) => match result.rows.first().and_then(|r| r.first()) {
+                Some(Value::Int(n)) => *n,
+                _ => -1,
+            },
+            _ => -1,
+        }
+    }
+
+    async fn db_with_table() -> Arc<dyn Integration> {
+        let dir = std::env::temp_dir().join(format!("db-free-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap_or_else(|e| panic!("{e}"));
+        let path = dir.join("tx.db").to_string_lossy().into_owned();
+        let db = connect(&resolved(&path, false)).await.unwrap_or_else(|e| panic!("{e}"));
+        db.execute("CREATE TABLE t (a int PRIMARY KEY)", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        db
+    }
+
+    #[tokio::test]
+    async fn a_script_that_fails_after_begin_leaves_no_transaction_behind() {
+        let db = db_with_table().await;
+        let failed = db.execute("BEGIN; INSERT INTO t VALUES (1); INSERT INTO t VALUES (1);", 10).await;
+        assert!(failed.is_err(), "the duplicate key stops the script");
+        assert!(!db.in_transaction(), "the half-applied transaction was rolled back, not left for the next request");
+        assert_eq!(count_rows(&db).await, 0, "and nothing of it survived");
+        db.execute("INSERT INTO t VALUES (2)", 10).await.unwrap_or_else(|e| panic!("a later write works: {e}"));
+        assert_eq!(count_rows(&db).await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_balanced_script_commits_as_before() {
+        let db = db_with_table().await;
+        db.execute("BEGIN; INSERT INTO t VALUES (5); COMMIT;", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        assert!(!db.in_transaction());
+        assert_eq!(count_rows(&db).await, 1);
+    }
+
+    #[tokio::test]
+    async fn a_failure_inside_the_users_own_transaction_does_not_end_it() {
+        let db = db_with_table().await;
+        db.begin_transaction().await.unwrap_or_else(|e| panic!("{e}"));
+        db.execute("INSERT INTO t VALUES (1)", 10).await.unwrap_or_else(|e| panic!("{e}"));
+        assert!(db.execute("INSERT INTO t VALUES (1)", 10).await.is_err());
+        assert!(db.in_transaction(), "Manual mode keeps its transaction after a bad statement, as any SQLite shell does");
+        db.rollback_transaction().await.unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(count_rows(&db).await, 0);
     }
 
     #[tokio::test]
