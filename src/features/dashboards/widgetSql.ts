@@ -60,20 +60,28 @@ export function widgetSql(engine: Engine, sql: string, columns: readonly string[
 
 let widgetCounter = 0;
 
+/// A tile id no other tile has.
+export function newWidgetId(): string {
+  widgetCounter += 1;
+  return `w-${Date.now().toString(36)}-${widgetCounter}`;
+}
+
 // WHAT:  A widget with every option at its default, plus the caller's fields.
 // WHY:   The dashboard's "+ Widget" and the results chart's "Add to dashboard"
 //        must create the same shape; the defaults live once.
+// HOW:   Positions are in the 12-column, 60 px-row grid (./layout.ts); a new
+//        tile is 4 columns by 5 rows and stacks area series, and the dashboard
+//        places it in a free spot.
 export function newWidget(fields: Partial<Widget>): Widget {
-  widgetCounter += 1;
   return {
-    id: `w-${Date.now().toString(36)}-${widgetCounter}`,
+    id: newWidgetId(),
     title: "",
     kind: "line",
     sql: "",
     x: 0,
     y: 0,
     w: 4,
-    h: 3,
+    h: 5,
     tint: "series-1",
     showChange: false,
     maxValue: null,
@@ -86,6 +94,13 @@ export function newWidget(fields: Partial<Widget>): Widget {
     showValues: false,
     pulse: false,
     conditions: [],
+    format: "number",
+    currency: "USD",
+    colorByChange: false,
+    bg: null,
+    stacked: true,
+    legendMode: "auto",
+    valueFormat: "number",
     ...fields,
   };
 }
