@@ -4,6 +4,7 @@ import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { useChangeNotes } from "./changeNotes";
 import { publishCommit, RefreshTablesEvent } from "./commitBus";
+import { runAfterCommit } from "./afterCommit";
 
 export type CommitAttempt =
   | { status: "done"; report: CommitReport; applied: number; unmatched: number }
@@ -14,7 +15,8 @@ export type CommitAttempt =
 // WHAT:  Commits a connection's pending changes and settles what the result says.
 // WHY:   The panel's Commit All and the grid's ⌘↵ both end here, so neither can
 //        forget to keep the unmatched edits, tell the open tables, or ask first
-//        about a destructive statement.
+//        about a destructive statement; schema statements run their follow-up
+//        (`afterCommit`) once they land.
 // HOW:   * the commit is one transaction in Rust, rolled back on any failure;
 //        * `confirmDestructive` is only ever set after the user said yes to the
 //          statements a `confirm` attempt listed;
@@ -34,6 +36,7 @@ export async function commitPending(connectionId: string, changes: readonly Stag
     useChangeNotes.getState().markUnmatched(unmatchedIds);
     const handled = new Set<string>();
     publishCommit({ connectionId, changes: landed, report, handled });
+    await runAfterCommit(landed.map((c) => c.id));
     window.dispatchEvent(new RefreshTablesEvent(handled));
     if (landed.length > 0) workspace.showInfo(`Committed ${landed.length} change${landed.length === 1 ? "" : "s"}.${report.atomic ? "" : " This engine has no transactions, so each change ran on its own."}`);
     if (unmatchedIds.length > 0) {

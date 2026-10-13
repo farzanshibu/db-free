@@ -344,6 +344,17 @@ pub struct OutboundRequest {
     pub url: String,
     pub headers: Vec<(String, String)>,
     pub body: Option<String>,
+    /// Set by a policy that vetted the target. The request then never follows a
+    /// redirect (its target would be unvetted) and a named host connects only to
+    /// the vetted addresses, so a second DNS answer cannot swap in another one.
+    pub pinned: Option<PinnedTarget>,
+}
+
+/// The addresses a vetted request may connect to. `host` is None for an IP literal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PinnedTarget {
+    pub host: Option<String>,
+    pub addrs: Vec<std::net::SocketAddr>,
 }
 
 #[derive(Debug, Clone)]
@@ -356,12 +367,17 @@ pub struct OutboundReply {
 pub async fn send_outbound(request: &OutboundRequest) -> AppResult<OutboundReply> {
     let method = Method::from_bytes(request.method.to_ascii_uppercase().as_bytes())
         .map_err(|_| AppError::invalid_input(format!("\"{}\" is not an HTTP method.", request.method)))?;
-    let client = Client::builder()
+    let mut client = Client::builder()
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(60))
-        .user_agent("db-free")
-        .build()
-        .map_err(|e| AppError::driver(e.to_string()))?;
+        .user_agent("db-free");
+    if let Some(pinned) = &request.pinned {
+        client = client.redirect(reqwest::redirect::Policy::none());
+        if let Some(host) = &pinned.host {
+            client = client.resolve_to_addrs(host, &pinned.addrs);
+        }
+    }
+    let client = client.build().map_err(|e| AppError::driver(e.to_string()))?;
     let mut builder = client.request(method, request.url.as_str());
     for (name, value) in &request.headers {
         builder = builder.header(name.as_str(), value.as_str());

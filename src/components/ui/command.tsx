@@ -4,6 +4,7 @@ import { Command as CommandPrimitive } from "cmdk";
 import { cn } from "@/lib/cn";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Icon } from "@/lib/icons";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  The shadcn/ui Command (cmdk): a filterable, keyboard-driven list.
 // WHY:   ⌘K has to move a roving selection with the arrow keys while focus stays
@@ -57,20 +58,13 @@ export function CommandInput({ className, ...props }: React.ComponentProps<typeo
   );
 }
 
-export function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
+export function CommandList({ className, children, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
   return (
-    <CommandPrimitive.List
-      data-slot="command-list"
-      className={cn(
-        // Same treatment as ScrollArea: a hairline scrollbar and faded ends, so
-        // the palette does not show the platform's default chrome.
-        "max-h-[50vh] scroll-py-0.5 overflow-x-hidden overflow-y-auto p-0.5",
-        "[scrollbar-color:var(--scrollbar-thumb)_var(--scrollbar-track)] [scrollbar-width:thin]",
-        "[mask-image:linear-gradient(to_bottom,transparent_0,black_10px,black_calc(100%-10px),transparent_100%)]",
-        className,
-      )}
-      {...props}
-    />
+    // cmdk owns the list element (it sizes it through --cmdk-list-height), so
+    // the scroller sits inside it; scrollIntoView on the active item finds it.
+    <CommandPrimitive.List data-slot="command-list" {...props}>
+      <ScrollArea className={cn("max-h-[50vh] scroll-py-0.5 p-0.5", className)}>{children}</ScrollArea>
+    </CommandPrimitive.List>
   );
 }
 

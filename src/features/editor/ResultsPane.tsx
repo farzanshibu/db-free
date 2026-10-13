@@ -18,6 +18,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ExportDialog } from "@/features/transfer/ExportDialog";
 import { resultScopes } from "@/features/transfer/exportScopes";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  Says how many rows the script really has, not just how many fit.
 // WHY:   A row cap that reads as the whole answer is worse than no cap: "1,000
@@ -182,7 +183,7 @@ export function ResultsPane({ run, connectionId, collapsed, onToggleCollapsed, o
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex h-7 shrink-0 items-center gap-1 border-b border-border bg-surface px-2 text-xs">
-        <div className="flex min-w-0 items-center gap-1 overflow-x-auto">
+        <ScrollArea orientation="horizontal" hideScrollBar className="flex min-w-0 items-center gap-1">
           {tabs.length > 1 ? (
             tabs.map((tab) => (
               <Button
@@ -201,7 +202,7 @@ export function ResultsPane({ run, connectionId, collapsed, onToggleCollapsed, o
           ) : (
             <span className="px-1 font-medium text-muted">Results</span>
           )}
-        </div>
+        </ScrollArea>
         <span className="ml-auto flex shrink-0 items-center gap-2">
           {rowsResult !== null && rowsResult.columns.length > 0 && !collapsed ? (
             <Segmented label="Result view" value={view} onChange={setView} options={[{ value: "grid", label: "Grid" }, { value: "chart", label: "Chart" }]} />

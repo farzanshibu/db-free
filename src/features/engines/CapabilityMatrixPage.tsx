@@ -82,7 +82,7 @@ export function CapabilityMatrixPage() {
         <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Engine…" className="w-48 rounded-md text-xs glass-input" />
         <Check label="Hide empty rows" checked={hideEmpty} onChange={setHideEmpty} />
       </div>
-      <ScrollArea className="min-h-0 flex-1 overflow-x-auto">
+      <ScrollArea orientation="both" className="min-h-0 flex-1">
         <table className="min-w-max border-separate border-spacing-0 text-xs">
           <thead className="sticky top-0 z-20">
             <tr>

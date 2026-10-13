@@ -14,6 +14,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { commentLine, extractCode, inlinePrompt, placeAnswer } from "./inlineAi";
 import type { SqlEditorHandle } from "./SqlEditor";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface InlineAiPromptProps {
   connection: ConnectionSummary;
@@ -194,9 +195,13 @@ export function InlineAiPrompt({ connection, editorRef, selection, anchor, docum
             }}
           />
           {busy || preview.length > 0 ? (
-            <pre className={cn("selectable max-h-32 overflow-auto rounded-lg border border-border/60 bg-surface-secondary/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-foreground", preview.length === 0 && "text-muted")}>
-              {preview.length > 0 ? preview : "Thinking…"}
-            </pre>
+            <div className="overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
+              <ScrollArea orientation="both" className="max-h-32">
+                <pre className={cn("selectable px-2 py-1.5 font-mono text-[11px] leading-5 text-foreground", preview.length === 0 && "text-muted")}>
+                  {preview.length > 0 ? preview : "Thinking…"}
+                </pre>
+              </ScrollArea>
+            </div>
           ) : null}
           {failure !== null ? <p className="selectable text-xs text-danger">{failure}</p> : null}
           <div className="flex items-center gap-2">

@@ -819,9 +819,11 @@ function JsonEditorBody({ initial, onSave, onClose, secondaryAction }: Omit<Json
           </div>
           <div className="flex min-h-0 min-w-0 flex-col gap-1.5">
             <div className="flex h-6 items-center text-xs text-muted">Tree</div>
-            <ScrollArea className="min-h-0 flex-1 overflow-x-auto rounded-lg border border-border/40 bg-background/60 p-2">
-              {parsed !== undefined ? <JsonViewer value={parsed} defaultDepth={3} /> : <span className="text-xs text-muted">Fix the JSON on the left to preview it here.</span>}
-            </ScrollArea>
+            <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-border/40 bg-background/60">
+              <ScrollArea orientation="both" className="min-h-0 flex-1 p-2">
+                {parsed !== undefined ? <JsonViewer value={parsed} defaultDepth={3} /> : <span className="text-xs text-muted">Fix the JSON on the left to preview it here.</span>}
+              </ScrollArea>
+            </div>
           </div>
         </div>
       </DialogBody>

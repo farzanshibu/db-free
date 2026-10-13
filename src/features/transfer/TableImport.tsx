@@ -258,7 +258,8 @@ export function TableImport({ connectionId, path, format, onReset }: TableImport
                   </span>
                   {previewLoading ? <Spinner size="sm" /> : null}
                 </div>
-                <div className="max-h-64 overflow-auto rounded-lg border border-border">
+                <div className="overflow-hidden rounded-lg border border-border">
+                  <ScrollArea orientation="both" className="max-h-64">
                   <table className="w-max min-w-full border-collapse text-xs">
                     <thead className="sticky top-0 bg-surface text-left text-muted">
                       <tr>
@@ -286,6 +287,7 @@ export function TableImport({ connectionId, path, format, onReset }: TableImport
                       ))}
                     </tbody>
                   </table>
+                  </ScrollArea>
                 </div>
               </section>
 

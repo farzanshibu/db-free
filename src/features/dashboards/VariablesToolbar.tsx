@@ -5,6 +5,7 @@ import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { VariableControl } from "./VariableControl";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  The toolbar's Variables button: a popover with one row per variable,
 //        its name on the left and the control that sets it on the right.
@@ -28,7 +29,7 @@ export function VariablesToolbar({ variables, onChange, onEdit }: { variables: r
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="end">
-        <div className="max-h-80 overflow-y-auto py-1">
+        <ScrollArea className="max-h-80 py-1">
           {variables.length === 0 ? (
             <p className="px-2.5 py-2.5 text-center text-xs text-muted">No variables yet. Add one to filter tiles with <code className="font-mono">{"{{name}}"}</code>.</p>
           ) : (
@@ -39,7 +40,7 @@ export function VariablesToolbar({ variables, onChange, onEdit }: { variables: r
               </div>
             ))
           )}
-        </div>
+        </ScrollArea>
         <div className="border-t border-border/40 p-1">
           <Button size="sm" variant="ghost" className="w-full justify-start text-muted" onClick={() => { setOpen(false); onEdit(); }}>
             <Icon name="settings" size={13} />

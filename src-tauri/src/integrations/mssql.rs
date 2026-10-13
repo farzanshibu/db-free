@@ -54,7 +54,9 @@ pub struct MssqlIntegration {
 //        answer. A statement that fails because the socket died is still
 //        reported to the user and never resent: it may have been applied, and the
 //        next call is the one that reconnects. The redial reuses the `Config`
-//        built at connect time.
+//        built at connect time, but an Entra token is minted again on every
+//        redial (see `Dial::token_source`): the token captured at connect expires
+//        in about an hour and must not be replayed.
 // WHERE: every `self.client.lock().await` in this file
 // ============================================================================
 
@@ -63,15 +65,25 @@ struct Dial {
     config: Config,
     host: String,
     port: u16,
+    /// The sign-in an Entra (Azure AD) connection mints its token from. Set only
+    /// when the token can be renewed; a pasted access token is replayed as-is.
+    token_source: Option<Arc<cloud_auth::CloudSession>>,
 }
 
 async fn open_client(dial: &Dial) -> AppResult<Client<Compat<TcpStream>>> {
     let (host, port) = (dial.host.as_str(), dial.port);
+    let mut config = dial.config.clone();
+    if let Some(session) = &dial.token_source {
+        // Fresh-or-still-valid: the cache answers while the token has more than the
+        // refresh skew left, otherwise the sign-in mints a new one.
+        let creds = session.db_credentials().await?;
+        config.authentication(AuthMethod::aad_token(&creds.password));
+    }
     let tcp = TcpStream::connect((host, port))
         .await
         .map_err(|e| AppError::driver(format!("Could not reach SQL Server at {host}:{port}: {e}")))?;
     let _ = tcp.set_nodelay(true);
-    Client::connect(dial.config.clone(), tcp.compat_write())
+    Client::connect(config, tcp.compat_write())
         .await
         .map_err(|e| AppError::driver(format!("SQL Server connection failed: {e}")))
 }
@@ -258,8 +270,10 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         }
     }
 
-    // Kept so a dead socket can be redialled later (see `ClientSlot`).
-    let dial = Dial { config, host: host.to_string(), port };
+    // Kept so a dead socket can be redialled later (see `ClientSlot`). Only an Entra
+    // token needs minting again; a SQL login's password is the same on every dial.
+    let token_source = if entra { plan.refresh.clone() } else { None };
+    let dial = Dial { config, host: host.to_string(), port, token_source };
     let client = open_client(&dial).await?;
 
     Ok(Arc::new(MssqlIntegration {

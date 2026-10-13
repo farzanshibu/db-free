@@ -5,6 +5,7 @@ import { useConnectionFailure } from "@/stores/connectionFailure";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { connectionFailureHints } from "./failureHints";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  "Connection failed": what happened, a checklist of what to check, and
 //        the way back to the connection's settings.
@@ -39,7 +40,11 @@ export function ConnectionFailedDialog() {
                   <li key={hint}>{hint}</li>
                 ))}
               </ul>
-              <pre className="selectable max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-lg border border-danger/30 bg-danger/10 p-2 font-mono text-[11px] text-foreground">{failure.message}</pre>
+              <div className="overflow-hidden rounded-lg border border-danger/30 bg-danger/10">
+                <ScrollArea orientation="both" className="max-h-40">
+                  <pre className="selectable p-2 font-mono text-[11px] break-words whitespace-pre-wrap text-foreground">{failure.message}</pre>
+                </ScrollArea>
+              </div>
             </DialogBody>
             <DialogFooter>
               <Button variant="tertiary" onClick={dismiss}>

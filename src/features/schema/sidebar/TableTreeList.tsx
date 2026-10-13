@@ -4,6 +4,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import type { DropPlacement } from "../pointerDrag";
 import { keyIntent, rowHeight, type KeyIntent, type TreeRow } from "@/lib/tableTree";
 import { TreeRowView, type RowHandlers } from "./TreeRowView";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // ============================================================================
 // WHAT:  The scrolling, virtualized, keyboard-driven list of sidebar rows.
@@ -91,10 +92,7 @@ export function TableTreeList({ rows, focusKey, activeRef, hoverDrop, handlers, 
   const focusedRow = focusIndex >= 0 ? rows[focusIndex] : undefined;
 
   return (
-    <div
-      ref={scrollRef}
-      className="min-h-0 flex-1 overflow-y-auto px-1.5 py-1 [scrollbar-color:var(--color-surface-tertiary)_transparent] [scrollbar-width:thin]"
-    >
+    <ScrollArea ref={scrollRef} className="min-h-0 flex-1 px-1.5 py-1">
       <div
         ref={treeRef}
         role="tree"
@@ -125,6 +123,6 @@ export function TableTreeList({ rows, focusKey, activeRef, hoverDrop, handlers, 
           );
         })}
       </div>
-    </div>
+    </ScrollArea>
   );
 }

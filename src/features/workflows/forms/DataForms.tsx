@@ -111,6 +111,12 @@ export function HttpForm({ config, onChange }: FormProps<"http">) {
         </div>
       ) : null}
       <Field label="Response path" optional mono value={config.responsePath} placeholder="data.results" description="Where the rows are in the JSON answer. Blank uses the whole response." onChange={(responsePath) => { onChange({ ...config, responsePath }); }} />
+      <Toggle
+        checked={config.allowPrivateNetwork}
+        onChange={(allowPrivateNetwork) => { onChange({ ...config, allowPrivateNetwork }); }}
+        label="Allow private network addresses"
+        description="Lets this node call localhost, private-network and cloud-metadata (169.254.169.254) addresses. Leave it off unless you wrote this workflow and need a local service."
+      />
       <TemplateHint>The URL, the header values and the body can use placeholders from the first input row.</TemplateHint>
     </div>
   );

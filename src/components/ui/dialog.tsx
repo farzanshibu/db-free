@@ -3,6 +3,7 @@ import type * as React from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/lib/icons";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  The shadcn/ui Dialog (Radix), drawn on the app's glass material.
 // WHY:   Every confirm, editor and detail sheet in the app is one of these, so
@@ -78,7 +79,7 @@ export function DialogDescription({ className, ...props }: React.ComponentProps<
 
 // WHAT:  The scrolling middle of a dialog: the header and footer stay put.
 export function DialogBody({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="dialog-body" className={cn("min-h-0 flex-1 overflow-y-auto px-3 py-2.5", className)} {...props} />;
+  return <ScrollArea data-slot="dialog-body" className={cn("min-h-0 flex-1 px-3 py-2.5", className)} {...props} />;
 }
 
 export function DialogFooter({ className, ...props }: React.ComponentProps<"div">) {

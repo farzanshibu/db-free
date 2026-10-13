@@ -5,7 +5,7 @@ use crate::integrations::http::{self, OutboundRequest};
 use crate::model::workflow::{HttpConfig, ReadFileConfig, SaveFileConfig};
 use crate::model::Value;
 use crate::services::workflows::data::Dataset;
-use crate::services::workflows::{files, template};
+use crate::services::workflows::{files, policy, template};
 
 // WHAT:  The HTTP node: calls a URL and turns the JSON answer into rows.
 // HOW:   The URL, the header values and the body are filled from the first input
@@ -17,9 +17,11 @@ pub async fn http(ctx: &NodeCtx<'_>, config: &HttpConfig) -> NodeResult {
     if url.trim().is_empty() {
         return Err(NodeFailure::new("URL is empty."));
     }
+    let url = url.trim().to_string();
+    let pinned = or_stopped(ctx.cancel, policy::vet_http_target(&url, config.allow_private_network)).await??;
     let headers = parse_headers(&config.headers, ctx)?;
     let body = (config.method.has_body() && !config.body.trim().is_empty()).then(|| template::render_text(config.body.trim(), ctx.input));
-    let request = OutboundRequest { method: config.method.as_str().to_string(), url: url.trim().to_string(), headers, body };
+    let request = OutboundRequest { method: config.method.as_str().to_string(), url, headers, body, pinned: Some(pinned) };
     let reply = or_stopped(ctx.cancel, http::send_outbound(&request)).await??;
     if !(200..300).contains(&reply.status) {
         return Err(NodeFailure::new(format!("HTTP {} {}", reply.status, reply.status_text).trim().to_string()));
@@ -93,7 +95,8 @@ pub async fn read_file(config: &ReadFileConfig) -> NodeResult {
     if path.is_empty() {
         return Err(NodeFailure::new("No file chosen."));
     }
-    let bytes = tokio::fs::read(path).await.map_err(|e| NodeFailure::new(format!("Could not read {path}: {e}")))?;
+    let target = policy::read_path(path)?;
+    let bytes = tokio::fs::read(&target).await.map_err(|e| NodeFailure::new(format!("Could not read {path}: {e}")))?;
     let text = String::from_utf8(bytes).map_err(|_| NodeFailure::new("The file is not valid UTF-8 text."))?;
     Ok(NodeOutput::data(files::parse(&text, config.format)?))
 }
@@ -110,7 +113,8 @@ pub async fn save_file(ctx: &NodeCtx<'_>, config: &SaveFileConfig) -> NodeResult
     }
     let table = if config.table_name.trim().is_empty() { files::table_from_path(path) } else { config.table_name.trim().to_string() };
     let content = files::render(ctx.input, config.format, &table)?;
-    tokio::fs::write(path, content).await.map_err(|e| NodeFailure::new(format!("Could not write {path}: {e}")))?;
+    let target = policy::save_path(path)?;
+    tokio::fs::write(&target, content).await.map_err(|e| NodeFailure::new(format!("Could not write {path}: {e}")))?;
     Ok(NodeOutput { rows: Some(ctx.input.row_count()), file_path: Some(path.to_string()), ..NodeOutput::default() })
 }
 

@@ -43,8 +43,7 @@ export function ResultTable({ outcome }: { outcome: QueryOutcome }) {
   }
   const { columns, rows } = first.result;
   return (
-    <ScrollArea className="max-h-72">
-      <div className="overflow-x-auto">
+    <ScrollArea orientation="both" className="max-h-72">
         <table className="w-full border-collapse text-[11px]">
           <thead className="sticky top-0 bg-surface-secondary/90">
             <tr>
@@ -84,7 +83,6 @@ export function ResultTable({ outcome }: { outcome: QueryOutcome }) {
             ))}
           </tbody>
         </table>
-      </div>
     </ScrollArea>
   );
 }

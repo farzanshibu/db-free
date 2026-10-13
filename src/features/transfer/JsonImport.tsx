@@ -143,10 +143,14 @@ export function JsonImport({ connectionId, path, plan, onReset }: JsonImportProp
                 </Button>
               </div>
               {open ? (
-                <pre className="selectable ml-8 mt-2 overflow-auto rounded-lg border border-border bg-background p-2 font-mono text-[11px] text-foreground/90">
-                  {operation.sql}
-                  {operation.kind === "insert" ? `\n-- columns: ${operation.columns.map((c) => c.name).join(", ")}` : ""}
-                </pre>
+                <div className="ml-8 mt-2 overflow-hidden rounded-lg border border-border bg-background">
+                  <ScrollArea orientation="both" className="max-h-64">
+                    <pre className="selectable p-2 font-mono text-[11px] text-foreground/90">
+                      {operation.sql}
+                      {operation.kind === "insert" ? `\n-- columns: ${operation.columns.map((c) => c.name).join(", ")}` : ""}
+                    </pre>
+                  </ScrollArea>
+                </div>
               ) : null}
             </div>
           );

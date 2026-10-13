@@ -158,9 +158,9 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
                 ))}
               </ul>
             ) : null}
-            <div className="min-h-0 flex-1 overflow-auto">
+            <ScrollArea orientation="both" className="min-h-0 flex-1">
               {current === null ? <EmptyState title="Pick a table" body="Select a table on the left to see its columns side by side." /> : <TableDetail table={current} leftName={leftName} rightName={rightName} />}
-            </div>
+            </ScrollArea>
             <div className="flex h-[40%] min-h-[160px] shrink-0 flex-col border-t border-border/40">
               <div className="flex h-7 shrink-0 items-center gap-2 px-2.5 text-xs text-muted">
                 <Icon name="file" size={13} />

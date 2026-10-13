@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Rea
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/icons";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  The shadcn AI Elements Conversation: the scrolling transcript of a chat.
 // WHY:   A streaming answer grows while it is read. The thread must follow the
@@ -61,14 +62,9 @@ export function Conversation({ className, threshold = 32, children, ...props }: 
 
   return (
     <div data-slot="conversation" className={cn("relative flex min-h-0 flex-1 flex-col", className)} {...props}>
-      <div
-        ref={viewport}
-        onScroll={onScroll}
-        data-slot="conversation-viewport"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
-      >
+      <ScrollArea ref={viewport} onScroll={onScroll} data-slot="conversation-viewport" className="min-h-0 flex-1 overscroll-contain">
         {children}
-      </div>
+      </ScrollArea>
       <ConversationScrollButton atBottom={atBottom} onScrollToBottom={scrollToBottom} />
     </div>
   );

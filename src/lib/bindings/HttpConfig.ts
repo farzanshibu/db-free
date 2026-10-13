@@ -9,4 +9,9 @@ headers: string, body: string,
 /**
  * Dot path into the JSON response that holds the rows ("data.results").
  */
-responsePath: string, };
+responsePath: string, 
+/**
+ * Lets the node call loopback, link-local and private-network addresses.
+ * Off by default, so a workflow cannot reach local services or cloud metadata.
+ */
+allowPrivateNetwork: boolean, };

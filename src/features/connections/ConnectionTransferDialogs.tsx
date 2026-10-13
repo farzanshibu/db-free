@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { connectionTarget } from "@/lib/connectionGroups";
 import { useConnectionOrg } from "./useConnectionOrg";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // ============================================================================
 // Export
@@ -104,7 +105,9 @@ function ExportBody({ onClose }: { onClose: () => void }) {
             {selected.length} of {connections.length} selected
           </span>
         </div>
-        <ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto rounded-lg border border-border/50 p-1" aria-label="Connections to export">
+        <div className="overflow-hidden rounded-lg border border-border/50">
+        <ScrollArea className="max-h-64 p-1">
+        <ul className="flex flex-col gap-0.5" aria-label="Connections to export">
           {connections.map((c) => (
             <li key={c.id}>
               <label className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 hover:bg-surface-secondary/60">
@@ -117,6 +120,8 @@ function ExportBody({ onClose }: { onClose: () => void }) {
           ))}
           {connections.length === 0 ? <li className="px-2 py-3 text-center text-xs text-muted">No saved connections to export.</li> : null}
         </ul>
+        </ScrollArea>
+        </div>
         <Toggle checked={includePasswords} onChange={setIncludePasswords} label="Include passwords" description="Off by default. When on, passwords (and SSH secrets) are written into the file in readable form." />
         {includePasswords ? (
           <Alert variant="warning">
@@ -213,7 +218,8 @@ function ImportBody({ onClose }: { onClose: () => void }) {
           {report.skipped.length > 0 ? (
             <div className="flex flex-col gap-1">
               <p className="text-xs font-semibold text-foreground">Skipped</p>
-              <ul className="flex max-h-36 flex-col gap-0.5 overflow-y-auto text-xs text-muted">
+              <ScrollArea className="max-h-36">
+              <ul className="flex flex-col gap-0.5 text-xs text-muted">
                 {report.skipped.map((s, index) => (
                   <li key={`${s.label}:${index}`} className="selectable flex gap-2">
                     <span className="min-w-0 max-w-[45%] shrink-0 truncate font-medium text-foreground">{s.label}</span>
@@ -221,6 +227,7 @@ function ImportBody({ onClose }: { onClose: () => void }) {
                   </li>
                 ))}
               </ul>
+              </ScrollArea>
             </div>
           ) : null}
           {report.warnings.map((warning) => (

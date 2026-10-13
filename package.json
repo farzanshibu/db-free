@@ -44,7 +44,7 @@
     "@hugeicons/react": "^1.1.10",
     "@lezer/highlight": "^1.2.3",
     "@tanstack/react-virtual": "^3.14.10",
-    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/api": "^2.12.2",
     "@tauri-apps/plugin-dialog": "^2.7.3",
     "@xyflow/react": "^12.11.6",
     "class-variance-authority": "^0.7.1",

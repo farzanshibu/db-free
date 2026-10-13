@@ -233,7 +233,7 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
             </span>
           ) : null}
         </div>
-        <div className="min-h-0 flex-1 overflow-auto px-2.5 pb-2">
+        <ScrollArea orientation="both" className="min-h-0 flex-1 px-2.5 pb-2">
           {chosen.length === 0 ? (
             <EmptyState icon="download" title="Choose tables to export" body="Tick tables on the left. The preview shows the file as it will be written." />
           ) : preview.problem !== null ? (
@@ -250,7 +250,7 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
               <pre className="selectable min-w-max rounded-lg border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground/90">{preview.value.text}</pre>
             </>
           )}
-        </div>
+        </ScrollArea>
       </div>
     </div>
   );

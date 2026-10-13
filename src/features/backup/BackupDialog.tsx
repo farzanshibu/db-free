@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Mode = "backup" | "restore";
 type Content = "all" | "schema" | "data";
@@ -544,13 +545,15 @@ function RunPane({
           </AlertContent>
         </Alert>
       ) : null}
-      <div className="h-40 overflow-auto rounded-lg border border-border/60 bg-background/70 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-muted" aria-label="Backup log" role="log">
-        {log.map((line, i) => (
-          <div key={i} className={cn("whitespace-pre-wrap break-all", line.startsWith("$ ") ? "text-foreground" : "")}>
-            {line}
-          </div>
-        ))}
-        <div ref={logEnd} />
+      <div className="overflow-hidden rounded-lg border border-border/60 bg-background/70">
+        <ScrollArea className="h-40 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-muted" aria-label="Backup log" role="log">
+          {log.map((line, i) => (
+            <div key={i} className={cn("whitespace-pre-wrap break-all", line.startsWith("$ ") ? "text-foreground" : "")}>
+              {line}
+            </div>
+          ))}
+          <div ref={logEnd} />
+        </ScrollArea>
       </div>
       {report !== null && !report.cancelled ? <p className="truncate font-mono text-[11px] text-muted" title={report.path}>{report.path}</p> : null}
     </div>

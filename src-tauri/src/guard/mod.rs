@@ -105,6 +105,26 @@ where
         .map_err(|_| AppError::timeout("The request timed out."))?
 }
 
+// WHAT:  `session` for a request that names a query tab (step 13), such as a plan.
+// WHY:   EXPLAIN runs the tab's statement; on another pooled connection it would lose
+//        the tab's SET, search_path, temp tables and open transaction.
+// HOW:   Same key check and task-local as `statement_in_session`; the adapter's
+//        `execute` / `explain_tree` read the key and use the tab's connection.
+// WHERE: src-tauri/src/commands/ai.rs (explain_query)
+pub async fn session_in_session<T, F, Fut>(state: &AppState, session_key: Option<&str>, connection_id: &str, handler: F) -> AppResult<T>
+where
+    F: FnOnce(SessionCtx) -> Fut,
+    Fut: Future<Output = AppResult<T>>,
+{
+    let Some(key) = session_key.map(str::trim).filter(|k| !k.is_empty()) else {
+        return session(state, connection_id, handler).await;
+    };
+    if !crate::integrations::pooling::valid_session_key(key) {
+        return Err(AppError::invalid_input("The query tab's session id is not valid."));
+    }
+    crate::integrations::pooling::with_session_key(Some(key.to_string()), session(state, connection_id, handler)).await
+}
+
 pub struct StatementRequest<'a> {
     pub connection_id: &'a str,
     pub sql: &'a str,
@@ -521,6 +541,30 @@ pub(crate) mod tests {
         assert!(run(&state, &id, "SELECT * FROM missing_table", false).await.is_err());
         let history = state.with_store(|s| s.list_history(Some(&id), None, 10)).unwrap_or_default();
         assert_eq!(history.first().map(|h| h.status), Some(HistoryStatus::Error));
+    }
+
+    // Step 13 for plans: EXPLAIN names the tab's key like a run does, so it reaches
+    // the same connection; a blank key is no key, a control character is refused.
+    #[tokio::test]
+    async fn a_plan_names_the_tabs_session() {
+        let (state, id) = state_with_sqlite(false).await;
+        let seen = |key: Option<&'static str>| {
+            let state = &state;
+            let id = id.as_str();
+            async move {
+                session_in_session(state, key, id, |_ctx| async move {
+                    Ok(crate::integrations::pooling::current_session_key().unwrap_or_default())
+                })
+                .await
+            }
+        };
+        assert_eq!(seen(Some("tab-1")).await.ok().as_deref(), Some("tab-1"), "the adapter sees the key");
+        assert_eq!(seen(Some("  tab-1  ")).await.ok().as_deref(), Some("tab-1"), "trimmed");
+        assert_eq!(seen(None).await.ok().as_deref(), Some(""), "no key, the pooled path");
+        assert_eq!(seen(Some("   ")).await.ok().as_deref(), Some(""), "a blank key is no key");
+        assert!(matches!(seen(Some("bad\nkey")).await.err(), Some(AppError::InvalidInput { .. })), "control characters are refused");
+        let missing = session_in_session(&state, Some("tab-1"), "nope", |_| async { Ok(()) }).await.err();
+        assert!(matches!(missing, Some(AppError::NotFound { .. })), "an unknown connection still fails first");
     }
 
     // Step 13: the key is validated before anything runs, and a run that names one

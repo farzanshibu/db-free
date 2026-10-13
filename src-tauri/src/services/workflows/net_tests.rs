@@ -131,6 +131,7 @@ async fn the_http_node_fills_its_templates_and_reads_the_response_path() {
         NodeConfig::Http(HttpConfig {
             method: HttpMethod::Post,
             url: format!("http://127.0.0.1:{port}/items/{{{{id}}}}"),
+            allow_private_network: true,
             headers: r#"{"X-Name": "{{name}}", "Content-Type": "application/json"}"#.into(),
             body: r#"{"who":"{{name}}","n":{{id + 1}}}"#.into(),
             response_path: "data.results".into(),
@@ -147,11 +148,21 @@ async fn the_http_node_fills_its_templates_and_reads_the_response_path() {
 }
 
 #[tokio::test]
+async fn the_http_node_refuses_localhost_unless_the_workflow_opts_in() {
+    let (port, _request) = http_server(200, "[]").await;
+    let host = Recorder::default();
+    let http = node("call", NodeConfig::Http(HttpConfig { url: format!("http://127.0.0.1:{port}/x"), ..HttpConfig::default() }));
+    run(&state(), &host, vec![http], vec![]).await;
+    let (_, error, _) = host.state_of("call").expect("the node reported a state");
+    assert!(error.unwrap_or_default().contains("Blocked: 127.0.0.1 is a loopback address"));
+}
+
+#[tokio::test]
 async fn a_bad_status_fails_the_http_node_with_the_status_line() {
     let (port, _request) = http_server(404, r#"{"error":"nope"}"#).await;
     let state = state();
     let host = Recorder::default();
-    let http = node("call", NodeConfig::Http(HttpConfig { url: format!("http://127.0.0.1:{port}/missing"), ..HttpConfig::default() }));
+    let http = node("call", NodeConfig::Http(HttpConfig { url: format!("http://127.0.0.1:{port}/missing"), allow_private_network: true, ..HttpConfig::default() }));
     let report = run(&state, &host, vec![http], vec![]).await;
     assert_eq!(report.status, RunStatus::Failed);
     let (outcome, error, _) = host.state_of("call").unwrap();

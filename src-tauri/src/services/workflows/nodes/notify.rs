@@ -65,6 +65,7 @@ pub async fn slack(ctx: &NodeCtx<'_>, config: &SlackConfig) -> NodeResult {
         url: webhook,
         headers: vec![("content-type".to_string(), "application/json".to_string())],
         body: Some(payload),
+        pinned: None,
     };
     let reply = or_stopped(ctx.cancel, http::send_outbound(&request)).await??;
     if !(200..300).contains(&reply.status) {

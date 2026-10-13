@@ -1513,6 +1513,19 @@ mod tests {
         assert!(!is_fresh(expiry, at("2024-01-01T00:20:00Z")));
     }
 
+    #[tokio::test]
+    async fn a_cached_token_inside_the_skew_window_is_minted_again() {
+        let key = "test|skew-window";
+        remember(key, Cached::Token("expiring".into()), Utc::now() + ChronoDuration::seconds(30));
+        let minted = cached_token(key, async {
+            Ok(Minted { token: "renewed".into(), expires_at: Utc::now() + ChronoDuration::hours(1) })
+        })
+        .await
+        .map(|m| m.token)
+        .unwrap_or_default();
+        assert_eq!(minted, "renewed");
+    }
+
     #[test]
     fn refresh_waits_until_a_minute_before_expiry_within_sane_bounds() {
         let now = at("2024-01-01T00:00:00Z");

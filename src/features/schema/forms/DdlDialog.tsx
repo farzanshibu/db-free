@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/cn";
+import { useWorkspace } from "@/stores/workspace";
 import { DdlPreviewPane } from "./DdlPreviewPane";
 import type { DdlRunner } from "./useDdlRunner";
 
@@ -31,9 +32,13 @@ interface DdlDialogProps {
 //        decided once.
 // HOW:   The dialog cannot be dismissed while the script is running: closing
 //        mid-flight would leave the user unsure whether the change happened.
+//        Run stages the statements in Pending Changes in review mode, so its label
+//        says so; in direct mode it keeps the form's own label.
 // WHERE: src/features/schema/forms/*Dialog.tsx
 export function DdlDialog({ connectionId, title, description, wide = false, runner, ready, idleHint, engineNotes, runLabel, blocked = false, onClose, children }: DdlDialogProps) {
   const destructive = runner.preview?.destructive === true;
+  // Review mode queues the statements; the commit happens from Pending Changes.
+  const reviewMode = useWorkspace((s) => s.settings?.executionMode !== "direct");
   return (
     <Dialog
       open
@@ -53,7 +58,7 @@ export function DdlDialog({ connectionId, title, description, wide = false, runn
             Cancel
           </Button>
           <Button size="sm" variant={destructive ? "danger" : "primary"} pending={runner.running} disabled={!runner.canRun || blocked} onClick={runner.run}>
-            {runLabel}
+            {reviewMode ? "Add to Pending Changes" : runLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

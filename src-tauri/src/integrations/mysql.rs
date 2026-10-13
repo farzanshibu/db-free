@@ -2090,6 +2090,13 @@ impl Integration for MysqlIntegration {
         // A prepared statement, unlike `run`: it refuses a script instead of
         // running its second statement un-EXPLAINed.
         let explain = format!("EXPLAIN FORMAT=JSON {}", crate::integrations::plan::explain_target(sql));
+        // A plan for a tab's statement runs where that statement runs (its open
+        // transaction, or its session), so it sees the same database and temp tables.
+        if self.tx_open.load(Ordering::Acquire) || pooling::current_session_key().is_some() {
+            let statements = self.execute(&explain, 1).await?;
+            let Some(doc) = crate::integrations::plan::json_from_statements(statements) else { return Ok(None) };
+            return Ok(crate::integrations::plan::from_mysql_json(&doc));
+        }
         let row = sqlx::query(&explain).persistent(false).fetch_one(&self.pool).await?;
         let doc = match decode_meta_cell(&row, 0) {
             Value::Json(doc) => doc,

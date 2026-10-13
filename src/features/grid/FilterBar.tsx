@@ -8,6 +8,7 @@ import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { activeRules, opsForType, type FilterEntry } from "./filterOps";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface FilterBarProps {
   columns: readonly { name: string; typeName?: string | undefined }[];
@@ -150,7 +151,9 @@ export function FilterBar({ columns, entries, mode, onApply, inputRef }: FilterB
         </Button>
       ) : null}
       {focused && suggestions.options.length > 0 ? (
-        <ul className="absolute left-7 top-7 z-30 max-h-60 min-w-52 overflow-auto rounded-lg border border-border/60 bg-surface p-1 shadow-lg" role="listbox" aria-label="Filter suggestions">
+        <div className="absolute left-7 top-7 z-30 min-w-52 overflow-hidden rounded-lg border border-border/60 bg-surface shadow-lg">
+        <ScrollArea orientation="both" className="max-h-60 p-1">
+        <ul role="listbox" aria-label="Filter suggestions">
           {suggestions.options.slice(0, 40).map((option, index) => (
             <li key={`${option.kind}-${option.label}`} role="option" aria-selected={index === picked}>
               <button
@@ -172,6 +175,8 @@ export function FilterBar({ columns, entries, mode, onApply, inputRef }: FilterB
             </li>
           ))}
         </ul>
+        </ScrollArea>
+        </div>
       ) : null}
     </div>
   );

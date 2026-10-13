@@ -92,7 +92,7 @@ export function defaultConfig(kind: NodeKind): NodeConfig {
     case "query":
       return { kind, connectionId: null, sql: "", allowDestructive: false };
     case "http":
-      return { kind, method: "get", url: "", headers: "", body: "", responsePath: "" };
+      return { kind, method: "get", url: "", headers: "", body: "", responsePath: "", allowPrivateNetwork: false };
     case "read_file":
       return { kind, path: "", format: "csv" };
     case "save_file":

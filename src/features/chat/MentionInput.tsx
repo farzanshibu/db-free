@@ -4,6 +4,7 @@ import type { ChatMention, MentionKind } from "@/lib/bindings";
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { PromptInputTextarea } from "@/components/ui/prompt-input";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   MENTION_KIND_LABEL,
   activeMention,
@@ -141,8 +142,9 @@ export function MentionInput({ value, onChange, mentions, onMentionsChange, cand
         <div
           role="listbox"
           aria-label="Mention a table, query or dashboard"
-          className="absolute right-0 bottom-full left-0 z-30 mb-1.5 max-h-64 overflow-y-auto rounded-lg glass-modal p-0.5"
+          className="absolute right-0 bottom-full left-0 z-30 mb-1.5 overflow-hidden rounded-lg glass-modal"
         >
+          <ScrollArea className="max-h-64 p-0.5">
           {items.map((item, position) => {
             const firstOfKind = position === 0 || items[position - 1]?.kind !== item.kind;
             return (
@@ -174,6 +176,7 @@ export function MentionInput({ value, onChange, mentions, onMentionsChange, cand
               </div>
             );
           })}
+          </ScrollArea>
         </div>
       ) : null}
       <PromptInputTextarea

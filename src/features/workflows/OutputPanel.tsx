@@ -9,6 +9,7 @@ import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 const STATE_LABEL = {
   running: "Running",
@@ -108,12 +109,14 @@ export function OutputPanel({ update, previews }: { update: NodeUpdate | null; p
       {update !== null && update.logs.length > 0 ? (
         <div className="flex flex-col gap-1">
           <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted">Console</h4>
-          <div className="selectable max-h-40 overflow-auto rounded-md border border-border bg-surface-secondary/50 p-2 font-mono text-[11px] leading-relaxed">
-            {update.logs.map((line, index) => (
-              <div key={index} className={cn("whitespace-pre-wrap break-words", toneOf(line.level))}>
-                {line.text}
-              </div>
-            ))}
+          <div className="overflow-hidden rounded-md border border-border bg-surface-secondary/50">
+            <ScrollArea orientation="both" className="selectable max-h-40 p-2 font-mono text-[11px] leading-relaxed">
+              {update.logs.map((line, index) => (
+                <div key={index} className={cn("whitespace-pre-wrap break-words", toneOf(line.level))}>
+                  {line.text}
+                </div>
+              ))}
+            </ScrollArea>
           </div>
         </div>
       ) : null}

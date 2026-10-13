@@ -10,6 +10,7 @@ import { Calendar } from "@/components/ui/calendar";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { parseInstant } from "./variables";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  The control that edits one dashboard variable's value, by type: a
 //        two-month range calendar for a date range, an input for text and
@@ -139,14 +140,14 @@ function MultiSelectControl({ options, values, onChange }: { options: readonly s
                 {all ? "Clear" : "Select all"}
               </Button>
             </div>
-            <div className="max-h-60 overflow-y-auto">
+            <ScrollArea className="max-h-60">
               {options.map((option) => (
                 <label key={option} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1 text-xs hover:bg-surface-secondary">
                   <Check checked={values.includes(option)} label={option} onChange={(next) => { onChange(next ? [...values, option] : values.filter((v) => v !== option)); }} />
                   <span className="truncate">{option}</span>
                 </label>
               ))}
-            </div>
+            </ScrollArea>
           </>
         )}
       </PopoverContent>

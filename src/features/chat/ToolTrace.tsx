@@ -4,6 +4,7 @@ import type { PermissionDecision, PermissionRequest, ToolCallRecord, ToolStatus 
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 
 // WHAT:  The timeline of what the assistant did to answer — every tool call, its
@@ -68,9 +69,11 @@ function ToolRow({ call }: { call: ToolCallRecord }) {
           <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted">
             {call.tool}
           </span>
-          <pre className="selectable mt-1 overflow-x-auto font-mono text-[10.5px] whitespace-pre-wrap text-muted">
-            {call.input}
-          </pre>
+          <ScrollArea orientation="horizontal" className="mt-1">
+            <pre className="selectable font-mono text-[10.5px] whitespace-pre-wrap text-muted">
+              {call.input}
+            </pre>
+          </ScrollArea>
           {failed && call.error !== null ? (
             <p className="selectable mt-1.5 rounded bg-danger-soft/60 p-1.5 font-mono text-[10.5px] text-danger">
               {call.error}
@@ -142,9 +145,13 @@ export function PermissionPrompt({
           <p className="mt-0.5 text-[10.5px] text-muted">{request.reason}</p>
 
           {request.statement !== null ? (
-            <pre className="selectable mt-1.5 max-h-40 overflow-auto rounded-lg border border-border/50 bg-surface/80 p-2 font-mono text-[10.5px] whitespace-pre-wrap text-foreground">
-              {request.statement}
-            </pre>
+            <div className="mt-1.5 overflow-hidden rounded-lg border border-border/50 bg-surface/80">
+              <ScrollArea orientation="both" className="max-h-40">
+                <pre className="selectable p-2 font-mono text-[10.5px] whitespace-pre-wrap text-foreground">
+                  {request.statement}
+                </pre>
+              </ScrollArea>
+            </div>
           ) : null}
 
           {request.statements.length > 0 ? (

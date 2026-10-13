@@ -155,7 +155,11 @@ export function SqlImport({ connectionId, path, onReset }: SqlImportProps) {
               ) : null}
               <section className="flex flex-col gap-1.5">
                 <h3 className="text-xs font-semibold text-foreground">Start of the file</h3>
-                <pre className="selectable max-h-56 overflow-auto rounded-lg border border-border bg-background p-2.5 font-mono text-[11px] leading-relaxed text-foreground/90">{value.head}</pre>
+                <div className="overflow-hidden rounded-lg border border-border bg-background">
+                  <ScrollArea orientation="both" className="max-h-56">
+                    <pre className="selectable p-2.5 font-mono text-[11px] leading-relaxed text-foreground/90">{value.head}</pre>
+                  </ScrollArea>
+                </div>
               </section>
             </>
           ) : null}
@@ -184,7 +188,11 @@ function ReportCard({ report }: { report: SqlImportReport }) {
       </p>
       {failed ? <p className="text-foreground">{report.error}</p> : null}
       {report.failedLine !== null ? <p className="text-muted">The failing statement starts on line {formatCount(report.failedLine)}:</p> : null}
-      {report.failedStatement !== null ? <pre className="selectable overflow-auto rounded border border-border bg-background p-2 font-mono text-[11px] text-foreground/90">{report.failedStatement}</pre> : null}
+      {report.failedStatement !== null ? <div className="overflow-hidden rounded border border-border bg-background">
+          <ScrollArea orientation="both">
+            <pre className="selectable p-2 font-mono text-[11px] text-foreground/90">{report.failedStatement}</pre>
+          </ScrollArea>
+        </div> : null}
       {failed ? <p className="text-muted">Statements run one by one with no wrapping transaction: the {formatCount(report.statements)} before this point are committed.</p> : null}
     </section>
   );

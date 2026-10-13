@@ -6,6 +6,7 @@ import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  "Import from ~/.ssh/config": pick a host and the tunnel form fills itself
 //        (host, port, user, key file).
@@ -52,7 +53,8 @@ export function SshConfigImport({ onPick }: { onPick: (host: SshConfigHost) => v
           </div>
         ) : null}
         {hosts !== null && hosts.length === 0 ? <p className="px-2 py-2 text-xs text-muted">No hosts found in ~/.ssh/config. Wildcard entries (Host *) are not listed.</p> : null}
-        <ul className="flex max-h-64 flex-col overflow-y-auto" aria-label="SSH hosts">
+        <ScrollArea className="max-h-64">
+        <ul className="flex flex-col" aria-label="SSH hosts">
           {(hosts ?? []).map((host) => (
             <li key={host.alias}>
               <Button
@@ -74,6 +76,7 @@ export function SshConfigImport({ onPick }: { onPick: (host: SshConfigHost) => v
             </li>
           ))}
         </ul>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   );

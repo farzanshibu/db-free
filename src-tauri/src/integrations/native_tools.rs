@@ -2,7 +2,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::sqlite;
-use crate::model::{BackupFormat, BackupMethod, BackupOptions, ConnectionSummary, Engine, NativeTool, NativeToolStatus, SslMode};
+use crate::model::{BackupFormat, BackupMethod, BackupOptions, ConnectionAuth, ConnectionSummary, Engine, NativeTool, NativeToolStatus, SslMode};
 use std::collections::{BTreeMap, VecDeque};
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
@@ -28,7 +28,8 @@ use tokio::sync::oneshot;
 //        `--flag=value`, so a table or database name can never be read as an
 //        option. Passwords go through the environment (PGPASSWORD) or a temp
 //        option file created owner-only and deleted on drop — never argv, which
-//        other local users can read from the process list.
+//        other local users can read from the process list. A cloud token login
+//        (mysql) passes the token as MYSQL_PWD instead.
 // WHERE: src-tauri/src/services/backup.rs (orchestration), src-tauri/src/guard/mod.rs
 //        (step 11: restore is destructive), src/features/backup/BackupDialog.tsx
 // ============================================================================
@@ -426,9 +427,32 @@ fn positional(kind: &str, name: &str) -> AppResult<String> {
     Ok(name.to_string())
 }
 
+// WHAT:  Whether a MySQL connection signs in with a cloud-issued token (RDS IAM,
+//        Azure AD, Cloud SQL IAM) instead of a stored password.
+// WHY:   Those tokens are sent as the password over the cleartext auth plugin,
+//        which the client refuses unless told to allow it, and only over TLS.
+fn mysql_token_login(s: &ConnectionSummary) -> bool {
+    matches!(
+        s.auth,
+        ConnectionAuth::AwsRdsIam { .. } | ConnectionAuth::AzureAd { .. } | ConnectionAuth::GcpCloudSqlIam { .. }
+    )
+}
+
+// WHAT:  The `--ssl-mode` value for a token login: never weaker than REQUIRED.
+// HOW:   Disable and Prefer are raised to REQUIRED; the verifying modes map
+//        one-to-one.
+fn mysql_token_ssl_mode(s: &ConnectionSummary) -> &'static str {
+    match s.ssl_mode {
+        SslMode::Disable | SslMode::Prefer | SslMode::Require => "REQUIRED",
+        SslMode::VerifyCa => "VERIFY_CA",
+        SslMode::VerifyFull => "VERIFY_IDENTITY",
+    }
+}
+
 // WHAT:  mysql / mysqldump connection flags.
 // HOW:   `--defaults-extra-file` must be the very first argument or the client
-//        refuses it — so it is placed first here, and tested.
+//        refuses it — so it is placed first here, and tested. A token login adds
+//        `--enable-cleartext-plugin` and a TLS mode of at least REQUIRED.
 fn mysql_connection_args(s: &ConnectionSummary, defaults_file: Option<&Path>) -> Vec<String> {
     let mut args = Vec::new();
     if let Some(file) = defaults_file {
@@ -440,7 +464,21 @@ fn mysql_connection_args(s: &ConnectionSummary, defaults_file: Option<&Path>) ->
     if let Some(user) = nonblank(&s.username) {
         args.push(format!("--user={user}"));
     }
+    if mysql_token_login(s) {
+        args.push("--enable-cleartext-plugin".into());
+        args.push(format!("--ssl-mode={}", mysql_token_ssl_mode(s)));
+    }
     args
+}
+
+// WHAT:  The environment that carries the mysql / mysqldump password.
+// HOW:   A token login passes the token as MYSQL_PWD (never argv). Any other
+//        login returns nothing here and uses the option file instead.
+pub fn mysql_env(s: &ConnectionSummary, secret: Option<&str>) -> Vec<(String, String)> {
+    match secret {
+        Some(token) if mysql_token_login(s) && !token.is_empty() => vec![("MYSQL_PWD".to_string(), token.to_string())],
+        _ => Vec::new(),
+    }
 }
 
 pub fn mysqldump_args(s: &ConnectionSummary, opts: &BackupOptions, out: &Path, defaults_file: Option<&Path>) -> AppResult<Vec<String>> {
@@ -820,10 +858,10 @@ pub async fn backup(job: &Job<'_>, method: BackupMethod, sink: Arc<dyn ToolSink>
         }
         BackupMethod::Mysqldump => {
             let program = require(NativeTool::Mysqldump, job.overrides)?;
-            let secret = secret_of(job).map(|p| SecretFile::create("cnf", &mysql_option_file(p))).transpose()?;
+            let secret = secret_of(job).filter(|_| !mysql_token_login(job.summary)).map(|p| SecretFile::create("cnf", &mysql_option_file(p))).transpose()?;
             let inv = Invocation {
                 args: mysqldump_args(job.summary, job.options, job.path, secret.as_ref().map(SecretFile::path))?,
-                env: Vec::new(),
+                env: mysql_env(job.summary, secret_of(job)),
                 stdin: None,
                 output: Some(job.path.to_path_buf()),
                 program,
@@ -893,10 +931,10 @@ pub async fn restore(job: &Job<'_>, method: BackupMethod, sink: Arc<dyn ToolSink
         }
         BackupMethod::Mysqldump => {
             let program = require(NativeTool::Mysql, job.overrides)?;
-            let secret = secret_of(job).map(|p| SecretFile::create("cnf", &mysql_option_file(p))).transpose()?;
+            let secret = secret_of(job).filter(|_| !mysql_token_login(job.summary)).map(|p| SecretFile::create("cnf", &mysql_option_file(p))).transpose()?;
             let inv = Invocation {
                 args: mysql_restore_args(job.summary, secret.as_ref().map(SecretFile::path)),
-                env: Vec::new(),
+                env: mysql_env(job.summary, secret_of(job)),
                 stdin: Some(job.path.to_path_buf()),
                 output: None,
                 program,
@@ -1133,6 +1171,31 @@ mod tests {
         let restore = mysql_restore_args(&s, Some(Path::new("/tmp/p.cnf")));
         assert_eq!(restore.first().map(String::as_str), Some("--defaults-extra-file=/tmp/p.cnf"));
         assert_eq!(restore.last().map(String::as_str), Some("--database=shop"));
+    }
+
+    #[test]
+    fn token_login_uses_cleartext_tls_and_the_environment() {
+        let mut s = summary(Engine::Mysql, Some("shop"), Some("alice"));
+        s.auth = ConnectionAuth::AwsRdsIam { region: None, credentials: Default::default(), ca_bundle: None };
+        s.ssl_mode = SslMode::Disable;
+        let token = "rds-token?X-Amz-Signature=abc&Secret=sEcReT";
+        let dump = mysqldump_args(&s, &options(), Path::new("/b/shop.sql"), None).unwrap_or_else(|e| panic!("{e}"));
+        assert!(dump.contains(&"--enable-cleartext-plugin".to_string()));
+        assert!(dump.contains(&"--ssl-mode=REQUIRED".to_string()), "a token login is never plain TCP");
+        let restore = mysql_restore_args(&s, None);
+        assert!(restore.contains(&"--enable-cleartext-plugin".to_string()));
+        assert!(restore.contains(&"--ssl-mode=REQUIRED".to_string()));
+        assert!(dump.iter().chain(restore.iter()).all(|a| !a.contains("Signature") && !a.contains("sEcReT")), "the token never reaches argv");
+        assert_eq!(mysql_env(&s, Some(token)), vec![("MYSQL_PWD".to_string(), token.to_string())]);
+        assert!(mysql_env(&s, None).is_empty());
+
+        s.ssl_mode = SslMode::VerifyFull;
+        assert!(mysql_restore_args(&s, None).contains(&"--ssl-mode=VERIFY_IDENTITY".to_string()));
+
+        let plain = summary(Engine::Mysql, Some("shop"), Some("alice"));
+        let plain_args = mysqldump_args(&plain, &options(), Path::new("/b/shop.sql"), None).unwrap_or_else(|e| panic!("{e}"));
+        assert!(!plain_args.iter().any(|a| a.contains("cleartext") || a.starts_with("--ssl-mode")));
+        assert!(mysql_env(&plain, Some("pw")).is_empty(), "a password login uses the option file, not the environment");
     }
 
     #[test]

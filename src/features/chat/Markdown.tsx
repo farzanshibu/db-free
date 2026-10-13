@@ -189,8 +189,8 @@ function CodeCard({ code, label, tag }: { code: string; label: string; tag: stri
           ) : null}
         </div>
       </div>
-      <ScrollArea className="max-h-64">
-        <pre className="selectable overflow-x-auto p-2 font-mono text-[11px] leading-relaxed text-foreground">
+      <ScrollArea orientation="both" className="max-h-64">
+        <pre className="selectable p-2 font-mono text-[11px] leading-relaxed text-foreground">
           {code}
         </pre>
       </ScrollArea>
@@ -315,8 +315,10 @@ const COMPONENTS: Components = {
   ),
   // Result tables can be wide; the page must never scroll sideways.
   table: ({ children }) => (
-    <div className="my-2 overflow-x-auto rounded-lg border border-border/50">
-      <table className="w-full border-collapse text-[11px]">{children}</table>
+    <div className="my-2 overflow-hidden rounded-lg border border-border/50">
+      <ScrollArea orientation="horizontal">
+        <table className="w-full border-collapse text-[11px]">{children}</table>
+      </ScrollArea>
     </div>
   ),
   thead: ({ children }) => <thead className="bg-surface-secondary/70">{children}</thead>,

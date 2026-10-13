@@ -48,6 +48,12 @@ pub struct AiGenerateRequest {
 pub struct ExplainRequest {
     pub connection_id: String,
     pub sql: String,
+    /// The query tab this plan belongs to (its tab id). The plan runs on that tab's
+    /// session, so its SET, search_path, temp tables and open transaction apply.
+    /// Omitted = the shared pool.
+    #[serde(default)]
+    #[ts(optional)]
+    pub session_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize, TS)]
@@ -184,7 +190,7 @@ fn build_context(req: &AiGenerateRequest) -> Option<String> {
 pub async fn explain_query(state: State<'_, AppState>, req: ExplainRequest) -> AppResult<PlanReport> {
     let settings = services::settings::get(&state)?;
     let api_key = services::ai_profiles::default_key(&state, &settings.ai)?;
-    guard::session(&state, &req.connection_id, |ctx| async move {
+    guard::session_in_session(&state, req.session_key.as_deref(), &req.connection_id, |ctx| async move {
         services::ai::explain(&ctx, &services::ai::AiRequest { settings: &settings.ai, api_key: api_key.as_deref() }, &req.sql, 500).await
     })
     .await

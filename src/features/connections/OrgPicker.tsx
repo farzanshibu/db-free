@@ -10,6 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { nextFreeColor, tagNameTaken, tagSolidStyle, tagsOf, toggled } from "./connectionTags";
 import { TagBadge } from "./TagBadge";
 import { useConnectionOrg } from "./useConnectionOrg";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface Entry {
   id: string;
@@ -97,7 +98,7 @@ function Picker({ label, addLabel, entries, selected, onChange, onCreate, chips,
                 if (event.key === "Enter" && needle.length > 0 && !exact) void create();
               }}
             />
-            <div className="flex max-h-56 flex-col overflow-y-auto">
+            <ScrollArea className="flex max-h-56 flex-col">
               {visible.map((entry) => (
                 <Button
                   key={entry.id}
@@ -121,7 +122,7 @@ function Picker({ label, addLabel, entries, selected, onChange, onCreate, chips,
                   <span className="truncate">Create “{query.trim()}”</span>
                 </Button>
               ) : null}
-            </div>
+            </ScrollArea>
             {error !== null ? <p className="px-1 text-xs text-danger">{error}</p> : null}
           </PopoverContent>
         </Popover>

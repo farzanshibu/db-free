@@ -85,11 +85,15 @@ export function QueryErrorPanel({ error, sql, onGoToError, onAskAi, onCopy }: Qu
           </div>
         </div>
         {shown !== null ? (
-          <pre className="selectable overflow-x-auto rounded-lg border border-border/60 bg-surface-secondary/60 px-2.5 py-1.5 font-mono text-[11px] leading-5 text-foreground">
-            {shown.shown}
-            {"\n"}
-            <span className="text-danger">{`${" ".repeat(Math.max(shown.caret, 0))}^`}</span>
-          </pre>
+          <div className="overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
+            <ScrollArea orientation="horizontal">
+              <pre className="selectable px-2.5 py-1.5 font-mono text-[11px] leading-5 text-foreground">
+                {shown.shown}
+                {"\n"}
+                <span className="text-danger">{`${" ".repeat(Math.max(shown.caret, 0))}^`}</span>
+              </pre>
+            </ScrollArea>
+          </div>
         ) : null}
         {hint !== null ? (
           <p className="selectable rounded-lg bg-surface-secondary/60 px-2.5 py-1.5 text-xs text-foreground">

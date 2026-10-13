@@ -11,6 +11,7 @@ import { EnvDot } from "@/components/global/Badge";
 import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  Sidebar title that doubles as a quick connection switcher: pick another
 //        saved connection (connects on demand), add one, or open the list.
@@ -53,7 +54,8 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
           <Icon name="chevron-down" size={12} className="shrink-0 text-muted" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent className="max-h-[70vh] min-w-72 overflow-y-auto">
+      <DropdownMenuContent className="min-w-72">
+        <ScrollArea className="max-h-[70vh]">
         {groups.map((group, index) => (
           <Fragment key={group.key}>
             {index > 0 ? <DropdownMenuSeparator /> : null}
@@ -100,6 +102,7 @@ export function ConnectionSwitcher({ caption }: { caption: string }) {
             Backup / Restore {connection.name}…
           </DropdownMenuItem>
         </DropdownMenuGroup>
+        </ScrollArea>
       </DropdownMenuContent>
     </DropdownMenu>
   );

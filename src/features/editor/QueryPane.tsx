@@ -12,6 +12,7 @@ import { useShortcut } from "@/stores/useShortcut";
 import { useQueryRuns, type RunPiece, type StatementRun } from "@/stores/queryRuns";
 import { AppSelect, Field, Segmented } from "@/components/global/Field";
 import { useTransactions } from "@/stores/transactions";
+import { sessionKeyFor } from "@/stores/sessions";
 import { Badge } from "@/components/ui/badge";
 import { EnvDot } from "@/components/global/Badge";
 import { IconButton } from "@/components/global/Button";
@@ -556,7 +557,8 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
     setPlanBusy(true);
     try {
       // The same statement Run would send: a plan for a whole script is not one.
-      setPlan(await ipc("explain_query", { connectionId: connection.id, sql: script }));
+      // The plan runs on this tab's session, like its Run: SET, search_path and an open transaction apply.
+      setPlan(await ipc("explain_query", { connectionId: connection.id, sql: script, sessionKey: sessionKeyFor(tabId) }));
     } catch (raw) {
       showError(normalizeError(raw));
     } finally {
@@ -1034,7 +1036,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                   </span>
                 </div>
                 <div className="grid min-h-0 flex-1 grid-cols-2 gap-0">
-                  <ScrollArea className="overflow-x-auto border-r border-border/40 p-2.5">
+                  <ScrollArea orientation="both" className="border-r border-border/40 p-2.5">
                     {plan.planTree !== null && planView === "tree" ? (
                       <PlanTree root={plan.planTree} />
                     ) : (
@@ -1196,7 +1198,7 @@ function ParamsDialog({ names, initial, onCancel, onRun }: { names: readonly str
         <DialogHeader>
           <DialogTitle>Query parameters</DialogTitle>
         </DialogHeader>
-        <DialogBody className="flex max-h-[60vh] flex-col gap-2 overflow-y-auto">
+        <DialogBody className="flex max-h-[60vh] flex-col gap-2">
           <p className="text-xs text-muted">Auto leaves numbers, TRUE/FALSE and NULL bare and quotes everything else. Raw SQL is inserted as typed.</p>
           <form
             id="query-params"

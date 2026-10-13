@@ -312,6 +312,9 @@ pub struct HttpConfig {
     pub body: String,
     /// Dot path into the JSON response that holds the rows ("data.results").
     pub response_path: String,
+    /// Lets the node call loopback, link-local and private-network addresses.
+    /// Off by default, so a workflow cannot reach local services or cloud metadata.
+    pub allow_private_network: bool,
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, TS)]

@@ -79,7 +79,8 @@ export function SqlView({ connectionId, ddl, pending, queryTitle, className, max
           ))}
         </ul>
       ) : null}
-      <ScrollArea className={cn("overflow-x-auto rounded-md bg-background p-2.5", maxHeight)}>
+      <div className="overflow-hidden rounded-md bg-background">
+      <ScrollArea orientation="both" className={cn("p-2.5", maxHeight)}>
         {ddl === null ? (
           <div className="flex items-center justify-center py-2.5">
             <Spinner size="sm" />
@@ -90,6 +91,7 @@ export function SqlView({ connectionId, ddl, pending, queryTitle, className, max
           <pre className={cn("selectable font-mono text-[11px] whitespace-pre text-foreground transition-opacity", pending ? "opacity-60" : "")}>{sql}</pre>
         )}
       </ScrollArea>
+      </div>
       <div className="flex items-center gap-2">
         <Button
           size="sm"

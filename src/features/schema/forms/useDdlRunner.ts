@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { DdlOperation, DdlPreview, TableRef } from "@/lib/bindings";
 import { errorMessage, ipc, normalizeError } from "@/lib/ipc";
 import { tableKey, useWorkspace } from "@/stores/workspace";
+import { stageStatements, type StageOutcome } from "@/features/changes/stageStatement";
 
 // ============================================================================
 // THE PREVIEW -> CONFIRM -> RUN PIPELINE EVERY SCHEMA FORM SHARES
@@ -16,10 +17,10 @@ import { tableKey, useWorkspace } from "@/stores/workspace";
 //        them would end up skipping a step.
 // HOW:   `preview_ddl` is called ~250 ms after the operation settles; a response
 //        for an operation the form has since moved past is ignored (it is keyed by
-//        the operation's JSON). Running goes through the ordinary `execute_query`,
-//        so the block applies the read-only lock and the destructive gate;
-//        `confirmDestructive` is true only after the user typed the name or ticked
-//        the acknowledgement for this exact script.
+//        the operation's JSON). Running stages each previewed statement in Pending
+//        Changes (or commits them in direct mode) via `stageStatements`; the typed
+//        name / ticked acknowledgement still gates Run here, and a destructive
+//        statement is confirmed again by the commit before it runs.
 // WHERE: src-tauri/src/services/schema.rs (preview_ddl), src-tauri/src/guard/mod.rs
 // ============================================================================
 
@@ -152,23 +153,33 @@ export function useDdlRunner(connectionId: string, operation: DdlOperation | nul
   const confirmed = gate === "none" || (gate === "name" ? confirmText === confirmName : acknowledged);
   const canRun = preview !== null && !previewing && !readOnly && !running && confirmed;
 
+  // Review mode queues the script's statements in Pending Changes; direct mode commits
+  // them now through the same commit path. Either way the follow-up (`applyEffects`)
+  // runs once they have landed, and the dialog closes only when the form is done with.
   const run = () => {
     if (preview === null || !canRun) return;
     void (async () => {
       setRunning(true);
       setRunError(null);
+      const description = (index: number) => (preview.statements.length > 1 ? `${effects.message} (${index + 1} of ${preview.statements.length})` : effects.message);
+      let outcome: StageOutcome;
       try {
-        await ipc("execute_query", { connectionId, sql: preview.script, confirmDestructive: gate !== "none" && confirmed, maxRows: null, schema: null });
+        outcome = await stageStatements(
+          connectionId,
+          preview.statements.map((statement, index) => ({ statement, description: description(index), destructive: preview.destructive })),
+          () => applyEffects(connectionId, effects),
+        );
       } catch (raw) {
         setRunError(errorMessage(normalizeError(raw)));
         setRunning(false);
         return;
       }
-      try {
-        await applyEffects(connectionId, effects);
-      } finally {
-        setRunning(false);
+      setRunning(false);
+      if (outcome.status === "failed") {
+        setRunError(outcome.message);
+        return;
       }
+      if (outcome.status === "staged") useWorkspace.getState().showInfo(`${preview.statements.length === 1 ? "Statement" : `${preview.statements.length} statements`} added to Pending Changes. Commit them there.`);
       onDone();
     })();
   };

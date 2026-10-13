@@ -8,6 +8,7 @@ import { Icon } from "@/lib/icons";
 import { normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import type { DdlRunner } from "./useDdlRunner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface DdlPreviewPaneProps {
   connectionId: string;
@@ -65,10 +66,12 @@ export function DdlPreviewPane({ connectionId, runner, ready, idleHint, engineNo
     </p>
   ) : (
     <>
-      <div className="relative">
-        <pre className="max-h-44 overflow-auto rounded-lg border border-border/60 bg-surface-secondary/60 px-2.5 py-1.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground select-text" aria-label="Statements to run">
-          {preview.script}
-        </pre>
+      <div className="relative overflow-hidden rounded-lg border border-border/60 bg-surface-secondary/60">
+        <ScrollArea orientation="both" className="max-h-44">
+          <pre className="px-2.5 py-1.5 font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground select-text" aria-label="Statements to run">
+            {preview.script}
+          </pre>
+        </ScrollArea>
         <div className="absolute top-1.5 right-1.5 flex gap-1">
           <Button size="xs" variant="secondary" onClick={() => void copy()}>
             <Icon name="copy" size={12} />
@@ -117,7 +120,8 @@ export function DdlPreviewPane({ connectionId, runner, ready, idleHint, engineNo
   );
 
   return (
-    <section aria-label="Preview" className="flex max-h-[46%] shrink-0 flex-col gap-2 overflow-y-auto border-t border-border/50 bg-surface/40 px-3 py-2">
+    <section aria-label="Preview" className="flex max-h-[46%] shrink-0 flex-col border-t border-border/50 bg-surface/40">
+      <ScrollArea className="flex flex-col gap-2 px-3 py-2">
       <div className="flex items-center gap-2 text-[11px] font-semibold tracking-wider text-muted uppercase">
         Preview
         {runner.previewing && ready ? <Spinner size="sm" /> : null}
@@ -147,6 +151,7 @@ export function DdlPreviewPane({ connectionId, runner, ready, idleHint, engineNo
           </AlertContent>
         </Alert>
       ) : null}
+      </ScrollArea>
     </section>
   );
 }

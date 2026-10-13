@@ -17,6 +17,7 @@ mod net_tests;
 mod nodes;
 pub mod rules;
 mod runner;
+pub mod policy;
 pub mod schedule;
 pub mod scheduler;
 pub mod secrets;

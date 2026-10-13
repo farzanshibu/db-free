@@ -337,7 +337,15 @@ pub async fn schema_context(
     Ok(out)
 }
 
+// WHY:   EXPLAIN prefixes only the first statement; a script would run its rest un-explained.
+fn is_one_statement(sql: &str) -> bool {
+    crate::guard::destructive::split_statements(sql).iter().filter(|s| !s.trim().trim_end_matches(';').trim().is_empty()).count() <= 1
+}
+
 pub async fn explain(ctx: &SessionCtx, req: &AiRequest<'_>, sql: &str, max_rows: usize) -> AppResult<PlanReport> {
+    if !is_one_statement(sql) {
+        return Err(AppError::invalid_input("Explain takes one statement at a time."));
+    }
     let engine = ctx.connection.engine;
     let explain_sql = match engine.family() {
         Family::Postgres | Family::Duckdb => format!("EXPLAIN (FORMAT TEXT) {sql}"),
@@ -804,6 +812,14 @@ fn is_google_chat_model(model: &serde_json::Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explain_takes_one_statement() {
+        assert!(is_one_statement("SELECT 1"));
+        assert!(is_one_statement("SELECT 1;"));
+        assert!(is_one_statement("SELECT 'a;b' FROM t"), "a semicolon inside a literal is not a separator");
+        assert!(!is_one_statement("SELECT 1; DELETE FROM t"));
+    }
 
     #[test]
     fn fence_extraction() {

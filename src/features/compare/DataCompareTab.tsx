@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/components/ui/popover";
 import { ConnectionPicker, DirectionToggle, SchemaPicker, TablePicker, targetOf, useLiveConnections } from "./ComparePickers";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Filter = "all" | RowStatus;
 
@@ -134,7 +135,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
           <PopoverContent className="w-60">
             <PopoverHeading>Key columns</PopoverHeading>
             <p className="mb-2 text-[11px] text-muted">None checked = the primary key.</p>
-            <div className="flex max-h-64 flex-col gap-1 overflow-auto">
+            <ScrollArea className="flex max-h-64 flex-col gap-1">
               {leftColumns.map((c) => (
                 <label key={c.name} className="flex items-center gap-2 text-[12px] text-foreground">
                   <Check
@@ -146,7 +147,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
                   {c.primaryKey ? <Icon name="key" size={11} className="ml-auto text-warning" /> : null}
                 </label>
               ))}
-            </div>
+            </ScrollArea>
           </PopoverContent>
         </Popover>
         <span className="ml-2">Max rows per side</span>

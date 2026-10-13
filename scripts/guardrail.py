@@ -182,7 +182,7 @@ def check_rust(path: Path, text: str) -> list[Finding]:
                 findings.append(Finding(path, line_of(text, idx), "layering",
                     f"Commands never reach `{forbidden}` directly. Call a function in src-tauri/src/services/ instead."))
         commands = len(re.findall(r"^\s*#\[tauri::command\]", text, flags=re.M))
-        guarded = len(re.findall(r"guard::(?:local|session|statement|statement_in_session)\(", text))
+        guarded = len(re.findall(r"guard::(?:local|session|session_in_session|statement|statement_in_session)\(", text))
         if commands and guarded < commands:
             findings.append(Finding(path, 1, "block-bypass",
                 f"{commands} command(s) but only {guarded} pass through guard::local / guard::session / guard::statement. Every command goes through the block."))

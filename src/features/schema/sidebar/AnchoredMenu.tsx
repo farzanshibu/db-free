@@ -18,6 +18,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // ============================================================================
 // WHAT:  A pointer-anchored menu that, unlike the shared flat `useContextMenu`,
@@ -113,8 +114,10 @@ export function MenuNodes({ nodes, onSelect }: { nodes: readonly MenuNode[]; onS
               <Label label={node.label} note={node.note} />
             </DropdownMenuSubTrigger>
             <DropdownMenuPortal>
-              <DropdownMenuSubContent className="max-h-72 min-w-44 overflow-y-auto">
-                <MenuNodes nodes={node.children} onSelect={onSelect} />
+              <DropdownMenuSubContent className="min-w-44">
+                <ScrollArea className="max-h-72">
+                  <MenuNodes nodes={node.children} onSelect={onSelect} />
+                </ScrollArea>
               </DropdownMenuSubContent>
             </DropdownMenuPortal>
           </DropdownMenuSub>

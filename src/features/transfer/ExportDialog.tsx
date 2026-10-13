@@ -194,12 +194,14 @@ function ExportDialogContent({ onOpenChange, connectionId, title, baseName, tabl
         </ScrollArea>
         <div className="flex min-h-0 min-w-0 flex-col gap-1.5">
           <span className="text-[11px] font-medium text-muted">Preview</span>
-          <div className="h-[52vh] overflow-auto rounded-lg border border-border bg-background">
+          <div className="h-[52vh] overflow-hidden rounded-lg border border-border bg-background">
+          <ScrollArea orientation="both" className="h-full">
             {noColumns || preview.problem !== null ? (
               <p className="p-2.5 text-xs text-danger">{noColumns ? "Select at least one column." : preview.problem}</p>
             ) : (
               <pre className="selectable min-w-max p-2.5 font-mono text-[11px] leading-relaxed text-foreground/90">{rendering && preview.text === "" ? "Rendering…" : preview.text}</pre>
             )}
+          </ScrollArea>
           </div>
         </div>
       </DialogBody>
