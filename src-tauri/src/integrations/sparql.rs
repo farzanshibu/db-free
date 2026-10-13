@@ -156,6 +156,7 @@ pub fn filter_clause(rule: &FilterRule) -> String {
         FilterOp::Lt => format!("FILTER({lhs} < {})", literal(raw)),
         FilterOp::Lte => format!("FILTER({lhs} <= {})", literal(raw)),
         FilterOp::Contains => format!("FILTER(CONTAINS(LCASE(STR({v})), LCASE({})))", sparql_string(raw)),
+        FilterOp::NotContains => format!("FILTER(!CONTAINS(LCASE(STR({v})), LCASE({})))", sparql_string(raw)),
         FilterOp::StartsWith => format!("FILTER(STRSTARTS(LCASE(STR({v})), LCASE({})))", sparql_string(raw)),
         FilterOp::EndsWith => format!("FILTER(STRENDS(LCASE(STR({v})), LCASE({})))", sparql_string(raw)),
         FilterOp::In => {
@@ -1253,8 +1254,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_SPARQL_PASSWORD").ok(),
         };

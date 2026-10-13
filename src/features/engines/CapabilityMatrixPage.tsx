@@ -68,29 +68,29 @@ export function CapabilityMatrixPage() {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="drag-region flex h-11 app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header " data-tauri-drag-region>
-        <Button size="sm" variant="ghost" aria-label="Back to connections" onClick={goConnections} className="size-7 min-w-7 rounded-lg text-muted">
+      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header " data-tauri-drag-region>
+        <Button size="sm" variant="ghost" aria-label="Back to connections" onClick={goConnections} className="size-6 min-w-6 rounded-md text-muted">
           <Icon name="arrow-left" size={14} />
         </Button>
-        <Icon name="grid" size={15} className="text-accent" />
-        <span className="text-sm font-semibold tracking-tight text-foreground">Engine capabilities</span>
+        <Icon name="grid" size={14} className="text-accent" />
+        <span className="text-[13px] font-semibold tracking-tight text-foreground">Engine capabilities</span>
         <Badge size="sm" variant="soft" className="font-mono text-[10px]">
           {engines.length} engines · {visibleRows.length} features
         </Badge>
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
         <AppSelect ariaLabel="Category" value={category} options={categoryOptions} size="sm" className="w-52" onChange={setCategory} />
-        <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Engine…" className="h-8 w-48 rounded-lg text-xs glass-input" />
+        <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Engine…" className="w-48 rounded-md text-xs glass-input" />
         <Check label="Hide empty rows" checked={hideEmpty} onChange={setHideEmpty} />
       </div>
-      <ScrollArea className="min-h-0 flex-1 overflow-x-auto">
+      <ScrollArea orientation="both" className="min-h-0 flex-1">
         <table className="min-w-max border-separate border-spacing-0 text-xs">
           <thead className="sticky top-0 z-20">
             <tr>
-              <th className="sticky left-0 z-30 border-b border-r border-border/40 bg-background px-3 py-2 text-left font-medium text-muted">Feature</th>
+              <th className="sticky left-0 z-30 border-b border-r border-border/40 bg-background px-2.5 py-1.5 text-left font-medium text-muted">Feature</th>
               {engines.map((engine) => (
-                <th key={engine} className="border-b border-border/40 bg-background px-1 py-2 align-bottom">
+                <th key={engine} className="border-b border-border/40 bg-background px-1 py-1.5 align-bottom">
                   <span className="flex flex-col items-center gap-1 px-1 py-1" title={`${engineMeta(engine).label} · ${engineMeta(engine).hint} · ${totals[engine]} features`}>
-                    <EngineIcon engine={engine} size={18} />
+                    <EngineIcon engine={engine} size={16} />
                     <span className="w-14 truncate text-[9px] font-medium text-muted">{engineMeta(engine).label}</span>
                     <span className="font-mono text-[9px] text-muted/70">{totals[engine]}</span>
                   </span>
@@ -117,13 +117,13 @@ function RowGroup({ row, engines, newSection }: { row: Row; engines: readonly En
     <>
       {newSection ? (
         <tr>
-          <td colSpan={engines.length + 1} className="sticky left-0 border-b border-border/40 bg-surface px-3 pt-3 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/80">
+          <td colSpan={engines.length + 1} className="sticky left-0 border-b border-border/40 bg-surface px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/80">
             {row.section}
           </td>
         </tr>
       ) : null}
       <tr className="group">
-        <td className="sticky left-0 z-10 max-w-[240px] truncate border-b border-r border-separator bg-background px-3 py-1 text-foreground group-hover:bg-surface-secondary/60">{row.label}</td>
+        <td className="sticky left-0 z-10 max-w-[240px] truncate border-b border-r border-separator bg-background px-2.5 py-1 text-foreground group-hover:bg-surface-secondary/60">{row.label}</td>
         {engines.map((engine) => {
           const has = row.has(engine);
           return (

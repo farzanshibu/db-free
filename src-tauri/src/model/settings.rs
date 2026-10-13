@@ -38,8 +38,32 @@ pub enum AiProvider {
     Openai,
     Openrouter,
     Ollama,
+    /// Google Gemini (generativelanguage.googleapis.com).
+    Google,
 }
 
+/// Model round trips one assistant message may take before it stops (the default).
+pub const DEFAULT_AGENT_STEPS: u32 = 12;
+/// The step limit's range, as Settings → AI offers it and `services::ai_profiles::normalize` clamps it.
+pub const MIN_AGENT_STEPS: u32 = 1;
+pub const MAX_AGENT_STEPS: u32 = 100;
+
+fn default_agent_steps() -> u32 {
+    DEFAULT_AGENT_STEPS
+}
+
+// WHAT:  The assistant's settings. `provider` / `model` / `base_url` /
+//        `has_api_key` describe the DEFAULT selection (the profile in
+//        `default_profile` and its model); `profiles` holds every configured
+//        provider, each with its own sealed key.
+// WHY:   Several providers can be configured at once and a chat picks any of
+//        their models per message. The legacy single-provider fields stay as
+//        the default selection so everything that only asks "is AI on?"
+//        (`provider != none`) keeps working, and settings saved before
+//        profiles existed still load: `services::ai_profiles::hydrate` turns
+//        the old fields into a profile on read.
+// WHERE: src-tauri/src/services/ai_profiles.rs (derives the mirrored fields),
+//        src/features/settings/AiSection.tsx
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -55,6 +79,21 @@ pub struct AiSettings {
     /// settings written before the agent existed still load.
     #[serde(default)]
     pub autonomy: crate::model::AgentAutonomy,
+    /// What the assistant may see: nothing (AI off), the schema only, or the
+    /// schema and the rows its queries return.
+    #[serde(default)]
+    pub data_access: crate::model::AiDataAccess,
+    /// Id of the profile the default selection above comes from.
+    #[serde(default)]
+    pub default_profile: Option<String>,
+    /// Every configured provider. Empty on settings written before profiles.
+    #[serde(default)]
+    pub profiles: Vec<crate::model::AiProfile>,
+    /// Model round trips one message may take (1–100) before the run stops and
+    /// the chat offers Continue. Defaulted so settings written before this
+    /// existed keep the old limit of 12.
+    #[serde(default = "default_agent_steps")]
+    pub max_steps: u32,
 }
 
 impl Default for AiSettings {
@@ -65,6 +104,10 @@ impl Default for AiSettings {
             base_url: None,
             has_api_key: false,
             autonomy: crate::model::AgentAutonomy::AskOnWrite,
+            data_access: crate::model::AiDataAccess::Full,
+            default_profile: None,
+            profiles: Vec::new(),
+            max_steps: DEFAULT_AGENT_STEPS,
         }
     }
 }
@@ -138,6 +181,35 @@ pub struct AppSettings {
     pub keybindings: Vec<KeyBinding>,
     /// The user's own editor snippets, on top of the built-in set.
     pub snippets: Vec<Snippet>,
+    /// Home screen: the Pinned board.
+    pub show_pinned: bool,
+    /// Home screen: the Recents chips and list.
+    pub show_recents: bool,
+    /// Rows per page when a table opens: 25, 50, 100, 200, 500 or 1000. A connection that
+    /// has had its page size changed keeps that choice instead.
+    pub default_page_size: u32,
+    /// How many days of the query log to keep; 0 keeps everything. Older rows
+    /// are deleted when the app starts.
+    pub log_retention_days: u32,
+    /// Inline AI (the editor's ⌘I prompt): keep the prompt as a comment above
+    /// what the model writes.
+    pub inline_ai_prompt_as_comment: bool,
+    /// Open a connection in its own window (one per connection) instead of this one.
+    pub open_connections_in_new_window: bool,
+    /// Whole-app zoom factor, 0.9–1.5 (⌘+ / ⌘- / ⌘0).
+    pub ui_zoom: f64,
+    /// A single click on a table opens an italic preview tab the next click replaces.
+    pub reuse_table_preview_tab: bool,
+    /// Scrollbar thickness in grids: "standard" or "large".
+    pub grid_scrollbar_size: String,
+    /// Show the calendar / clock button on date and time fields.
+    pub date_picker_enabled: bool,
+    /// Command-menu sections left out of ⌘K (the order lives in `command_menu_sections`).
+    pub command_menu_hidden_sections: Vec<String>,
+    /// Themes the user made or imported; `theme` names one by its id.
+    pub custom_themes: Vec<crate::model::CustomTheme>,
+    /// Look for a new release at launch (at most every few hours).
+    pub check_updates_on_launch: bool,
 }
 
 impl Default for AppSettings {
@@ -147,9 +219,9 @@ impl Default for AppSettings {
             accent: "blue".to_string(),
             ui_font: "jetbrains-mono".to_string(),
             editor_font: "jetbrains-mono".to_string(),
-            ui_font_size: 13,
+            ui_font_size: 12,
             editor_font_size: 13,
-            grid_density: "cozy".to_string(),
+            grid_density: "compact".to_string(),
             alternating_rows: true,
             remember_table_state: true,
             column_preview: true,
@@ -170,6 +242,19 @@ impl Default for AppSettings {
             native_tool_paths: BTreeMap::new(),
             keybindings: Vec::new(),
             snippets: Vec::new(),
+            show_pinned: true,
+            show_recents: true,
+            default_page_size: 50,
+            log_retention_days: 30,
+            inline_ai_prompt_as_comment: true,
+            open_connections_in_new_window: false,
+            ui_zoom: 1.0,
+            reuse_table_preview_tab: false,
+            grid_scrollbar_size: "standard".to_string(),
+            date_picker_enabled: true,
+            command_menu_hidden_sections: Vec::new(),
+            custom_themes: Vec::new(),
+            check_updates_on_launch: true,
         }
     }
 }
@@ -189,5 +274,17 @@ mod tests {
         assert!(parsed.keybindings.is_empty());
         assert!(parsed.snippets.is_empty());
         assert_eq!(parsed.theme, "dark");
+    }
+
+    // WHAT:  Assistant settings saved before the step limit existed keep the old
+    //        limit (12), and a fresh install starts compact.
+    #[test]
+    fn legacy_assistant_settings_keep_the_old_step_limit() {
+        let legacy = r#"{"provider":"none","model":"claude-opus-5","baseUrl":null}"#;
+        let parsed: AiSettings = serde_json::from_str(legacy).unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(parsed.max_steps, DEFAULT_AGENT_STEPS);
+        assert_eq!(AiSettings::default().max_steps, 12);
+        let defaults = AppSettings::default();
+        assert_eq!((defaults.ui_font_size, defaults.grid_density.as_str()), (12, "compact"));
     }
 }

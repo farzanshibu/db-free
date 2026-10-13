@@ -1,7 +1,9 @@
 // SOT: dynamodb-integration, aws-sigv4, partiql, dynamodb-attribute-value, dynamodb-object-explorer, dynamodb-server-stats
 
 use crate::error::{AppError, AppResult};
-use crate::integrations::aws_sigv4::{sign_post, AwsCredentials, SignRequest};
+use crate::integrations::aws_sigv4::{sign_post, SignRequest};
+use crate::integrations::cloud_auth::AwsSession;
+use crate::integrations::dynamodb_aggregate;
 use crate::integrations::http::{json_result, objects_to_result_set, HttpClient};
 use crate::integrations::{Capabilities, Integration};
 use crate::model::{
@@ -34,7 +36,8 @@ const SAMPLE: usize = 50;
 pub struct DynamoIntegration {
     engine: Engine,
     http: HttpClient,
-    creds: AwsCredentials,
+    /// Region plus a way to get current signing credentials (keys, profile, or the default chain).
+    session: AwsSession,
     endpoint: String,
     host: String,
     read_only: bool,
@@ -53,11 +56,11 @@ fn host_of(url: &str) -> String {
 }
 
 pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
-    let creds = AwsCredentials::from_connection(conn)?;
-    let endpoint = endpoint_for(&creds.region, conn.summary.database.as_deref());
+    let session = AwsSession::for_connection(conn).await?;
+    let endpoint = endpoint_for(session.region(), conn.summary.database.as_deref());
     let host = host_of(&endpoint);
     let http = HttpClient::new(endpoint.clone(), crate::integrations::http::Auth::None, false)?;
-    let integration = DynamoIntegration { engine: conn.summary.engine, http, creds, endpoint, host, read_only: conn.summary.read_only };
+    let integration = DynamoIntegration { engine: conn.summary.engine, http, session, endpoint, host, read_only: conn.summary.read_only };
     integration.ping().await?;
     Ok(Arc::new(integration))
 }
@@ -176,6 +179,7 @@ pub fn filter_expression(filters: &[FilterRule]) -> FilterExpr {
             FilterOp::Lt => { set_val(lenient_attribute(&f.value)); format!("{name} < {val}") }
             FilterOp::Lte => { set_val(lenient_attribute(&f.value)); format!("{name} <= {val}") }
             FilterOp::Contains => { set_val(serde_json::json!({"S": f.value.trim()})); format!("contains({name}, {val})") }
+            FilterOp::NotContains => { set_val(serde_json::json!({"S": f.value.trim()})); format!("NOT contains({name}, {val})") }
             FilterOp::StartsWith => { set_val(serde_json::json!({"S": f.value.trim()})); format!("begins_with({name}, {val})") }
             FilterOp::EndsWith => { set_val(serde_json::json!({"S": f.value.trim()})); format!("contains({name}, {val})") }
             FilterOp::In => {
@@ -285,32 +289,234 @@ fn parse_command(raw: &str) -> AppResult<Command> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Throttling and transient failures
+// ---------------------------------------------------------------------------
+//
+// WHAT:  A call is retried with exponential backoff and full jitter when DynamoDB
+//        throttles it, and (for reads) when the service or the network hiccups.
+// WHY:   A scan that pages through a table at the speed of the wire trips the
+//        table's read capacity; the first ProvisionedThroughputExceeded used to
+//        end the whole statement. AWS documents retry-with-backoff as the answer.
+// HOW:   Throttled requests were rejected before they ran, so they are safe to
+//        repeat for any operation, writes included. A 5xx or a dropped
+//        connection may have happened server-side, so only reads repeat on those:
+//        a write is never retried automatically, it is reported.
+
+/// Attempts per call (the first plus four retries).
+const MAX_ATTEMPTS: u32 = 5;
+const BACKOFF_BASE_MS: u64 = 100;
+const BACKOFF_CAP_MS: u64 = 5_000;
+
+/// Items a local aggregate / sort will read before it refuses.
+const AGGREGATE_CAP: usize = 10_000;
+/// Pages an aggregate read may take (a page evaluates up to 1 MB), so a rare
+/// filter over a huge table gives up rather than scanning it all.
+const AGGREGATE_MAX_PAGES: usize = 200;
+
+// WHAT:  `ProvisionedThroughputExceededException` from `{"__type": "com.amazonaws.dynamodb.v20120810#…"}`.
+fn error_type(body: &str) -> String {
+    serde_json::from_str::<serde_json::Value>(body)
+        .ok()
+        .and_then(|v| v.get("__type").and_then(|t| t.as_str()).map(str::to_string))
+        .map(|t| t.rsplit('#').next().unwrap_or_default().to_string())
+        .unwrap_or_default()
+}
+
+fn is_throttle(status: u16, error_type: &str) -> bool {
+    status == 429
+        || matches!(
+            error_type,
+            "ProvisionedThroughputExceededException" | "ThrottlingException" | "RequestLimitExceeded" | "TooManyRequestsException" | "ThrottledException"
+        )
+}
+
+// WHAT:  Whether to try again after a failed attempt.
+// WHY:   See the block comment above: throttles always, everything else transient only for reads.
+fn should_retry(status: Option<u16>, error_type: &str, reads_only: bool) -> bool {
+    match status {
+        Some(status) if is_throttle(status, error_type) => true,
+        Some(status) => reads_only && (status == 500 || status == 502 || status == 503 || status == 504 || error_type == "InternalServerError" || error_type == "ServiceUnavailable"),
+        // The request never produced a response: a dropped or refused connection.
+        None => reads_only,
+    }
+}
+
+// WHAT:  How long to wait before attempt `attempt + 1`: a random point up to
+//        base · 2^attempt, capped (full jitter, so concurrent callers spread out).
+fn backoff(attempt: u32, jitter: f64) -> std::time::Duration {
+    let ceiling = BACKOFF_BASE_MS.saturating_mul(1_u64 << attempt.min(16)).min(BACKOFF_CAP_MS);
+    std::time::Duration::from_millis((ceiling as f64 * jitter.clamp(0.0, 1.0)) as u64)
+}
+
+fn jitter() -> f64 {
+    (uuid::Uuid::new_v4().as_u128() % 10_000) as f64 / 10_000.0
+}
+
 impl DynamoIntegration {
     async fn call(&self, op: &str, body: &serde_json::Value) -> AppResult<serde_json::Value> {
         let bytes = serde_json::to_vec(body).map_err(|e| AppError::internal(e.to_string()))?;
         let target = format!("DynamoDB_20120810.{op}");
-        let signed = sign_post(
-            &self.creds,
-            &SignRequest {
-                service: "dynamodb",
-                method: "POST",
-                host: &self.host,
-                path: "/",
-                query: "",
-                amz_target: Some(&target),
-                content_type: Some(CONTENT_TYPE),
-                body: &bytes,
-                now: chrono::Utc::now(),
-            },
-        )?;
-        let mut req = self.http.request(Method::POST, &format!("{}/", self.endpoint)).body(bytes);
-        for (k, v) in &signed.headers {
-            if k != "host" {
-                req = req.header(k.as_str(), v.as_str());
+        // A PartiQL statement that writes is not safe to repeat after an ambiguous failure.
+        let reads_only = !is_write_op(op) && !body.get("Statement").and_then(|s| s.as_str()).is_some_and(is_write_partiql);
+        let mut attempt = 0_u32;
+        loop {
+            // Signed afresh each time: the signature carries the request time.
+            let creds = self.session.credentials().await?;
+            let signed = sign_post(
+                &creds,
+                &SignRequest {
+                    service: "dynamodb",
+                    method: "POST",
+                    host: &self.host,
+                    path: "/",
+                    query: "",
+                    amz_target: Some(&target),
+                    content_type: Some(CONTENT_TYPE),
+                    body: &bytes,
+                    now: chrono::Utc::now(),
+                },
+            )?;
+            let mut req = self.http.request(Method::POST, &format!("{}/", self.endpoint)).body(bytes.clone());
+            for (k, v) in &signed.headers {
+                if k != "host" {
+                    req = req.header(k.as_str(), v.as_str());
+                }
+            }
+            let sent = req.send().await;
+            let retries_left = attempt + 1 < MAX_ATTEMPTS;
+            match sent {
+                Ok(resp) if resp.status().is_success() => {
+                    return resp.json().await.map_err(|e| AppError::driver(format!("Malformed DynamoDB response: {e}")));
+                }
+                Ok(resp) => {
+                    let status = resp.status();
+                    let text = resp.text().await.unwrap_or_default();
+                    let kind = error_type(&text);
+                    if retries_left && should_retry(Some(status.as_u16()), &kind, reads_only) {
+                        tokio::time::sleep(backoff(attempt, jitter())).await;
+                        attempt += 1;
+                        continue;
+                    }
+                    if is_throttle(status.as_u16(), &kind) {
+                        return Err(AppError::driver(format!(
+                            "DynamoDB is throttling this request ({}). It was retried {attempt} time{} with backoff and still not accepted: wait a moment and run it again, or raise the table's capacity.",
+                            if kind.is_empty() { status.to_string() } else { kind },
+                            if attempt == 1 { "" } else { "s" }
+                        )));
+                    }
+                    return Err(crate::integrations::http::status_error(status, &text));
+                }
+                Err(err) => {
+                    if retries_left && should_retry(None, "", reads_only) {
+                        tokio::time::sleep(backoff(attempt, jitter())).await;
+                        attempt += 1;
+                        continue;
+                    }
+                    return Err(crate::integrations::http::map_reqwest(err));
+                }
             }
         }
-        let resp = self.http.send(req).await?;
-        resp.json().await.map_err(|e| AppError::driver(format!("Malformed DynamoDB response: {e}")))
+    }
+
+    // WHAT:  A PartiQL statement as DynamoDB runs it: paged until `max_rows` items
+    //        are in hand.
+    async fn run_partiql(&self, statement: &str, max_rows: usize) -> AppResult<StatementResult> {
+        let mut items = Vec::new();
+        let mut next: Option<String> = None;
+        loop {
+            let mut body = serde_json::json!({"Statement": statement, "Limit": max_rows.clamp(1, 1000)});
+            if let Some(t) = &next {
+                body["NextToken"] = serde_json::Value::String(t.clone());
+            }
+            let resp = self.call("ExecuteStatement", &body).await?;
+            if let Some(list) = resp.get("Items").and_then(|i| i.as_array()) {
+                items.extend(list.iter().cloned());
+            }
+            match resp.get("NextToken").and_then(|t| t.as_str()) {
+                Some(t) if items.len() < max_rows => next = Some(t.to_string()),
+                _ => break,
+            }
+        }
+        if is_write_partiql(statement) {
+            Ok(StatementResult::Affected { rows_affected: items.len().max(1) as u64 })
+        } else {
+            let truncated = items.len() > max_rows;
+            items.truncate(max_rows);
+            let (names, types) = union_columns(&[], &items);
+            let mut rs = items_to_result(&names, &types, &items);
+            rs.truncated = truncated;
+            Ok(StatementResult::Rows { result: rs })
+        }
+    }
+
+    // WHAT:  A PartiQL statement, with COUNT / SUM / AVG / MIN / MAX, GROUP BY,
+    //        ORDER BY and LIMIT computed here when DynamoDB cannot do them.
+    // WHY:   DynamoDB's PartiQL has no aggregates, and sorts only on a sort key.
+    // HOW:   A statement DynamoDB can run goes straight to it. A bare ORDER BY is
+    //        tried natively first (a sort-key sort over a big partition is
+    //        better done by the server) and emulated only if DynamoDB refuses it.
+    // WHERE: src-tauri/src/integrations/dynamodb_aggregate.rs
+    async fn run_select(&self, statement: &str, max_rows: usize) -> AppResult<StatementResult> {
+        let Some(plan) = dynamodb_aggregate::parse(statement)? else {
+            return self.run_partiql(statement, max_rows).await;
+        };
+        if plan.is_order_by_only() {
+            match self.run_partiql(statement, max_rows).await {
+                Err(err) if err.message().to_ascii_uppercase().contains("ORDER BY") => {}
+                other => return other,
+            }
+        }
+        self.run_local(&plan, max_rows).await
+    }
+
+    async fn run_local(&self, plan: &dynamodb_aggregate::Plan, max_rows: usize) -> AppResult<StatementResult> {
+        let every = plan.needs_every_item();
+        let want = if every { AGGREGATE_CAP } else { plan.limit.unwrap_or(AGGREGATE_CAP).min(AGGREGATE_CAP) };
+        let (items, more) = self.read_items(&plan.base_statement, want, every).await?;
+        if every && more {
+            return Err(AppError::invalid_input(format!(
+                "This statement needs every matching item, but more than {AGGREGATE_CAP} match, so the answer would be wrong. DynamoDB has no server-side COUNT / SUM / GROUP BY / ORDER BY; DB Free computes them over at most {AGGREGATE_CAP} items. Narrow it with a WHERE clause on the key or an indexed attribute."
+            )));
+        }
+        let documents: Vec<serde_json::Value> = items
+            .iter()
+            .map(|item| serde_json::Value::Object(item.as_object().into_iter().flatten().map(|(k, v)| (k.clone(), attribute_to_json(v))).collect()))
+            .collect();
+        let grid = dynamodb_aggregate::evaluate(plan, &documents)?;
+        let truncated = grid.rows.len() > max_rows;
+        let mut rows = grid.rows;
+        rows.truncate(max_rows);
+        let columns = grid.columns.into_iter().map(|(name, type_name)| ColumnMeta { name, type_name }).collect();
+        Ok(StatementResult::Rows { result: ResultSet { columns, rows, truncated } })
+    }
+
+    // WHAT:  Reads the items a statement matches, up to `want`.
+    // HOW:   `(items, more)`: `more` says the read stopped with items still unread,
+    //        which for an aggregate means the answer would be incomplete.
+    //        With `read_all` false (a bare LIMIT) the read stops once it has `want`.
+    async fn read_items(&self, statement: &str, want: usize, read_all: bool) -> AppResult<(Vec<serde_json::Value>, bool)> {
+        let mut items: Vec<serde_json::Value> = Vec::new();
+        let mut next: Option<String> = None;
+        for _ in 0..AGGREGATE_MAX_PAGES {
+            let mut body = serde_json::json!({"Statement": statement, "Limit": 1000});
+            if let Some(t) = &next {
+                body["NextToken"] = serde_json::Value::String(t.clone());
+            }
+            let resp = self.call("ExecuteStatement", &body).await?;
+            if let Some(list) = resp.get("Items").and_then(|i| i.as_array()) {
+                items.extend(list.iter().cloned());
+            }
+            next = resp.get("NextToken").and_then(|t| t.as_str()).map(str::to_string);
+            if read_all && items.len() > want {
+                return Ok((items, true));
+            }
+            if next.is_none() || (!read_all && items.len() >= want) {
+                return Ok((items, false));
+            }
+        }
+        // Out of pages with the table not yet at its end.
+        Ok((items, next.is_some()))
     }
 
     async fn describe(&self, table: &str) -> AppResult<serde_json::Value> {
@@ -884,15 +1090,15 @@ impl Integration for DynamoIntegration {
     }
 
     async fn server_version(&self) -> AppResult<Option<String>> {
-        Ok(Some(if self.endpoint.contains("amazonaws.com") { format!("DynamoDB ({})", self.creds.region) } else { format!("DynamoDB ({})", self.endpoint) }))
+        Ok(Some(if self.endpoint.contains("amazonaws.com") { format!("DynamoDB ({})", self.session.region()) } else { format!("DynamoDB ({})", self.endpoint) }))
     }
 
     fn current_database(&self) -> Option<String> {
-        Some(self.creds.region.clone())
+        Some(self.session.region().to_string())
     }
 
     async fn databases(&self) -> AppResult<Vec<String>> {
-        Ok(vec![self.creds.region.clone()])
+        Ok(vec![self.session.region().to_string()])
     }
 
     async fn catalog(&self) -> AppResult<SchemaCatalog> {
@@ -983,32 +1189,7 @@ impl Integration for DynamoIntegration {
                     if self.read_only && is_write_partiql(&statement) {
                         return Err(AppError::read_only("This connection is read-only; INSERT/UPDATE/DELETE are blocked."));
                     }
-                    let mut items = Vec::new();
-                    let mut next: Option<String> = None;
-                    loop {
-                        let mut body = serde_json::json!({"Statement": statement, "Limit": max_rows.clamp(1, 1000)});
-                        if let Some(t) = &next {
-                            body["NextToken"] = serde_json::Value::String(t.clone());
-                        }
-                        let resp = self.call("ExecuteStatement", &body).await?;
-                        if let Some(list) = resp.get("Items").and_then(|i| i.as_array()) {
-                            items.extend(list.iter().cloned());
-                        }
-                        match resp.get("NextToken").and_then(|t| t.as_str()) {
-                            Some(t) if items.len() < max_rows => next = Some(t.to_string()),
-                            _ => break,
-                        }
-                    }
-                    if is_write_partiql(&statement) {
-                        StatementResult::Affected { rows_affected: items.len().max(1) as u64 }
-                    } else {
-                        let truncated = items.len() > max_rows;
-                        items.truncate(max_rows);
-                        let (names, types) = union_columns(&[], &items);
-                        let mut rs = items_to_result(&names, &types, &items);
-                        rs.truncated = truncated;
-                        StatementResult::Rows { result: rs }
-                    }
+                    self.run_select(&statement, max_rows).await?
                 }
             };
             out.push(result);
@@ -1082,7 +1263,7 @@ impl Integration for DynamoIntegration {
     async fn server_stats(&self) -> AppResult<ServerStats> {
         let descriptions = self.describe_all().await?;
         let limits = tolerated(self.call("DescribeLimits", &serde_json::json!({})).await)?;
-        Ok(ServerStats::now(server_stat_groups(&self.creds.region, &self.endpoint, &descriptions, &limits)))
+        Ok(ServerStats::now(server_stat_groups(self.session.region(), &self.endpoint, &descriptions, &limits)))
     }
 }
 
@@ -1090,6 +1271,56 @@ impl Integration for DynamoIntegration {
 mod tests {
     use super::*;
     use crate::model::{ConnectionSummary, Environment, SslMode};
+
+    #[test]
+    fn the_exception_name_is_read_from_the_type_header() {
+        assert_eq!(
+            error_type(r#"{"__type":"com.amazonaws.dynamodb.v20120810#ProvisionedThroughputExceededException","message":"slow down"}"#),
+            "ProvisionedThroughputExceededException"
+        );
+        assert_eq!(error_type(r#"{"__type":"ThrottlingException"}"#), "ThrottlingException");
+        assert_eq!(error_type("<html>bad gateway</html>"), "");
+        assert_eq!(error_type(r#"{"message":"no type"}"#), "");
+    }
+
+    #[test]
+    fn throttles_are_retried_for_every_operation_and_server_faults_only_for_reads() {
+        // Rejected before it ran: safe to repeat even for a write.
+        assert!(should_retry(Some(400), "ProvisionedThroughputExceededException", false));
+        assert!(should_retry(Some(400), "ThrottlingException", false));
+        assert!(should_retry(Some(429), "", false));
+        assert!(should_retry(Some(400), "RequestLimitExceeded", true));
+        // May have happened: only a read can be repeated.
+        assert!(should_retry(Some(500), "InternalServerError", true));
+        assert!(!should_retry(Some(500), "InternalServerError", false));
+        assert!(should_retry(Some(503), "ServiceUnavailable", true));
+        assert!(!should_retry(Some(503), "ServiceUnavailable", false));
+        assert!(should_retry(None, "", true), "a dropped connection on a read");
+        assert!(!should_retry(None, "", false), "but not on a write, which may have been applied");
+        // The statement itself is wrong: repeating it changes nothing.
+        assert!(!should_retry(Some(400), "ValidationException", true));
+        assert!(!should_retry(Some(400), "ConditionalCheckFailedException", true));
+        assert!(!should_retry(Some(403), "AccessDeniedException", true));
+    }
+
+    #[test]
+    fn backoff_grows_then_caps_and_never_exceeds_its_ceiling() {
+        let ms = |attempt: u32, jitter: f64| backoff(attempt, jitter).as_millis();
+        assert_eq!(ms(0, 1.0), 100);
+        assert_eq!(ms(1, 1.0), 200);
+        assert_eq!(ms(3, 1.0), 800);
+        assert_eq!(ms(6, 1.0), 5_000, "capped");
+        assert_eq!(ms(40, 1.0), 5_000, "a huge attempt number does not overflow");
+        assert_eq!(ms(2, 0.0), 0, "full jitter can pick no wait at all");
+        assert_eq!(ms(2, 0.5), 200);
+        assert_eq!(ms(2, 7.0), 400, "jitter outside [0, 1] is clamped");
+        for _ in 0..50 {
+            let j = jitter();
+            assert!((0.0..1.0).contains(&j), "{j}");
+        }
+        let total: u128 = (0..MAX_ATTEMPTS - 1).map(|a| ms(a, 1.0)).sum();
+        assert!(total <= 20_000, "the worst case wait stays well under the request timeout: {total}");
+    }
 
     #[test]
     fn decodes_attribute_values() {
@@ -1330,8 +1561,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: Some(std::env::var("DBFREE_TEST_DYNAMODB_SECRET").unwrap_or_else(|_| "dummy".into())),
         };

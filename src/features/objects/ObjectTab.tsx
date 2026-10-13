@@ -110,8 +110,8 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
-        <Icon name={meta.icon} size={15} className="shrink-0 text-accent" />
-        <span className="truncate text-sm font-semibold tracking-tight text-foreground">{reference.name}</span>
+        <Icon name={meta.icon} size={14} className="shrink-0 text-accent" />
+        <span className="truncate text-[13px] font-semibold tracking-tight text-foreground">{reference.name}</span>
         <Badge size="sm" variant="soft" className="font-mono text-[10px]">
           {meta.label.toLowerCase()}
         </Badge>
@@ -128,7 +128,7 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
       </div>
 
       {parts.length > 1 ? (
-        <div className="shrink-0 px-3 py-2">
+        <div className="shrink-0 px-2.5 py-1.5">
           <Segmented label="Object view" value={current ?? "definition"} onChange={setPart} options={parts} />
         </div>
       ) : null}
@@ -144,34 +144,34 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
           <EmptyState icon={meta.icon} title={reference.name} body={`The adapter reports nothing more about this ${meta.label.toLowerCase()}.`} />
         ) : current === "definition" ? (
           detail.language === "xml" ? (
-            <ScrollArea className="h-full p-3">
+            <ScrollArea className="h-full p-2.5">
               <XmlTree source={detail.definition ?? ""} />
             </ScrollArea>
           ) : (
             <ScrollArea className="h-full">
-              <pre className={cn("selectable min-h-full p-4 font-mono text-[12px] leading-relaxed whitespace-pre-wrap break-words text-foreground", detail.language === "json" ? "text-syntax-string" : "")}>{detail.definition}</pre>
+              <pre className={cn("selectable min-h-full p-2.5 font-mono text-xs leading-relaxed whitespace-pre-wrap break-words text-foreground", detail.language === "json" ? "text-syntax-string" : "")}>{detail.definition}</pre>
             </ScrollArea>
           )
         ) : current === "properties" ? (
           <ScrollArea className="h-full">
-            <dl className="grid grid-cols-[minmax(140px,max-content)_1fr] gap-x-6 gap-y-0 p-4 text-xs">
+            <dl className="grid grid-cols-[minmax(140px,max-content)_1fr] gap-x-3 gap-y-0 p-2.5 text-xs">
               {detail.properties.map((p) => (
                 <div key={p.name} className="contents">
-                  <dt className="border-b border-separator py-1.5 font-medium text-muted">{p.name}</dt>
-                  <dd className="selectable min-w-0 border-b border-separator py-1.5 font-mono break-words text-foreground">{p.value}</dd>
+                  <dt className="border-b border-separator py-1 font-medium text-muted">{p.name}</dt>
+                  <dd className="selectable min-w-0 border-b border-separator py-1 font-mono break-words text-foreground">{p.value}</dd>
                 </div>
               ))}
             </dl>
           </ScrollArea>
         ) : current === "columns" ? (
           <ScrollArea className="h-full">
-            <ul className="p-3 text-xs">
+            <ul className="p-2.5 text-xs">
               {detail.columns.map((c) => (
-                <li key={c.name} className="flex h-7 items-center gap-2 border-b border-separator px-1">
+                <li key={c.name} className="flex h-6 items-center gap-2 border-b border-separator px-1">
                   <Icon name={typeIcon(c.dataType, c.primaryKey)} size={12} className={c.primaryKey ? "text-warning" : "text-muted"} />
                   <span className="font-medium text-foreground">{c.name}</span>
                   <span className="font-mono text-[11px] text-muted">{c.dataType}</span>
-                  {!c.nullable ? <Badge size="sm" variant="soft" className="h-4 px-1 text-[9px]">not null</Badge> : null}
+                  {!c.nullable ? <Badge size="sm" variant="soft" className="h-4 px-1 text-[10px]">not null</Badge> : null}
                   <span className="ml-auto font-mono text-[10px] text-muted/60">#{c.ordinal}</span>
                 </li>
               ))}
@@ -190,12 +190,12 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
             ))}
           </ScrollArea>
         ) : (
-          <ScrollArea className="h-full p-4">
+          <ScrollArea className="h-full p-3">
             <ul className="flex max-w-xl flex-col gap-2">
               {detail.actions.map((action) => (
-                <li key={action.id} className="flex items-center gap-3 rounded-xl glass-card border-border/40 p-3">
+                <li key={action.id} className="flex items-center gap-2 rounded-lg glass-card border-border/40 p-2">
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-foreground">{action.label}</div>
+                    <div className="text-xs font-medium text-foreground">{action.label}</div>
                     <code className="block truncate font-mono text-[11px] text-muted" title={action.statement}>
                       {action.statement}
                     </code>
@@ -212,16 +212,16 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
       </div>
 
       <Dialog open={confirming !== null} onOpenChange={(o) => !o && setConfirming(null)}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="sm:max-w-[480px]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
-              <Icon name="alert" size={15} className="text-danger" />
+              <Icon name="alert" size={14} className="text-danger" />
               {confirming?.label}
             </DialogTitle>
           </DialogHeader>
           <DialogBody>
-            <p className="text-sm text-muted">This cannot be undone. The following statement will run on the server:</p>
-            <pre className="selectable mt-2 rounded-lg glass-card p-3 font-mono text-[11px] whitespace-pre-wrap text-foreground">{confirming?.statement}</pre>
+            <p className="text-xs text-muted">This cannot be undone. The following statement will run on the server:</p>
+            <pre className="selectable mt-2 rounded-lg glass-card p-2.5 font-mono text-[11px] whitespace-pre-wrap text-foreground">{confirming?.statement}</pre>
           </DialogBody>
           <DialogFooter>
             <Button variant="tertiary" onClick={() => setConfirming(null)}>

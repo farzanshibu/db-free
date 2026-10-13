@@ -724,6 +724,7 @@ pub fn where_clause(filters: &[FilterRule]) -> String {
                 FilterOp::Lt => format!("{col} < {}", literal(v)),
                 FilterOp::Lte => format!("{col} <= {}", literal(v)),
                 FilterOp::Contains => format!("{col} LIKE {}", quote_literal(&format!("%{v}%"))),
+                FilterOp::NotContains => format!("{col} NOT LIKE {}", quote_literal(&format!("%{v}%"))),
                 FilterOp::StartsWith => format!("{col} LIKE {}", quote_literal(&format!("{v}%"))),
                 FilterOp::EndsWith => format!("{col} LIKE {}", quote_literal(&format!("%{v}"))),
                 FilterOp::In => format!("{col} IN ({})", v.split(',').map(str::trim).filter(|s| !s.is_empty()).map(literal).collect::<Vec<_>>().join(", ")),

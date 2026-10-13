@@ -9,11 +9,11 @@ use crate::model::{
     ObjectSummary, PageQuery, ResolvedConnection, ResultSet, SchemaCatalog, SchemaInfo, ServerStats, SslMode, Stat,
     StatGroup, StatementResult, TableInfo, TableKind, TableRef, Value,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use async_trait::async_trait;
 use reqwest::Client;
 use serde::Deserialize;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 // WHAT:  ClickHouse adapter over its HTTP interface (port 8123 / 8443).
@@ -49,6 +49,8 @@ pub struct ClickhouseIntegration {
     user: String,
     password: Option<String>,
     database: String,
+    /// The `query_id` each Stop-able run is executing right now, keyed by run id.
+    running: Mutex<HashMap<String, String>>,
 }
 
 pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
@@ -83,6 +85,7 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         user,
         password: conn.secret.clone(),
         database,
+        running: Mutex::new(HashMap::new()),
     };
     integration.ping().await?;
     Ok(Arc::new(integration))
@@ -255,10 +258,69 @@ struct RawResponse {
     written_rows: Option<u64>,
 }
 
+// WHAT:  A fresh `query_id` for one statement of a Stop-able run.
+// WHY:   Named by us (a v4 uuid), so it is safe to splice into the KILL statement
+//        and cannot collide with another client's queries.
+fn new_query_id() -> String {
+    format!("dbfree-{}", uuid::Uuid::new_v4())
+}
+
+// WHAT:  The statement that stops query `query_id` on the server without waiting
+//        for it to unwind (`ASYNC`), so Stop returns at once.
+fn kill_statement(query_id: &str) -> String {
+    format!("KILL QUERY WHERE query_id = {} ASYNC", crate::integrations::sql::quote_literal_for(Engine::Clickhouse, query_id))
+}
+
+// WHAT:  Holds a run's current `query_id` in the registry for exactly as long as
+//        the run lives.
+// WHY:   The block drops a stopped run's future; Drop is the only exit that also
+//        covers that path, so a finished run's id is never KILLed later (by then
+//        the id belongs to a query that no longer exists, which is harmless, but
+//        the map would grow with every run).
+struct InFlight<'a> {
+    running: &'a Mutex<HashMap<String, String>>,
+    run_id: String,
+}
+
+impl<'a> InFlight<'a> {
+    fn new(running: &'a Mutex<HashMap<String, String>>, run_id: String) -> Self {
+        InFlight { running, run_id }
+    }
+
+    /// The statement about to be sent; a script's statements run one at a time.
+    fn point_at(&self, query_id: &str) {
+        if let Ok(mut map) = self.running.lock() {
+            map.insert(self.run_id.clone(), query_id.to_string());
+        }
+    }
+}
+
+impl Drop for InFlight<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut map) = self.running.lock() {
+            map.remove(&self.run_id);
+        }
+    }
+}
+
+/// `ALTER TABLE t UPDATE … WHERE …` / `ALTER TABLE t DELETE WHERE …`: the statements the grid writes for a row edit.
+fn is_row_mutation(sql: &str) -> bool {
+    let upper = sql.trim_start().to_ascii_uppercase();
+    upper.starts_with("ALTER TABLE") && (upper.contains(" UPDATE ") || upper.contains(" DELETE WHERE "))
+}
+
 impl ClickhouseIntegration {
     // WHAT:  One HTTP round trip. `params` become `param_<name>` server-side
     //        query parameters referenced as `{name:Type}` inside the SQL.
     async fn post(&self, sql: &str, params: &[(&str, &str)]) -> AppResult<RawResponse> {
+        self.post_as(sql, params, None).await
+    }
+
+    // WHAT:  `post` that names the query, so `KILL QUERY WHERE query_id = …` can stop it.
+    // WHY:   Dropping the HTTP request does not stop a ClickHouse query (unless the
+    //        server was configured to cancel on client close): it runs on, holding
+    //        memory and threads, after the user pressed Stop.
+    async fn post_as(&self, sql: &str, params: &[(&str, &str)], query_id: Option<&str>) -> AppResult<RawResponse> {
         let mut query: Vec<(String, String)> = vec![
             ("database".to_string(), self.database.clone()),
             ("default_format".to_string(), "JSONCompact".to_string()),
@@ -267,6 +329,15 @@ impl ClickhouseIntegration {
             // Decimals as strings keep their declared scale ("12.50", not 12.5).
             ("output_format_json_quote_decimals".to_string(), "1".to_string()),
         ];
+        if let Some(id) = query_id {
+            query.push(("query_id".to_string(), id.to_string()));
+        }
+        // A grid row edit is an ALTER … UPDATE / DELETE mutation, which ClickHouse applies
+        // in the background unless told to wait; waiting is what lets the grid read the new
+        // value back. Only mutations ask, so a read-only user's SELECTs never touch settings.
+        if is_row_mutation(sql) {
+            query.push(("mutations_sync".to_string(), "1".to_string()));
+        }
         for (name, value) in params {
             query.push((format!("param_{name}"), (*value).to_string()));
         }
@@ -299,8 +370,8 @@ impl ClickhouseIntegration {
         decode_compact(&raw.body, max_rows)
     }
 
-    async fn run_statement(&self, sql: &str, max_rows: usize) -> AppResult<StatementResult> {
-        let raw = self.post(sql, &[]).await?;
+    async fn run_statement(&self, sql: &str, max_rows: usize, query_id: Option<&str>) -> AppResult<StatementResult> {
+        let raw = self.post_as(sql, &[], query_id).await?;
         if raw.body.trim().is_empty() {
             return Ok(StatementResult::Affected { rows_affected: raw.written_rows.unwrap_or(0) });
         }
@@ -1255,6 +1326,37 @@ impl Integration for ClickhouseIntegration {
             .collect())
     }
 
+    // WHAT:  Default kinds from system.columns: MATERIALIZED and ALIAS columns are
+    //        computed by the server, so the grid never writes them.
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        let set = self
+            .query(
+                "SELECT name, default_kind, default_expression FROM system.columns \
+                 WHERE database = {db:String} AND table = {t:String} ORDER BY position",
+                &[("db", self.schema_of(table)), ("t", table.name.as_str())],
+                10_000,
+            )
+            .await?;
+        Ok(set
+            .rows
+            .iter()
+            .filter_map(|row| {
+                let name = cell_text(row.first())?;
+                let kind = cell_text(row.get(1)).unwrap_or_default();
+                let expr = cell_text(row.get(2)).filter(|e| !e.is_empty());
+                Some(crate::model::ColumnTraits {
+                    name,
+                    enum_values: Vec::new(),
+                    multi: false,
+                    has_default: expr.is_some() || kind == "DEFAULT",
+                    default_expr: expr,
+                    generated: kind == "MATERIALIZED" || kind == "ALIAS",
+                    auto_increment: false,
+                })
+            })
+            .collect())
+    }
+
     async fn row_estimate(&self, table: &TableRef) -> AppResult<Option<i64>> {
         let set = self
             .query(
@@ -1285,15 +1387,30 @@ impl Integration for ClickhouseIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        // A Stop-able run names each statement it sends, so `cancel` can kill the one in flight.
+        let tracking = crate::integrations::current_run_id().map(|run_id| InFlight::new(&self.running, run_id));
         let mut out = Vec::new();
         for statement in split_statements(sql) {
             let trimmed = statement.trim();
             if trimmed.is_empty() {
                 continue;
             }
-            out.push(self.run_statement(trimmed, max_rows).await?);
+            let query_id = tracking.as_ref().map(|flight| {
+                let id = new_query_id();
+                flight.point_at(&id);
+                id
+            });
+            out.push(self.run_statement(trimmed, max_rows, query_id.as_deref()).await?);
         }
         Ok(out)
+    }
+
+    async fn cancel(&self, run_id: &str) {
+        let query_id = self.running.lock().ok().and_then(|map| map.get(run_id).cloned());
+        let Some(query_id) = query_id else { return };
+        if let Err(err) = self.post(&kill_statement(&query_id), &[]).await {
+            log::warn!("KILL QUERY {query_id} failed: {err}");
+        }
     }
 
     async fn close(&self) {}
@@ -1427,8 +1544,44 @@ impl Integration for ClickhouseIntegration {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn only_row_mutations_wait_for_the_server() {
+        assert!(is_row_mutation("ALTER TABLE \"db\".\"t\" UPDATE \"a\" = 1 WHERE \"id\" = 2"));
+        assert!(is_row_mutation("  alter table t DELETE WHERE id = 2"));
+        assert!(!is_row_mutation("SELECT * FROM t WHERE x = ' UPDATE '"));
+        assert!(!is_row_mutation("ALTER TABLE t ADD COLUMN c Int32"));
+        assert!(!is_row_mutation("ALTER TABLE t DROP COLUMN c"));
+    }
+
     use super::*;
     use crate::model::{ConnectionInput, ConnectionSummary, Environment, FilterOp, SortRule};
+
+    #[test]
+    fn query_ids_are_ours_and_unique() {
+        let (a, b) = (new_query_id(), new_query_id());
+        assert!(a.starts_with("dbfree-"), "{a}");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn the_kill_statement_names_the_query_and_returns_without_waiting() {
+        assert_eq!(kill_statement("dbfree-1234"), "KILL QUERY WHERE query_id = 'dbfree-1234' ASYNC");
+        // The id is ours, but the statement is built defensively all the same.
+        assert_eq!(kill_statement("a'b\\c"), "KILL QUERY WHERE query_id = 'a\\'b\\\\c' ASYNC");
+    }
+
+    #[test]
+    fn a_run_is_registered_while_it_lives_and_forgotten_after() {
+        let running = Mutex::new(HashMap::new());
+        {
+            let flight = InFlight::new(&running, "run-1".into());
+            assert!(running.lock().map(|m| m.is_empty()).unwrap_or(false), "nothing to kill before a statement is sent");
+            flight.point_at("dbfree-a");
+            flight.point_at("dbfree-b");
+            assert_eq!(running.lock().ok().and_then(|m| m.get("run-1").cloned()).as_deref(), Some("dbfree-b"), "the statement in flight");
+        }
+        assert!(running.lock().map(|m| m.is_empty()).unwrap_or(false), "dropping the run, as a Stop does, forgets it");
+    }
 
     #[test]
     fn base_type_unwraps_wrappers() {
@@ -1581,6 +1734,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let resolved = ResolvedConnection {
             summary: ConnectionSummary::draft(&input, true),

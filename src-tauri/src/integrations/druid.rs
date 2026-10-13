@@ -878,6 +878,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let secret = std::env::var("DBFREE_TEST_DRUID_PASSWORD").ok();
         let resolved = ResolvedConnection { summary: ConnectionSummary::draft(&input, secret.is_some()), secret };

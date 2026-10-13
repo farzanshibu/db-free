@@ -1,5 +1,5 @@
 // SOT: client-side-filter, client-side-sort, quick-search, row-view-indexes
-import type { FilterRule, SortRule, Value } from "@/lib/bindings";
+import type { FilterMode, FilterRule, SortRule, Value } from "@/lib/bindings";
 import { formatCell } from "@/lib/format";
 
 // WHAT:  Filter, quick-search and sort for rows the webview already holds (a
@@ -17,6 +17,8 @@ export interface RowView {
   /// Case-insensitive substring over every column's text; empty = off.
   search: string;
   filters: readonly FilterRule[];
+  /// Whether every rule must hold (the default) or any one of them.
+  mode?: FilterMode;
   sort: readonly SortRule[];
 }
 
@@ -56,6 +58,9 @@ export function matchesRule(rule: FilterRule, value: Value | undefined): boolean
       return compareText(text, needle) <= 0;
     case "contains":
       return text.toLowerCase().includes(needle.toLowerCase());
+    // A NULL holds no text, so it does not contain the needle.
+    case "not_contains":
+      return !text.toLowerCase().includes(needle.toLowerCase());
     case "starts_with":
       return text.toLowerCase().startsWith(needle.toLowerCase());
     case "ends_with":
@@ -90,7 +95,8 @@ export function viewIndexes(columns: readonly { name: string }[], rows: readonly
   const needle = view.search.trim().toLowerCase();
   const out: number[] = [];
   rows.forEach((row, i) => {
-    if (!filters.every(({ rule, index }) => index >= 0 && matchesRule(rule, row[index]))) return;
+    const hit = ({ rule, index }: { rule: FilterRule; index: number }) => index >= 0 && matchesRule(rule, row[index]);
+    if (filters.length > 0 && !(view.mode === "any" ? filters.some(hit) : filters.every(hit))) return;
     if (needle.length > 0 && !row.some((v) => valueText(v).toLowerCase().includes(needle))) return;
     out.push(i);
   });

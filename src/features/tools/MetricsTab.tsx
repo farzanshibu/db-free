@@ -88,13 +88,13 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
         form={
           <>
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">{language} expression</span>
+              <span className="text-[11px] font-medium text-muted">{language} expression</span>
               <Textarea
                 aria-label="Query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 spellCheck={false}
-                className="min-h-28 font-mono text-[12px]"
+                className="min-h-24 font-mono text-xs"
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                     e.preventDefault();
@@ -104,7 +104,7 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-sm font-medium text-foreground">Range</span>
+              <span className="text-[11px] font-medium text-muted">Range</span>
               <Segmented label="Time range" value={preset} onChange={setPreset} options={PRESETS.map((p) => ({ value: p.value, label: p.label }))} />
             </div>
             {preset === "custom" ? (
@@ -132,11 +132,11 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
           <EmptyState title="No series" body="The expression returned no samples in this window." />
         ) : (
           <div className="flex h-full min-h-0 flex-col">
-            <div className="min-h-0 flex-1 p-3">
+            <div className="min-h-0 flex-1 p-2.5">
               <SeriesChart series={visible} />
             </div>
-            <ScrollArea hideScrollBar className="max-h-40 shrink-0 border-t border-border/40 px-3 py-2">
-            <ul className="flex flex-wrap gap-x-4 gap-y-1 text-[11px]">
+            <ScrollArea hideScrollBar className="max-h-40 shrink-0 border-t border-border/40 px-2.5 py-1.5">
+            <ul className="flex flex-wrap gap-x-3 gap-y-1 text-[11px]">
               {result.series.map((s, i) => (
                 <li key={s.name}>
                   <Button

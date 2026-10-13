@@ -66,6 +66,17 @@ pub mod tigergraph;
 pub mod typesense;
 pub mod val_town;
 pub mod weaviate;
+pub mod js_sandbox;
+pub mod smtp;
+pub mod ddl;
+pub mod error_detail;
+pub mod mongo_shell;
+pub mod shell_meta;
+pub mod cloud_auth;
+pub mod dynamodb_aggregate;
+pub mod pooling;
+#[cfg(test)]
+mod pooling_live;
 
 // ============================================================================
 // INTEGRATION ADAPTER LAYER
@@ -402,6 +413,72 @@ pub trait Integration: Send + Sync {
     fn ssh_host_key(&self) -> Option<String> {
         None
     }
+    // WHAT:  What the grid needs to know about each column beyond `columns`: enum / SET
+    //        values, defaults, generated and auto-increment flags.
+    // WHY:   `ColumnInfo` is built by every adapter; a separate, optional lookup lets the
+    //        SQL adapters that can answer it do so without touching the rest.
+    // HOW:   One entry per column, matched by name. The default says nothing, and the
+    //        grid then treats every column as an ordinary writable one.
+    // WHERE: src-tauri/src/services/data.rs (`table_page_with`), src/lib/columnTraits.ts
+    async fn column_traits(&self, _table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        Ok(Vec::new())
+    }
+    // ---- schema forms (create / edit / duplicate / drop / namespaces) -----------
+    // WHAT:  The statements the Schema forms run, built from the typed specs of
+    //        `model::ddl`, and the table reader that fills the Edit form.
+    // WHY:   Quoting, type spelling, auto-increment, defaults and ALTER syntax are
+    //        per-dialect. The defaults delegate to `integrations::ddl`, keyed on
+    //        this adapter's engine, so SQL families need no code of their own; an
+    //        adapter whose language differs overrides the one method it needs.
+    // HOW:   Methods return statements, never run them: the form previews them and
+    //        the user runs the script through `execute_query`, so the read-only
+    //        lock and the destructive confirmation apply as for any other script.
+    // WHERE: src-tauri/src/integrations/ddl/, src-tauri/src/services/schema.rs
+    fn ddl_profile(&self) -> crate::model::DdlProfile {
+        ddl::profile(self.engine())
+    }
+    async fn describe_table(&self, table: &TableRef) -> AppResult<crate::model::TableSpec> {
+        ddl::describe(self, table).await
+    }
+    fn create_table_sql(&self, spec: &crate::model::TableSpec) -> AppResult<Vec<String>> {
+        ddl::create_table(self.engine(), spec)
+    }
+    fn alter_table_sql(&self, spec: &crate::model::AlterTableSpec) -> AppResult<Vec<String>> {
+        ddl::alter_table(self.engine(), spec)
+    }
+    fn duplicate_table_sql(&self, spec: &crate::model::DuplicateSpec, source: &crate::model::TableSpec) -> AppResult<Vec<String>> {
+        ddl::duplicate_table(self.engine(), spec, source)
+    }
+    fn remove_table_sql(&self, spec: &crate::model::RemoveSpec) -> AppResult<Vec<String>> {
+        ddl::remove_table(self.engine(), spec)
+    }
+    fn namespace_sql(&self, spec: &crate::model::NamespaceSpec) -> AppResult<Vec<String>> {
+        ddl::namespace(self.engine(), spec)
+    }
+    // ---- key-value browsing (declare the matching profile tool in `profile()`) ---
+    // WHAT:  One step of a cursor-paged scan of the keyspace, and the metadata of one
+    //        key (type, TTL, memory, encoding, idle time, length).
+    // WHY:   `catalog` lists tables, which for a key-value store means a capped
+    //        snapshot of keys; a keyspace of millions needs a cursor, a server-side
+    //        search and per-key figures, none of which fit the table contract.
+    // HOW:   Only the Redis family implements them; the defaults reject so a UI that
+    //        asks the wrong engine gets a plain message instead of an empty page.
+    // WHERE: src-tauri/src/integrations/redis.rs, src/features/keys/keyBrowser.ts
+    async fn scan_keys(&self, _scan: &crate::model::RedisKeyScan) -> AppResult<crate::model::RedisKeyPage> {
+        Err(AppError::invalid_input("This engine has no cursor-paged key scan."))
+    }
+    async fn key_info(&self, _key: &str) -> AppResult<crate::model::RedisKeyInfo> {
+        Err(AppError::invalid_input("This engine has no key metadata."))
+    }
+    // WHAT:  Closes the dedicated connection of one query tab, if the engine keeps one.
+    // WHY:   A tab that names a session key (`ExecuteQueryRequest::session_key`) runs
+    //        on its own pinned connection beside the pool so SET, temp tables and
+    //        BEGIN persist between Runs; closing the tab has to release it. The
+    //        adapter reads the key itself from `pooling::current_session_key()`.
+    // HOW:   Default does nothing: engines without pinned sessions simply ignore
+    //        the key. Closing an unknown key is not an error.
+    // WHERE: src-tauri/src/integrations/pooling.rs (`Pins`), commands/sessions.rs
+    async fn close_session(&self, _key: &str) {}
 }
 
 // WHAT:  Static profile per adapter family (see `FamilyProfile`), plus the kinds
@@ -595,7 +672,8 @@ pub fn quote_ident_for(engine: Engine, raw: &str) -> String {
     match engine.family() {
         Family::Mysql => format!("`{}`", raw.replace('`', "``")),
         Family::Mssql => format!("[{}]", raw.replace(']', "]]")),
-        Family::Bigquery => format!("`{}`", raw.replace('`', "\\`")),
+        // Backslash first: a trailing `\` would otherwise escape the closing backtick.
+        Family::Bigquery => format!("`{}`", raw.replace('\\', "\\\\").replace('`', "\\`")),
         _ => quote_ident(raw),
     }
 }
@@ -622,6 +700,10 @@ mod tests {
         let t = TableRef { schema: Some("public".into()), name: "users".into() };
         assert_eq!(qualified_name(&t), "\"public\".\"users\"");
         assert_eq!(quote_ident_for(Engine::Mysql, "we`ird"), "`we``ird`");
+        assert_eq!(quote_ident_for(Engine::Bigquery, "we`ird"), "`we\\`ird`");
+        // A trailing backslash must not escape the closing backtick.
+        assert_eq!(quote_ident_for(Engine::Bigquery, "x\\"), "`x\\\\`");
+        assert_eq!(quote_ident_for(Engine::Bigquery, "x\\`; DROP"), "`x\\\\\\`; DROP`");
         assert_eq!(qualified_name_for(Engine::Mariadb, &t), "`public`.`users`");
     }
 }

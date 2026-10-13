@@ -109,7 +109,7 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
               )}
             </div>
             {result.facets.length > 0 ? (
-              <ScrollArea className="w-60 shrink-0 border-l border-border/40 p-3">
+              <ScrollArea className="w-60 shrink-0 border-l border-border/40 p-2.5">
                 {result.facets.map((facet) => (
                   <div key={facet.field} className="mb-3">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">{facet.field}</div>

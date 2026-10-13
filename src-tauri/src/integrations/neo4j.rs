@@ -360,6 +360,7 @@ fn where_clause(filters: &[FilterRule]) -> WhereClause {
             FilterOp::Lt => (format!("{expr} < ${key}"), Some(scalar(text))),
             FilterOp::Lte => (format!("{expr} <= ${key}"), Some(scalar(text))),
             FilterOp::Contains => (format!("toLower(toString({expr})) CONTAINS toLower(${key})"), Some(BoltType::String(neo4rs::BoltString::new(text)))),
+            FilterOp::NotContains => (format!("NOT (toLower(toString({expr})) CONTAINS toLower(${key}))"), Some(BoltType::String(neo4rs::BoltString::new(text)))),
             FilterOp::StartsWith => (format!("toLower(toString({expr})) STARTS WITH toLower(${key})"), Some(BoltType::String(neo4rs::BoltString::new(text)))),
             FilterOp::EndsWith => (format!("toLower(toString({expr})) ENDS WITH toLower(${key})"), Some(BoltType::String(neo4rs::BoltString::new(text)))),
             FilterOp::In => {
@@ -1871,6 +1872,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, true), secret: Some("pw".into()) }
     }
@@ -2178,6 +2182,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ResolvedConnection { summary: ConnectionSummary::draft(&input, true), secret: std::env::var("DBFREE_TEST_NEO4J_PASSWORD").ok() }
     }

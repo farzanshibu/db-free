@@ -22,7 +22,12 @@ pub enum AppError {
     Timeout { message: String },
     /// The user pressed Stop (`cancel_query`) while the run was in flight.
     Cancelled { message: String },
-    Driver { message: String },
+    /// A failure the database itself reported. `position` is the 1-based
+    /// character offset into the statement that was sent, `hint` and `detail`
+    /// are the server's own follow-up lines. Adapters that can say more than
+    /// the message (Postgres, MySQL, ClickHouse) fill them; the editor draws
+    /// a squiggle at `position` and prints the other two under the message.
+    Driver { message: String, position: Option<u32>, hint: Option<String>, detail: Option<String> },
     Store { message: String },
     Crypto { message: String },
     Keyring { message: String },
@@ -52,7 +57,13 @@ impl AppError {
         Self::Cancelled { message: message.into() }
     }
     pub fn driver(message: impl fmt::Display) -> Self {
-        Self::Driver { message: message.to_string() }
+        Self::Driver { message: message.to_string(), position: None, hint: None, detail: None }
+    }
+    /// A database failure with the server's own pointer into the statement.
+    /// Blank hints and details are dropped, so the UI never prints an empty line.
+    pub fn driver_with(message: impl fmt::Display, position: Option<u32>, hint: Option<String>, detail: Option<String>) -> Self {
+        let keep = |text: Option<String>| text.map(|t| t.trim().to_string()).filter(|t| !t.is_empty());
+        Self::Driver { message: message.to_string(), position: position.filter(|p| *p > 0), hint: keep(hint), detail: keep(detail) }
     }
     pub fn store(message: impl fmt::Display) -> Self {
         Self::Store { message: message.to_string() }
@@ -76,7 +87,7 @@ impl AppError {
             | Self::InvalidInput { message }
             | Self::Timeout { message }
             | Self::Cancelled { message }
-            | Self::Driver { message }
+            | Self::Driver { message, .. }
             | Self::Store { message }
             | Self::Crypto { message }
             | Self::Keyring { message }

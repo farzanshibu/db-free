@@ -1,6 +1,6 @@
 // SOT: agent-model, agent-events, agent-stream, agent-tool-call, agent-artifact, agent-permission, agent-skill
 
-use crate::model::{QueryOutcome, StatementIntent, WidgetKind};
+use crate::model::{AiProvider, DocumentKind, QueryOutcome, StatementIntent, WidgetKind};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -56,6 +56,10 @@ pub struct PermissionRequest {
     pub statements: Vec<String>,
     pub intent: StatementIntent,
     pub reason: String,
+    /// Label for the approve button when "Run once" would be wrong ("Create
+    /// dashboard"). None keeps the statement wording.
+    #[serde(default)]
+    pub action_label: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -216,6 +220,20 @@ pub enum AgentArtifact {
         title: String,
         blocks: Vec<UiBlock>,
     },
+    /// A dashboard, workflow or diagram the agent saved after the user approved
+    /// it. The card offers to open it.
+    #[serde(rename_all = "camelCase")]
+    Document {
+        id: String,
+        title: String,
+        document_kind: DocumentKind,
+        document_id: String,
+        connection_id: Option<String>,
+        /// True when an existing document was replaced rather than a new one made.
+        updated: bool,
+        /// "5 widgets", "3 steps", "4 tables · 3 relations".
+        summary: String,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, TS)]
@@ -351,4 +369,207 @@ impl AgentEvent {
             | AgentEvent::Failed { run_id, .. } => run_id,
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Providers, models and data access
+// ---------------------------------------------------------------------------
+
+// WHAT:  How much of the database the assistant may see.
+// WHY:   "Use AI" and "send my rows to a third party" are different decisions.
+//        Schema-only lets the assistant write queries from table and column
+//        names without a single value leaving the machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AiDataAccess {
+    /// The assistant is switched off, whatever providers are configured.
+    Off,
+    /// Table and column names, types and relationships. No row ever leaves.
+    Schema,
+    /// The schema, plus the rows its read-only queries return.
+    #[default]
+    Full,
+}
+
+impl AiDataAccess {
+    /// Whether the tools may read rows (sample_rows, queries, renderers).
+    pub fn reads_rows(self) -> bool {
+        self == AiDataAccess::Full
+    }
+}
+
+/// One configured provider: its kind, where it lives, and whether a key is stored.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiProfile {
+    pub id: String,
+    pub provider: AiProvider,
+    /// What the user calls it ("Work OpenAI", "Local Ollama").
+    pub label: String,
+    /// Override for proxies and self-hosted servers. None = the provider's own endpoint.
+    pub base_url: Option<String>,
+    /// Derived on read from the sealed key store; whatever the client sends is ignored.
+    #[serde(default)]
+    pub has_api_key: bool,
+}
+
+// WHAT:  A key to seal (or remove) alongside an AI settings save.
+// WHY:   Secrets travel in one direction only: the UI sends them here, and
+//        nothing sends them back. Debug is written by hand so a logged request
+//        can never print one.
+#[derive(Clone, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiKeyChange {
+    pub profile_id: String,
+    /// Empty removes the stored key.
+    pub key: String,
+}
+
+impl std::fmt::Debug for AiKeyChange {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AiKeyChange").field("profile_id", &self.profile_id).field("key", &"***").finish()
+    }
+}
+
+/// A model picked for one message: which profile speaks it, and its id.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ModelChoice {
+    pub profile_id: String,
+    pub model: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiModel {
+    pub id: String,
+    pub label: String,
+}
+
+/// A provider's chat models, as fetched (or as last cached).
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiModelList {
+    pub profile_id: String,
+    pub models: Vec<AiModel>,
+    /// RFC 3339 time the list was fetched from the provider.
+    pub fetched_at: Option<String>,
+    /// True when this came from the cache rather than the provider.
+    pub cached: bool,
+}
+
+/// What "Test" found out.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiTestResult {
+    pub ok: bool,
+    /// One line for the UI: "Connected — 24 models" or why it failed.
+    pub message: String,
+    pub model_count: u32,
+    pub elapsed_ms: u64,
+}
+
+// ---------------------------------------------------------------------------
+// @ mentions
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum MentionKind {
+    Table,
+    SavedQuery,
+    Dashboard,
+    Workflow,
+    Diagram,
+}
+
+// WHAT:  One thing the user pointed at with `@` in a message.
+// WHY:   The id, not the label, is what the server resolves: a table is its
+//        qualified name, everything else is a record id. The label is what the
+//        chat shows back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ChatMention {
+    pub kind: MentionKind,
+    pub id: String,
+    pub label: String,
+}
+
+// ---------------------------------------------------------------------------
+// Saved chats
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum AiChatRole {
+    User,
+    Assistant,
+}
+
+impl AiChatRole {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            AiChatRole::User => "user",
+            AiChatRole::Assistant => "assistant",
+        }
+    }
+
+    pub fn parse(raw: &str) -> Option<AiChatRole> {
+        match raw {
+            "user" => Some(AiChatRole::User),
+            "assistant" => Some(AiChatRole::Assistant),
+            _ => None,
+        }
+    }
+}
+
+/// One row of the history popover.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiChatSummary {
+    pub id: String,
+    pub connection_id: String,
+    pub title: String,
+    pub created_at: String,
+    pub updated_at: String,
+    pub message_count: u32,
+}
+
+// WHAT:  One saved message. A user message carries its mentions; an assistant
+//        message carries the whole turn (tool calls, artifacts, usage) so a
+//        restored chat looks exactly as it did, charts included.
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiChatMessage {
+    pub id: String,
+    pub role: AiChatRole,
+    pub text: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub mentions: Vec<ChatMention>,
+    #[serde(default)]
+    pub turn: Option<AgentTurn>,
+    /// Set on an assistant message whose run failed.
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct AiChatDetail {
+    pub chat: AiChatSummary,
+    pub messages: Vec<AiChatMessage>,
 }

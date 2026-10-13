@@ -1,6 +1,6 @@
 // SOT: plan-tree-parsers, explain-json, postgres-explain-json, mysql-explain-json, sqlite-query-plan
 
-use crate::model::PlanNode;
+use crate::model::{PlanNode, StatementResult, Value};
 use serde_json::{Map, Value as Json};
 
 // ============================================================================
@@ -221,6 +221,17 @@ pub fn from_sqlite_rows(rows: &[(i64, i64, String)]) -> Option<PlanNode> {
 
 // ---- shared -----------------------------------------------------------------------
 
+/// The JSON document an EXPLAIN returned, taken from the one cell it came back in.
+/// Used when the plan ran through `Integration::execute` (the query tab's session).
+pub fn json_from_statements(statements: Vec<StatementResult>) -> Option<Json> {
+    let StatementResult::Rows { result } = statements.into_iter().next()? else { return None };
+    match result.rows.into_iter().next()?.into_iter().next()? {
+        Value::Json(doc) => Some(doc),
+        Value::Text(text) => serde_json::from_str(&text).ok(),
+        _ => None,
+    }
+}
+
 /// The statement an adapter wraps in EXPLAIN: one statement, no terminator.
 /// Adapters prepare it (extended protocol / `prepare`), which refuses a second
 /// statement rather than running it un-EXPLAINed.
@@ -248,6 +259,16 @@ fn plain(value: &Json) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn json_from_statements_reads_the_one_cell_an_explain_returns() {
+        use crate::model::{ResultSet, Value};
+        let rows = |cell: Value| StatementResult::Rows { result: ResultSet { columns: Vec::new(), rows: vec![vec![cell]], truncated: false } };
+        assert!(json_from_statements(vec![rows(Value::Json(json!([{"Plan": {}}])))]).is_some());
+        assert!(json_from_statements(vec![rows(Value::Text("[{\"Plan\": {}}]".into()))]).is_some());
+        assert!(json_from_statements(vec![rows(Value::Text("not json".into()))]).is_none());
+        assert!(json_from_statements(vec![StatementResult::Affected { rows_affected: 0 }]).is_none());
+        assert!(json_from_statements(Vec::new()).is_none());
+    }
     use super::*;
     use serde_json::json;
 

@@ -11,7 +11,7 @@ export function Label({ className, ...props }: React.ComponentProps<typeof Label
     <LabelPrimitive.Root
       data-slot="label"
       className={cn(
-        "flex select-none items-center gap-1.5 text-xs font-medium text-muted",
+        "flex select-none items-center gap-1 text-[11px] font-medium text-muted",
         "group-data-[disabled=true]/field:opacity-50 peer-disabled:cursor-not-allowed peer-disabled:opacity-50",
         className,
       )}

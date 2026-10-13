@@ -11,7 +11,7 @@ export function Toggle({ className, ...props }: React.ComponentProps<typeof Togg
     <TogglePrimitive.Root
       data-slot="toggle"
       className={cn(
-        "inline-flex h-7 min-w-7 shrink-0 items-center justify-center gap-1.5 rounded-md px-2 text-xs font-medium outline-none transition-colors",
+        "inline-flex h-6 min-w-6 shrink-0 items-center justify-center gap-1 rounded-sm px-1.5 text-xs font-medium outline-none transition-colors",
         "text-muted hover:bg-surface-secondary hover:text-foreground",
         "data-[state=on]:bg-accent/15 data-[state=on]:text-accent",
         "focus-visible:ring-2 focus-visible:ring-ring/50",

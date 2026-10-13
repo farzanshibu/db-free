@@ -101,6 +101,7 @@ pub fn mango_predicate(rule: &FilterRule) -> serde_json::Value {
         FilterOp::Lt => serde_json::json!({"$lt": lenient_json(v)}),
         FilterOp::Lte => serde_json::json!({"$lte": lenient_json(v)}),
         FilterOp::Contains => serde_json::json!({"$regex": format!("(?i){}", escape_regex(v))}),
+        FilterOp::NotContains => serde_json::json!({"$not": {"$regex": format!("(?i){}", escape_regex(v))}}),
         FilterOp::StartsWith => serde_json::json!({"$regex": format!("(?i)^{}", escape_regex(v))}),
         FilterOp::EndsWith => serde_json::json!({"$regex": format!("(?i){}$", escape_regex(v))}),
         FilterOp::In => {
@@ -1658,8 +1659,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_COUCHDB_PASSWORD").ok(),
         }

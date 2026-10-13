@@ -26,7 +26,6 @@ futures = "0.3"
 async-trait = "0.1"
 thiserror = "2"
 log = "0.4"
-env_logger = "0.11"
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 base64 = "0.22"
@@ -35,7 +34,8 @@ tokio-util = { version = "0.7", features = ["compat"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls-ring-native-roots", "postgres", "mysql"] }
 rusqlite = { version = "0.40", features = ["bundled", "column_decltype"] }
 redis = { version = "1", default-features = false, features = ["tokio-comp", "tokio-rustls-comp"] }
-mongodb = { version = "3", features = ["compat-3-3-0", "bson-3"] }
+# aws-auth: MONGODB-AWS; azure-oidc / gcp-oidc: MONGODB-OIDC workload identity (Atlas sign-in methods).
+mongodb = { version = "3", features = ["compat-3-3-0", "bson-3", "aws-auth", "azure-oidc", "gcp-oidc"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 tiberius = { version = "0.12", default-features = false, features = ["rustls", "tds73", "chrono"] }
 scylla = { version = "1", features = ["rustls-023", "chrono-04"] }
@@ -66,6 +66,25 @@ russh = { version = "0.63", default-features = false, features = ["ring", "rsa",
 # permission gate stay ours (src-tauri/src/services/agent/).
 rig-core = { version = "0.42", default-features = false, features = ["reqwest", "rustls", "derive"] }
 
+# Workflows: regex node, IANA time zones for schedules, SMTP email node (rustls), JavaScript sandbox (QuickJS,
+# no host APIs), desktop notifications. The notification plugin is pinned: 2.5+ needs tauri 2.12, the lockfile has 2.11.
+regex = "1"
+chrono-tz = "0.10"
+lettre = { version = "0.11", default-features = false, features = ["builder", "smtp-transport", "tokio1", "tokio1-rustls-tls"] }
+rquickjs = "0.14"
+tauri-plugin-notification = "=2.4.0"
+# Multi-table export as a ZIP of per-table files (services/export.rs only). Deflate
+# only: the same feature set libduckdb-sys already builds zip 6 with.
+zip = { version = "6", default-features = false, features = ["deflate"] }
+# Navicat `.ncx` import (XML, entity expansion off). Imported only in services/connection_formats.rs.
+quick-xml = "0.41"
+# Forwards a second launch ("Open with" a .sqlite file on Windows / Linux) to the running instance.
+# Pinned: later releases need a newer tauri than Cargo.lock holds.
+tauri-plugin-single-instance = "=2.4.5"
+# Window geometry (S2) and the rotating log file (S17, replaces env_logger). Both are
+# pinned: the 2.5 / 2.10 releases need tauri 2.12 and the lockfile has 2.11.
+tauri-plugin-window-state = "=2.4.1"
+tauri-plugin-log = "=2.9.2"
 [profile.release]
 codegen-units = 1
 lto = true

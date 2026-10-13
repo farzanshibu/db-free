@@ -2,6 +2,8 @@
 
 use crate::error::{AppError, AppResult};
 use crate::guard::destructive::split_statements;
+use crate::integrations::cloud_auth;
+use crate::integrations::pooling::{self, Dialect};
 use crate::integrations::sql::{order_clause, validate_columns, where_clause};
 use crate::integrations::{Capabilities, Integration};
 use crate::model::objects::format_number;
@@ -21,6 +23,9 @@ use tokio_util::compat::{Compat, TokioAsyncWriteCompatExt};
 
 impl From<tiberius::error::Error> for AppError {
     fn from(err: tiberius::error::Error) -> Self {
+        if is_transport_fault(&err) {
+            TRANSPORT_FAULTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         AppError::driver(err.to_string())
     }
 }
@@ -30,8 +35,171 @@ const DEFAULT_DATABASE: &str = "master";
 const DEFAULT_USER: &str = "sa";
 
 pub struct MssqlIntegration {
-    client: Arc<Mutex<Client<Compat<TcpStream>>>>,
+    client: ClientSlot,
     database: String,
+}
+
+// ============================================================================
+// THE SESSION AND ITS RECONNECT
+//
+// WHAT:  The adapter's single tiberius client, behind a lock, plus what it takes
+//        to dial the server again.
+// WHY:   There is one connection and nothing replaced it when it died: a server
+//        restart, a failover, a firewall timing out an idle socket or an
+//        `Error::Io` on one statement left every later request failing until the
+//        user disconnected and connected by hand.
+// HOW:   `lock` checks the connection before handing it out when the last call
+//        ended in a transport error, or when it has sat idle long enough for a
+//        middlebox to have dropped it, and redials if a `SELECT 1` gets no
+//        answer. A statement that fails because the socket died is still
+//        reported to the user and never resent: it may have been applied, and the
+//        next call is the one that reconnects. The redial reuses the `Config`
+//        built at connect time, but an Entra token is minted again on every
+//        redial (see `Dial::token_source`): the token captured at connect expires
+//        in about an hour and must not be replayed.
+// WHERE: every `self.client.lock().await` in this file
+// ============================================================================
+
+/// What it takes to open the connection again.
+struct Dial {
+    config: Config,
+    host: String,
+    port: u16,
+    /// The sign-in an Entra (Azure AD) connection mints its token from. Set only
+    /// when the token can be renewed; a pasted access token is replayed as-is.
+    token_source: Option<Arc<cloud_auth::CloudSession>>,
+}
+
+async fn open_client(dial: &Dial) -> AppResult<Client<Compat<TcpStream>>> {
+    let (host, port) = (dial.host.as_str(), dial.port);
+    let mut config = dial.config.clone();
+    if let Some(session) = &dial.token_source {
+        // Fresh-or-still-valid: the cache answers while the token has more than the
+        // refresh skew left, otherwise the sign-in mints a new one.
+        let creds = session.db_credentials().await?;
+        config.authentication(AuthMethod::aad_token(&creds.password));
+    }
+    let tcp = TcpStream::connect((host, port))
+        .await
+        .map_err(|e| AppError::driver(format!("Could not reach SQL Server at {host}:{port}: {e}")))?;
+    let _ = tcp.set_nodelay(true);
+    Client::connect(config, tcp.compat_write())
+        .await
+        .map_err(|e| AppError::driver(format!("SQL Server connection failed: {e}")))
+}
+
+// WHAT:  Ends a transaction a script left open, if there is one.
+// WHY:   `@@TRANCOUNT` is the server's own count, so this is a no-op (and silent)
+//        when the script had already committed or rolled back.
+async fn roll_back_open_transaction(client: &mut Client<Compat<TcpStream>>) {
+    match client.simple_query("IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION").await {
+        Ok(stream) => {
+            if let Err(err) = stream.into_results().await {
+                log::warn!("rollback after a failed script failed: {err}");
+            }
+        }
+        Err(err) => log::warn!("rollback after a failed script failed: {err}"),
+    }
+}
+
+/// Idle time after which the socket is checked before it is trusted again.
+const PROBE_AFTER: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Transport faults seen so far, process-wide. A guard that sees the count move
+/// while it held the client knows a call on it hit the wire's failure.
+static TRANSPORT_FAULTS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+// WHAT:  True when the error says the connection, not the statement, failed.
+// HOW:   I/O, TLS and protocol errors, plus the server's own "this session is
+//        gone" codes (596 session in the kill state, 233 client connection closed).
+fn is_transport_fault(err: &tiberius::error::Error) -> bool {
+    use tiberius::error::Error as E;
+    match err {
+        E::Io { .. } | E::Tls(_) | E::Protocol(_) => true,
+        E::Server(token) => matches!(token.code(), 596 | 233),
+        _ => false,
+    }
+}
+
+struct ClientSlot {
+    client: Mutex<Client<Compat<TcpStream>>>,
+    dial: Dial,
+    /// A call on the client ended in a transport fault since it was last checked.
+    suspect: std::sync::atomic::AtomicBool,
+    /// A script that may have opened a transaction is (or was) running and has not
+    /// cleaned up after itself, e.g. because Stop or the timeout dropped it half-way.
+    /// The next caller rolls back before using the connection.
+    transaction_pending: std::sync::atomic::AtomicBool,
+    last_used: std::sync::Mutex<std::time::Instant>,
+}
+
+impl ClientSlot {
+    fn new(client: Client<Compat<TcpStream>>, dial: Dial) -> ClientSlot {
+        ClientSlot {
+            client: Mutex::new(client),
+            dial,
+            suspect: std::sync::atomic::AtomicBool::new(false),
+            transaction_pending: std::sync::atomic::AtomicBool::new(false),
+            last_used: std::sync::Mutex::new(std::time::Instant::now()),
+        }
+    }
+
+    async fn lock(&self) -> ClientGuard<'_> {
+        use std::sync::atomic::Ordering;
+        let mut guard = self.client.lock().await;
+        let idle = self.last_used.lock().map(|at| at.elapsed()).unwrap_or_default();
+        let suspect = self.suspect.swap(false, Ordering::AcqRel);
+        if suspect || idle >= PROBE_AFTER {
+            let answers = match guard.simple_query("SELECT 1").await {
+                Ok(stream) => stream.into_results().await.is_ok(),
+                Err(_) => false,
+            };
+            if !answers {
+                match open_client(&self.dial).await {
+                    Ok(fresh) => *guard = fresh,
+                    // The caller's own statement will fail with the transport error and say why.
+                    Err(err) => log::warn!("SQL Server reconnect failed: {err}"),
+                }
+            }
+        }
+        // The previous script was dropped before it could end its own transaction.
+        if self.transaction_pending.swap(false, Ordering::AcqRel) {
+            roll_back_open_transaction(&mut guard).await;
+        }
+        ClientGuard { guard, slot: self, faults_at_lock: TRANSPORT_FAULTS.load(Ordering::Relaxed) }
+    }
+}
+
+// WHAT:  The client while a call holds it; remembers whether the call hit a dead socket.
+struct ClientGuard<'a> {
+    guard: tokio::sync::MutexGuard<'a, Client<Compat<TcpStream>>>,
+    slot: &'a ClientSlot,
+    faults_at_lock: u64,
+}
+
+impl std::ops::Deref for ClientGuard<'_> {
+    type Target = Client<Compat<TcpStream>>;
+    fn deref(&self) -> &Self::Target {
+        &self.guard
+    }
+}
+
+impl std::ops::DerefMut for ClientGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.guard
+    }
+}
+
+impl Drop for ClientGuard<'_> {
+    fn drop(&mut self) {
+        use std::sync::atomic::Ordering;
+        if let Ok(mut at) = self.slot.last_used.lock() {
+            *at = std::time::Instant::now();
+        }
+        if TRANSPORT_FAULTS.load(Ordering::Relaxed) != self.faults_at_lock {
+            self.slot.suspect.store(true, Ordering::Release);
+        }
+    }
 }
 
 pub fn quote_ident(raw: &str) -> String {
@@ -63,14 +231,25 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .filter(|u| !u.is_empty())
         .unwrap_or(DEFAULT_USER);
     let password = conn.secret.as_deref().unwrap_or_default();
+    // A Microsoft Entra identity signs in with an access token instead of a login
+    // (and the token must travel encrypted: `db_plan` never goes below `require`).
+    let plan = cloud_auth::db_plan(conn).await?;
+    let entra = matches!(s.auth, crate::model::ConnectionAuth::AzureAd { .. });
 
     let mut config = Config::new();
-    config.host(host);
+    // Through an SSH tunnel the socket goes to the tunnel's local end below, but the
+    // certificate is checked against the real server name: tiberius takes its TLS
+    // name from `config.host`, and dialling is a separate step here.
+    config.host(s.extra.tunnel_origin_host.as_deref().unwrap_or(host));
     config.port(port);
     config.database(&database);
-    config.authentication(AuthMethod::sql_server(user, password));
+    if entra {
+        config.authentication(AuthMethod::aad_token(plan.password.as_deref().unwrap_or_default()));
+    } else {
+        config.authentication(AuthMethod::sql_server(user, password));
+    }
 
-    match s.ssl_mode {
+    match plan.ssl_mode {
         SslMode::Disable => config.encryption(EncryptionLevel::NotSupported),
         SslMode::Prefer => {
             config.encryption(EncryptionLevel::Off);
@@ -84,18 +263,21 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
             config.encryption(EncryptionLevel::Required);
         }
     }
+    // A private CA: trust exactly that file instead of the system roots (or blind trust).
+    if plan.ssl_mode != SslMode::Disable {
+        if let Some(ca) = s.extra.tls.ca_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            config.trust_cert_ca(crate::model::connection::expand_home(ca).to_string_lossy().into_owned());
+        }
+    }
 
-    let tcp = TcpStream::connect(config.get_addr())
-        .await
-        .map_err(|e| AppError::driver(format!("Could not reach SQL Server at {host}:{port}: {e}")))?;
-    let _ = tcp.set_nodelay(true);
-
-    let client = Client::connect(config, tcp.compat_write())
-        .await
-        .map_err(|e| AppError::driver(format!("SQL Server connection failed: {e}")))?;
+    // Kept so a dead socket can be redialled later (see `ClientSlot`). Only an Entra
+    // token needs minting again; a SQL login's password is the same on every dial.
+    let token_source = if entra { plan.refresh.clone() } else { None };
+    let dial = Dial { config, host: host.to_string(), port, token_source };
+    let client = open_client(&dial).await?;
 
     Ok(Arc::new(MssqlIntegration {
-        client: Arc::new(Mutex::new(client)),
+        client: ClientSlot::new(client, dial),
         database,
     }))
 }
@@ -1856,6 +2038,45 @@ impl Integration for MssqlIntegration {
         Ok(cols)
     }
 
+    // WHAT:  Identity, computed and default flags from sys.columns.
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        let schema = table.schema.as_deref().unwrap_or("dbo");
+        let qualified = format!("[{}].[{}]", schema.replace(']', "]]"), table.name.replace(']', "]]"));
+        let sql = format!(
+            "SELECT c.name, c.is_identity, c.is_computed, OBJECT_DEFINITION(c.default_object_id) \
+             FROM sys.columns c WHERE c.object_id = OBJECT_ID(N'{}') ORDER BY c.column_id",
+            qualified.replace('\'', "''")
+        );
+        let mut client = self.client.lock().await;
+        let stream = client.simple_query(&sql).await.map_err(AppError::from)?;
+        let rows = stream.into_first_result().await.map_err(AppError::from)?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let mut cells = row.into_iter();
+            let name = match cells.next() {
+                Some(ColumnData::String(Some(n))) => n.to_string(),
+                _ => continue,
+            };
+            let flag = |cell: Option<ColumnData<'_>>| matches!(cell, Some(ColumnData::Bit(Some(true))));
+            let identity = flag(cells.next());
+            let computed = flag(cells.next());
+            let default_expr = match cells.next() {
+                Some(ColumnData::String(Some(d))) => Some(d.to_string()),
+                _ => None,
+            };
+            out.push(crate::model::ColumnTraits {
+                name,
+                enum_values: Vec::new(),
+                multi: false,
+                has_default: default_expr.is_some(),
+                default_expr,
+                generated: computed,
+                auto_increment: identity,
+            });
+        }
+        Ok(out)
+    }
+
     async fn row_estimate(&self, table: &TableRef) -> AppResult<Option<i64>> {
         let schema = table.schema.as_deref().unwrap_or("dbo");
         let name = &table.name;
@@ -1950,22 +2171,35 @@ impl Integration for MssqlIntegration {
     }
 
     async fn execute(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        // WHAT:  A script that opened a transaction and then failed (or never closed
+        //        it) must not leave it open on the one shared connection.
+        // WHY:   There is a single client, so the next request of any kind (a grid
+        //        page, the next Run, a pending-changes commit) would run inside the
+        //        half-applied transaction and hold its locks.
+        // HOW:   `pooling::scan` reads the script; only a script that began a
+        //        transaction pays for the rollback round trip.
+        let hazard = pooling::scan(sql, Dialect::Mssql);
         let stmts = split_statements(sql);
         let mut results = Vec::new();
         let mut client = self.client.lock().await;
+        // Stays set if this future is dropped half-way (Stop, timeout): the next
+        // `lock()` then ends the transaction this script may have left open.
+        if hazard.transaction {
+            self.client.transaction_pending.store(true, std::sync::atomic::Ordering::Release);
+        }
 
+        let ran: AppResult<()> = async {
         for stmt in stmts {
             let stream = match client.simple_query(&stmt).await {
                 Ok(s) => s,
-                Err(e) => return Err(AppError::driver(e.to_string())),
+                Err(e) => return Err(AppError::from(e)),
             };
 
+            // A server error (a failed constraint, a missing table) surfaces while
+            // the result is read, so it has to be reported, not skipped.
             let rows = match stream.into_first_result().await {
                 Ok(r) => r,
-                Err(_) => {
-                    results.push(StatementResult::Affected { rows_affected: 0 });
-                    continue;
-                }
+                Err(e) => return Err(AppError::from(e)),
             };
 
             if rows.is_empty() {
@@ -1997,8 +2231,17 @@ impl Integration for MssqlIntegration {
                 },
             });
         }
+        Ok(())
+        }
+        .await;
 
-        Ok(results)
+        if hazard.transaction {
+            if ran.is_err() || hazard.left_open {
+                roll_back_open_transaction(&mut client).await;
+            }
+            self.client.transaction_pending.store(false, std::sync::atomic::Ordering::Release);
+        }
+        ran.map(|()| results)
     }
 
     async fn close(&self) {}
@@ -2133,6 +2376,28 @@ impl Integration for MssqlIntegration {
 mod tests {
     use super::*;
     use crate::model::{ConnectionSummary, Environment, FilterOp, FilterRule, PageQuery, SslMode};
+
+    #[test]
+    fn a_dead_socket_is_told_apart_from_a_bad_statement() {
+        use tiberius::error::Error as E;
+        assert!(is_transport_fault(&E::Io { kind: tiberius::error::IoErrorKind::ConnectionReset, message: "reset".into() }));
+        assert!(is_transport_fault(&E::Io { kind: tiberius::error::IoErrorKind::UnexpectedEof, message: "eof".into() }));
+        assert!(is_transport_fault(&E::Tls("handshake".into())));
+        assert!(is_transport_fault(&E::Protocol("unexpected token".into())));
+        assert!(!is_transport_fault(&E::Conversion("bad cast".into())));
+        assert!(!is_transport_fault(&E::Utf8));
+    }
+
+    #[test]
+    fn a_transport_error_is_counted_so_the_next_call_checks_the_connection() {
+        let before = TRANSPORT_FAULTS.load(std::sync::atomic::Ordering::Relaxed);
+        let io = tiberius::error::Error::Io { kind: tiberius::error::IoErrorKind::BrokenPipe, message: "pipe".into() };
+        let _ = AppError::from(io);
+        assert!(TRANSPORT_FAULTS.load(std::sync::atomic::Ordering::Relaxed) > before);
+        let steady = TRANSPORT_FAULTS.load(std::sync::atomic::Ordering::Relaxed);
+        let _ = AppError::from(tiberius::error::Error::Utf8);
+        assert_eq!(TRANSPORT_FAULTS.load(std::sync::atomic::Ordering::Relaxed), steady, "a bad statement is not a dead socket");
+    }
 
     #[test]
     fn mssql_ident_quoting() {
@@ -2430,8 +2695,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_MSSQL_PASSWORD").ok(),
         };

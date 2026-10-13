@@ -1,13 +1,19 @@
-// SOT: app-shell, layout, page-routing, tab-routing, settings-css-vars, tab-shortcuts, theme-attribute
+// SOT: app-shell, layout, page-routing, settings-css-vars, theme-attribute, window-effects-mount
 import { useEffect } from "react";
-import { useActiveConnection, useActiveTab, useWorkspace } from "@/stores/workspace";
-import { ipc, normalizeError } from "@/lib/ipc";
+import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { fontStack } from "@/lib/fonts";
+import { applyThemeColors, clearThemeColors, followsAccentSetting } from "@/lib/themes";
+import { UiPrefsProvider } from "@/lib/uiPrefs";
 import { IconRail } from "@/features/shell/IconRail";
 import { Sidebar } from "@/features/shell/Sidebar";
-import { TabBar } from "@/features/shell/TabBar";
+import { PaneArea } from "@/features/shell/PaneArea";
 import { EnvironmentEdge } from "@/features/shell/EnvironmentEdge";
-import { TabArea } from "@/features/shell/TabView";
+import { UpdateBar } from "@/features/shell/UpdateBar";
+import { AboutDialog } from "@/features/shell/AboutDialog";
+import { CloseConfirmDialog } from "@/features/shell/CloseConfirmDialog";
+import { DragLayer } from "@/features/shell/DragLayer";
+import { WhatsNewPage } from "@/features/shell/WhatsNewPage";
+import { useLaunchUpdateCheck, useNativeMenu, useShellShortcuts, useWindowEffects } from "@/features/shell/useShellEffects";
 import { ConnectionsPage } from "@/features/connections/ConnectionsPage";
 import { ConnectionPicker } from "@/features/connections/ConnectionPicker";
 import { ConnectionForm } from "@/features/connections/ConnectionForm";
@@ -16,11 +22,10 @@ import { CapabilityMatrixPage } from "@/features/engines/CapabilityMatrixPage";
 import { PendingChangesPanel } from "@/features/changes/PendingChangesPanel";
 import { CommandPalette } from "@/features/palette/CommandPalette";
 import { BackupDialog } from "@/features/backup/BackupDialog";
+import { ConnectionEvents } from "@/features/connections/ConnectionEvents";
 import { Toaster } from "@/components/global/Toaster";
-import { toast } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { useShortcut } from "@/stores/useShortcut";
-import { useResolvedTheme } from "@/stores/useTheme";
+import { useActiveTheme } from "@/stores/useTheme";
 
 /// Stacks used until the settings load (they match globals.css).
 const UI_FONT_FALLBACK = '"JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
@@ -28,12 +33,6 @@ const EDITOR_FONT_FALLBACK = UI_FONT_FALLBACK;
 
 /// Accent colour plus its oklch hue: the hue also drives every tinted surface
 /// (window gradient, glass panels, selection) through the --accent-hue variable.
-/// Guards the startup update check against running twice. StrictMode invokes
-/// every effect a second time in development, and a second run would download
-/// the same release again and stack a duplicate toast; a module-level flag
-/// survives that remount where component state does not.
-let updateChecked = false;
-
 /// `light` is the same hue darkened for a white ground: the dark-theme accents
 /// (L 0.6–0.7) fall under 3:1 as text on white; these hold ≥ 4.5:1, and white
 /// text on them stays readable for the filled Run / Save buttons.
@@ -51,89 +50,31 @@ export function App() {
   const page = useWorkspace((s) => s.page);
   const settings = useWorkspace((s) => s.settings);
   const density = useWorkspace((s) => s.density);
-  const showError = useWorkspace((s) => s.showError);
   const connection = useActiveConnection();
   const connected = useWorkspace((s) => (connection ? s.sessions.includes(connection.id) : false));
-  const tab = useActiveTab();
   const changesOpen = useWorkspace((s) => s.changesPanelOpen);
-  const closeTab = useWorkspace((s) => s.closeTab);
-  const reopenClosedTab = useWorkspace((s) => s.reopenClosedTab);
-  const cycleTab = useWorkspace((s) => s.cycleTab);
-  const openQuery = useWorkspace((s) => s.openQuery);
-  const theme = useResolvedTheme();
+  const theme = useActiveTheme();
 
-  // WHAT:  Browser-style tab keys: new, close, reopen closed, next / previous.
-  useShortcut("new-query", () => {
-    const id = tab?.connectionId ?? connection?.id;
-    if (id !== undefined) openQuery(id);
-  });
-  useShortcut("close-tab", () => {
-    if (tab) closeTab(tab.id);
-  });
-  useShortcut("reopen-tab", reopenClosedTab);
-  useShortcut("next-tab", () => cycleTab(1));
-  useShortcut("prev-tab", () => cycleTab(-1));
+  // Keyboard actions, the native menu, zoom, the OS window theme, error reporting,
+  // other windows' changes and the update check all live in useShellEffects.ts.
+  useShellShortcuts();
+  useNativeMenu();
+  useWindowEffects();
+  useLaunchUpdateCheck();
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
 
-  // WHAT:  Suppress the webview's own right-click menu (Cut/Copy/Paste, Speech,
-  //        Inspect Element) app-wide.
-  // WHY:   It is a browser menu in a desktop app: it offers nothing the app can
-  //        honour and hides the app's own context menus behind a second click.
-  // HOW:   Capture phase, preventDefault only — propagation continues, so the
-  //        React handlers that open the app's menus still run.
-  // WHAT:  One update check at startup. If there is a new version the bytes are
-  //        fetched in the background, and the toast that announces it carries
-  //        the Restart button that installs them.
-  // WHY:   Telling someone to open Settings, find Updates and then wait out a
-  //        multi-megabyte download is three steps too many. Downloading first
-  //        means the only thing left to ask is when to restart — and restarting
-  //        stays their decision, because it closes whatever they are doing.
-  // HOW:   `download_update` stages the bytes in the Rust side; `install_update`
-  //        applies the staged copy and relaunches. The toast never expires on
-  //        its own: it is dismissed by acting on it, or by ignoring it.
-  // WHERE: src-tauri/src/commands/updates.rs
-  useEffect(() => {
-    if (updateChecked) return;
-    updateChecked = true;
-    void (async () => {
-      try {
-        const status = await ipc("download_update");
-        if (status.available === null) return;
-        toast.success(`DB Free ${status.available} is ready to install`, {
-          // A fixed id makes this toast a singleton: re-announcing an update
-          // replaces the notice instead of stacking another copy of it.
-          id: "update-ready",
-          description: "The download has finished. Restarting takes a moment.",
-          duration: Number.POSITIVE_INFINITY,
-          action: {
-            label: "Restart",
-            onClick: () => {
-              void (async () => {
-                try {
-                  // The app relaunches inside this call, so nothing follows it.
-                  await ipc("install_update");
-                } catch (raw) {
-                  showError(normalizeError(raw));
-                }
-              })();
-            },
-          },
-        });
-      } catch {
-        // Offline, or no release feed: an update check is not worth an error toast.
-      }
-    })();
-  }, [showError]);
-
-  // WHAT:  The resolved theme (Settings → Themes; "system" follows the OS live)
-  //        as `data-theme` on <html>, which is all globals.css keys off.
+  // WHAT:  The drawn theme (Settings → Themes; "system" follows the OS live) as
+  //        `data-theme` on <html>, which is all globals.css keys off. A custom
+  //        theme is its base scheme plus its colours as inline variables.
   useEffect(() => {
     const root = document.documentElement;
-    root.setAttribute("data-theme", theme);
-    root.classList.toggle("dark", theme === "dark");
+    root.setAttribute("data-theme", theme.id);
+    root.classList.toggle("dark", theme.base === "dark");
+    if (theme.custom === null) clearThemeColors(root);
+    else applyThemeColors(root, theme.custom.colors);
   }, [theme]);
 
   // Density drives the chrome's spacing tokens (globals.css), not just row height.
@@ -141,71 +82,93 @@ export function App() {
     document.documentElement.setAttribute("data-density", density);
   }, [density]);
 
+  // WHAT:  Suppress the webview's own right-click menu (Cut/Copy/Paste, Speech,
+  //        Inspect Element) app-wide.
+  // WHY:   It is a browser menu in a desktop app: it offers nothing the app can
+  //        honour and hides the app's own context menus behind a second click.
+  // HOW:   Capture phase, preventDefault only — propagation continues, so the
+  //        React handlers that open the app's menus still run.
   useEffect(() => {
     const suppress = (event: MouseEvent) => event.preventDefault();
     document.addEventListener("contextmenu", suppress, { capture: true });
     return () => document.removeEventListener("contextmenu", suppress, { capture: true });
   }, []);
 
-  // WHAT:  Settings that are pure CSS (accent, font sizes) apply as root variables.
+  // WHAT:  Settings that are pure CSS (accent, font sizes, scrollbar size) apply as root variables.
+  // HOW:   The Accent setting recolours Dark, Light and any custom theme that does not
+  //        set its own accent; the other built-in themes bring theirs (globals.css).
+  //        Declared after the theme effect, so its inline `--accent` lands last.
   useEffect(() => {
     if (!settings) return;
     const root = document.documentElement.style;
     const accent = ACCENTS[settings.accent] ?? ACCENTS.blue;
+    const ownAccent = theme.custom !== null && "--accent" in theme.custom.colors;
     if (accent) {
-      root.setProperty("--accent", theme === "light" ? accent.light : accent.color);
       root.setProperty("--accent-hue", String(accent.hue));
+      if (!ownAccent && (followsAccentSetting(theme.id) || theme.custom !== null)) root.setProperty("--accent", theme.base === "light" ? accent.light : accent.color);
     }
     root.setProperty("--font-sans", fontStack(settings.uiFont, UI_FONT_FALLBACK));
     root.setProperty("--font-mono", fontStack(settings.editorFont, EDITOR_FONT_FALLBACK));
     root.setProperty("--ui-font-size", `${settings.uiFontSize}px`);
     root.setProperty("--editor-font-size", `${settings.editorFontSize}px`);
     document.body.style.fontSize = `${settings.uiFontSize}px`;
+    document.documentElement.setAttribute("data-scrollbar", settings.gridScrollbarSize === "large" ? "large" : "standard");
   }, [settings, theme]);
 
   return (
     <TooltipProvider>
-      <div className="grid-bg flex h-full text-foreground">
-      <IconRail />
-      {!ready ? null : page.kind === "settings" ? (
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <SettingsPage />
-        </div>
-      ) : page.kind === "capabilities" ? (
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <CapabilityMatrixPage />
-        </div>
-      ) : page.kind === "connection-picker" ? (
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <ConnectionPicker />
-        </div>
-      ) : page.kind === "connection-form" ? (
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <ConnectionForm />
-        </div>
-      ) : page.kind === "connections" || !connection || !connected ? (
-        <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-          <ConnectionsPage />
-        </div>
-      ) : (
-        <>
-          <Sidebar />
-          <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
-            <EnvironmentEdge environment={connection.environment} />
-            <TabBar />
-            <div className="flex min-h-0 flex-1">
-              <div className="min-w-0 flex-1">
-                <TabArea tab={tab} />
+      <UiPrefsProvider datePickerEnabled={settings?.datePickerEnabled ?? true}>
+        <div className="grid-bg flex h-full flex-col text-foreground">
+          <div className="flex min-h-0 flex-1">
+            <IconRail />
+            {!ready ? null : page.kind === "settings" ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                <SettingsPage />
               </div>
-              {changesOpen ? <PendingChangesPanel connectionId={connection.id} /> : null}
-            </div>
-          </main>
-        </>
-      )}
-        <CommandPalette />
-        <BackupDialog />
-        <Toaster />
-      </div>
+            ) : page.kind === "capabilities" ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                <CapabilityMatrixPage />
+              </div>
+            ) : page.kind === "whats-new" ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                <WhatsNewPage />
+              </div>
+            ) : page.kind === "connection-picker" ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                <ConnectionPicker />
+              </div>
+            ) : page.kind === "connection-form" ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                <ConnectionForm />
+              </div>
+            ) : page.kind === "connections" || !connection || !connected ? (
+              <div className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                <ConnectionsPage />
+              </div>
+            ) : (
+              <>
+                <Sidebar />
+                <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
+                  <EnvironmentEdge environment={connection.environment} />
+                  <div className="flex min-h-0 flex-1">
+                    <PaneArea />
+                    {changesOpen ? <PendingChangesPanel connectionId={connection.id} /> : null}
+                  </div>
+                </main>
+              </>
+            )}
+          </div>
+          <UpdateBar />
+          <CommandPalette />
+          <BackupDialog />
+          {/* OS-opened database files and window drops work on every page. */}
+          <ConnectionEvents />
+          <AboutDialog />
+          <CloseConfirmDialog />
+          <DragLayer />
+          <Toaster />
+        </div>
+      </UiPrefsProvider>
     </TooltipProvider>
   );
 }

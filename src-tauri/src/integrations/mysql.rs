@@ -1,6 +1,8 @@
 // SOT: mysql-integration, mariadb, sqlx-mysql-adapter, mysql-value-decoding, mysql-catalog-queries, mysql-object-explorer, mysql-server-stats, mysql-admin-actions
 
 use crate::error::{AppError, AppResult};
+use crate::integrations::cloud_auth;
+use crate::integrations::pooling::{self, Dialect, ErrorFacts, Hazard, PinOpener, PinnedConn, Pins};
 use crate::integrations::sql::{order_clause, quote_literal, where_clause};
 use crate::integrations::{qualified_name_for, quote_ident_for, Capabilities, Integration};
 use crate::model::objects::format_number;
@@ -34,11 +36,13 @@ pub struct MysqlIntegration {
     pool: MySqlPool,
     engine: Engine,
     database: Option<String>,
-    running: RunningIds,
+    running: Arc<RunningIds>,
     /// The connection a manual transaction is pinned to (see `begin_transaction`).
     tx: tokio::sync::Mutex<Option<Pinned>>,
     /// Mirrors `tx.is_some()` without waiting on a run that holds the lock.
     tx_open: AtomicBool,
+    /// One dedicated connection per query tab, beside the pool (see `integrations/pooling.rs`).
+    pins: Pins,
 }
 
 /// A pooled connection held out of the pool for a manual transaction.
@@ -69,32 +73,72 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .map(str::trim)
         .filter(|d| !d.is_empty())
         .map(str::to_string);
+    // Who to log in as, with what, over which TLS: the saved password unchanged, or the
+    // short-lived token of a cloud identity (RDS IAM, Azure AD, Cloud SQL IAM).
+    let plan = cloud_auth::db_plan(conn).await?;
     let mut opts = MySqlConnectOptions::new()
         .host(s.host.as_deref().unwrap_or("localhost"))
         .port(s.port.unwrap_or(3306))
-        .ssl_mode(ssl_mode(s.ssl_mode));
+        .ssl_mode(ssl_mode(plan.ssl_mode));
     if let Some(db) = database.as_deref() {
         opts = opts.database(db);
     }
-    if let Some(user) = s.username.as_deref() {
+    if let Some(user) = plan.user.as_deref() {
         opts = opts.username(user);
     }
-    if let Some(secret) = conn.secret.as_deref() {
+    if let Some(secret) = plan.password.as_deref() {
         opts = opts.password(secret);
     }
+    // IAM tokens are sent in clear text, which the server only accepts over TLS
+    // (`cloud_auth::db_plan` never goes below `require`).
+    if plan.cleartext_password {
+        opts = opts.enable_cleartext_plugin(true);
+    }
+    // A CA the user chose in the TLS settings wins over the one the sign-in method brings.
+    if let (Some(pem), None) = (plan.ca_pem.as_deref(), s.extra.tls.ca_path.as_deref()) {
+        opts = opts.ssl_ca_from_pem(pem.as_bytes().to_vec());
+    }
+    // TLS files chosen on the connection: a private CA, and a client certificate for mutual TLS.
+    let tls_path = |p: &Option<String>| p.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(crate::model::connection::expand_home);
+    if let Some(ca) = tls_path(&s.extra.tls.ca_path) {
+        opts = opts.ssl_ca(ca);
+    }
+    if let Some(cert) = tls_path(&s.extra.tls.cert_path) {
+        opts = opts.ssl_client_cert(cert);
+    }
+    if let Some(key) = tls_path(&s.extra.tls.key_path) {
+        opts = opts.ssl_client_key(key);
+    }
+    let running = Arc::new(RunningIds::default());
     let pool = MySqlPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(15))
-        .connect_with(opts)
+        .connect_with(opts.clone())
         .await?;
+    // Pinned query-tab connections open with the pool's *current* options, so a
+    // refreshed token (below) reaches them too.
+    let pins = Pins::new(Arc::new(MysqlOpener { pool: pool.clone(), running: Arc::clone(&running) }), Dialect::Mysql);
+    if let Some(session) = plan.refresh.clone() {
+        // A pool opens connections lazily with the options it was built with; a
+        // 15-minute token would break every reconnect after the first quarter hour.
+        let live = pool.clone();
+        cloud_auth::keep_fresh(session, plan.expires_at, pool.close_event(), move |fresh| {
+            let mut next = opts.clone();
+            if let Some(user) = fresh.user.as_deref() {
+                next = next.username(user);
+            }
+            live.set_connect_options(next.password(&fresh.password));
+        });
+    }
     let engine = s.engine;
     Ok(Arc::new(MysqlIntegration {
         pool,
         engine,
         database,
-        running: RunningIds::default(),
+        running,
         tx: tokio::sync::Mutex::new(None),
         tx_open: AtomicBool::new(false),
+        pins,
     }))
 }
 
@@ -271,6 +315,16 @@ fn cell_text(value: Option<&Value>) -> String {
     }
 }
 
+// WHAT:  Whether an `information_schema.COLUMNS.EXTRA` value (lower-cased) marks a
+//        generated column: one the server computes and refuses writes to.
+// WHY:   `DEFAULT_GENERATED` also contains "generated" but is only a column whose
+//        default is an expression (`CURRENT_TIMESTAMP`); that column is writable.
+//        MySQL says `VIRTUAL GENERATED` / `STORED GENERATED`; older MariaDB says
+//        `VIRTUAL` / `PERSISTENT`.
+fn is_generated_extra(extra: &str) -> bool {
+    extra.contains("virtual") || extra.contains("stored generated") || extra.contains("persistent")
+}
+
 fn cell_i64(value: Option<&Value>) -> Option<i64> {
     match value {
         Some(Value::Int(i)) => Some(*i),
@@ -297,7 +351,7 @@ impl MysqlIntegration {
         max_rows: usize,
         decode: fn(&MySqlRow, usize) -> Value,
     ) -> AppResult<Vec<StatementResult>> {
-        run_on(&self.pool, sql, max_rows, decode).await
+        self.run_leased(None, sql, max_rows, decode).await
     }
 
     // WHAT:  `execute` for a run the user can Stop: pins one pooled connection
@@ -308,10 +362,42 @@ impl MysqlIntegration {
     //        type, and text decodes the same on both.
     // WHERE: `cancel` below, src-tauri/src/guard/mod.rs (step 9)
     async fn run_tracked(&self, run_id: String, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        let mut conn = self.pool.acquire().await?;
-        let id = Self::connection_id(&mut conn).await?;
-        let _tracked = Tracked::new(&self.running, run_id, id);
-        run_on(&mut *conn, sql, max_rows, decode_cell).await
+        self.run_leased(Some(run_id), sql, max_rows, decode_cell).await
+    }
+
+    // WHAT:  Runs a script on a pooled connection and hands the connection back
+    //        with no open transaction and the default database it came with.
+    // WHY:   sqlx 0.8 returns a connection to the pool after only a ping and keeps
+    //        the server's transaction flag private, so a script that did `BEGIN`
+    //        and never committed, or `USE other`, left the next request on that
+    //        connection inside the transaction / in the wrong database.
+    // HOW:   `pooling::scan` reads the script first; a clean one costs nothing
+    //        extra. Otherwise `restore` rolls back and switches back to the home
+    //        database, and the connection is closed instead of pooled when that
+    //        fails, when the script set session state MySQL cannot reset, or when
+    //        this future is dropped mid-run (Stop, timeout).
+    // WHERE: integrations/pooling.rs (`scan`), `restore` below
+    async fn run_leased(
+        &self,
+        run_id: Option<String>,
+        sql: &str,
+        max_rows: usize,
+        decode: fn(&MySqlRow, usize) -> Value,
+    ) -> AppResult<Vec<StatementResult>> {
+        let hazard = pooling::scan(sql, Dialect::Mysql);
+        let mut lease = Lease { conn: self.pool.acquire().await?, unsafe_to_pool: hazard.any() };
+        let _tracked = match run_id {
+            Some(run_id) => {
+                let id = Self::connection_id(&mut lease.conn).await?;
+                Some(Tracked::new(&self.running, run_id, id))
+            }
+            None => None,
+        };
+        let result = run_on(&mut *lease.conn, sql, max_rows, decode).await;
+        if hazard.any() {
+            lease.unsafe_to_pool = !restore(&mut lease.conn, hazard, self.database.as_deref(), self.engine).await;
+        }
+        result
     }
 
     async fn connection_id(conn: &mut PoolConnection<MySql>) -> AppResult<u64> {
@@ -336,6 +422,131 @@ impl MysqlIntegration {
         }
         result?;
         Ok(())
+    }
+}
+
+// WHAT:  A pooled connection on loan for one script.
+// WHY:   If the script's future is dropped half-way (Stop, timeout) the connection
+//        can be mid-transaction, and the pool would hand it to the next caller.
+//        `unsafe_to_pool` stays set from the moment a script that touched
+//        transaction or session state starts until `restore` has put the
+//        connection right, and a lease dropped while it is set closes the
+//        connection rather than returning it.
+struct Lease {
+    conn: PoolConnection<MySql>,
+    unsafe_to_pool: bool,
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if self.unsafe_to_pool {
+            self.conn.close_on_drop();
+        }
+    }
+}
+
+// WHAT:  Undoes what `hazard` says a script left on its connection. True when
+//        the connection is clean and may go back to the pool.
+// HOW:   ROLLBACK is a silent no-op outside a transaction, so it is sent whenever
+//        the script touched transactions. A switched default database is put
+//        back with `USE`. MySQL has no way to reset user variables, temp tables,
+//        locks or `SET` values on a live connection, so a script that set any
+//        gets its connection closed and replaced instead.
+async fn restore(conn: &mut PoolConnection<MySql>, hazard: Hazard, home: Option<&str>, engine: Engine) -> bool {
+    if hazard.transaction && run_on(&mut **conn, "ROLLBACK", 0, decode_cell).await.is_err() {
+        return false;
+    }
+    if hazard.state {
+        return false;
+    }
+    if hazard.database_switch {
+        return match home {
+            Some(db) => run_on(&mut **conn, &format!("USE {}", quote_ident_for(engine, db)), 0, decode_cell).await.is_ok(),
+            None => false,
+        };
+    }
+    true
+}
+
+// WHAT:  The driver's view of "this connection is gone", for the pinned sessions.
+fn connection_lost(err: &sqlx::Error) -> bool {
+    let transport = matches!(
+        err,
+        sqlx::Error::Io(_) | sqlx::Error::Tls(_) | sqlx::Error::Protocol(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed
+    );
+    let (sqlstate, number, message) = match err {
+        sqlx::Error::Database(db) => (
+            db.code().map(|c| c.into_owned()),
+            db.try_downcast_ref::<sqlx::mysql::MySqlDatabaseError>().map(|e| u32::from(e.number())),
+            db.message().to_string(),
+        ),
+        other => (None, None, other.to_string()),
+    };
+    pooling::is_connection_lost(ErrorFacts { transport, sqlstate: sqlstate.as_deref(), number, message: &message })
+}
+
+// WHAT:  One query tab's dedicated connection (see `integrations/pooling.rs`).
+// WHY:   Opened with `MySqlConnectOptions::connect`, not taken from the pool, so a
+//        tab never competes with the grid and sidebar for the pool's four
+//        connections and its state is never handed to anyone else.
+struct MysqlPin {
+    conn: Option<sqlx::MySqlConnection>,
+    id: u64,
+    running: Arc<RunningIds>,
+    lost: bool,
+}
+
+#[async_trait]
+impl PinnedConn for MysqlPin {
+    async fn run(&mut self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        let Some(conn) = self.conn.as_mut() else {
+            return Err(AppError::internal("The session connection is closed."));
+        };
+        // Registered for the life of this call so Stop can KILL QUERY the pinned thread.
+        let _tracked = crate::integrations::current_run_id().map(|id| Tracked::new(&self.running, id, self.id));
+        match run_on_sqlx(&mut *conn, sql, max_rows, decode_cell).await {
+            Ok(out) => {
+                self.lost = false;
+                Ok(out)
+            }
+            Err(err) => {
+                self.lost = connection_lost(&err);
+                Err(AppError::from(err))
+            }
+        }
+    }
+
+    async fn alive(&mut self) -> bool {
+        match self.conn.as_mut() {
+            Some(conn) => sqlx::Connection::ping(conn).await.is_ok(),
+            None => false,
+        }
+    }
+
+    fn lost(&self) -> bool {
+        self.lost
+    }
+
+    async fn close(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            let _ = sqlx::Connection::close(conn).await;
+        }
+    }
+}
+
+struct MysqlOpener {
+    pool: MySqlPool,
+    running: Arc<RunningIds>,
+}
+
+#[async_trait]
+impl PinOpener for MysqlOpener {
+    async fn open(&self) -> AppResult<Box<dyn PinnedConn>> {
+        let opts = self.pool.connect_options();
+        let mut conn = sqlx::ConnectOptions::connect(&*opts).await?;
+        let id: String = sqlx::query_scalar("SELECT CAST(CONNECTION_ID() AS CHAR)").fetch_one(&mut conn).await?;
+        let id = id.trim().parse::<u64>().map_err(AppError::driver)?;
+        Ok(Box::new(MysqlPin { conn: Some(conn), id, running: Arc::clone(&self.running), lost: false }))
     }
 }
 
@@ -396,6 +607,20 @@ async fn run_on<'c, E>(
     max_rows: usize,
     decode: fn(&MySqlRow, usize) -> Value,
 ) -> AppResult<Vec<StatementResult>>
+where
+    E: Executor<'c, Database = MySql>,
+{
+    run_on_sqlx(executor, sql, max_rows, decode).await.map_err(AppError::from)
+}
+
+// WHAT:  `run_on` with the driver's own error, for callers that must tell a dead
+//        connection from a bad statement (a pinned query-tab session).
+async fn run_on_sqlx<'c, E>(
+    executor: E,
+    sql: &'c str,
+    max_rows: usize,
+    decode: fn(&MySqlRow, usize) -> Value,
+) -> Result<Vec<StatementResult>, sqlx::Error>
 where
     E: Executor<'c, Database = MySql>,
 {
@@ -1718,6 +1943,40 @@ impl Integration for MysqlIntegration {
         self.columns_in(db, &table.name).await
     }
 
+    // WHAT:  Defaults, auto-increment and generated flags (MySQL / MariaDB `EXTRA`).
+    // HOW:   ENUM / SET values come from the column type the grid already has.
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        let Some(db) = self.require_database() else {
+            return Ok(Vec::new());
+        };
+        let sql = format!(
+            "SELECT COLUMN_NAME, COLUMN_DEFAULT, EXTRA FROM information_schema.COLUMNS \
+             WHERE TABLE_SCHEMA = {} AND TABLE_NAME = {} ORDER BY ORDINAL_POSITION",
+            quote_literal(db),
+            quote_literal(&table.name)
+        );
+        let rows = self.query_rows(&sql).await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let extra = cell_text(r.get(2)).to_ascii_lowercase();
+                let default = match r.get(1) {
+                    None | Some(Value::Null) => None,
+                    other => Some(cell_text(other)),
+                };
+                crate::model::ColumnTraits {
+                    name: cell_text(r.first()),
+                    enum_values: Vec::new(),
+                    multi: false,
+                    has_default: default.is_some() || extra.contains("default_generated"),
+                    default_expr: default,
+                    generated: is_generated_extra(&extra),
+                    auto_increment: extra.contains("auto_increment"),
+                }
+            })
+            .collect())
+    }
+
     async fn row_estimate(&self, table: &TableRef) -> AppResult<Option<i64>> {
         let Some(db) = self.require_database() else {
             return Ok(None);
@@ -1770,10 +2029,19 @@ impl Integration for MysqlIntegration {
                 return run_on(&mut *pinned.conn, sql, max_rows, decode_cell).await;
             }
         }
+        // A query tab that named a session runs on its own connection, where SET,
+        // temp tables and BEGIN survive until its next Run.
+        if let Some(key) = pooling::current_session_key() {
+            return self.pins.run(&key, sql, max_rows).await;
+        }
         match crate::integrations::current_run_id() {
             Some(run_id) => self.run_tracked(run_id, sql, max_rows).await,
             None => self.run(sql, max_rows).await,
         }
+    }
+
+    async fn close_session(&self, key: &str) {
+        self.pins.close(key).await;
     }
 
     async fn cancel(&self, run_id: &str) {
@@ -1822,6 +2090,13 @@ impl Integration for MysqlIntegration {
         // A prepared statement, unlike `run`: it refuses a script instead of
         // running its second statement un-EXPLAINed.
         let explain = format!("EXPLAIN FORMAT=JSON {}", crate::integrations::plan::explain_target(sql));
+        // A plan for a tab's statement runs where that statement runs (its open
+        // transaction, or its session), so it sees the same database and temp tables.
+        if self.tx_open.load(Ordering::Acquire) || pooling::current_session_key().is_some() {
+            let statements = self.execute(&explain, 1).await?;
+            let Some(doc) = crate::integrations::plan::json_from_statements(statements) else { return Ok(None) };
+            return Ok(crate::integrations::plan::from_mysql_json(&doc));
+        }
         let row = sqlx::query(&explain).persistent(false).fetch_one(&self.pool).await?;
         let doc = match decode_meta_cell(&row, 0) {
             Value::Json(doc) => doc,
@@ -1839,6 +2114,7 @@ impl Integration for MysqlIntegration {
                 log::warn!("rollback on close failed: {err}");
             }
         }
+        self.pins.close_all().await;
         self.pool.close().await;
     }
 
@@ -1988,6 +2264,19 @@ mod tests {
         assert_eq!(text_to_value("VARCHAR", "hi"), Value::Text("hi".into()));
         assert!(is_blob_type("LONGBLOB") && !is_blob_type("VARBINARY") && !is_blob_type("TEXT"));
         assert!(is_binary_flagged_string("VARBINARY") && !is_binary_flagged_string("BLOB"));
+    }
+
+    #[test]
+    fn only_computed_columns_are_generated() {
+        assert!(is_generated_extra("virtual generated"));
+        assert!(is_generated_extra("stored generated"));
+        assert!(is_generated_extra("persistent"));
+        assert!(is_generated_extra("virtual"));
+        // A column whose default is an expression is writable.
+        assert!(!is_generated_extra("default_generated"));
+        assert!(!is_generated_extra("default_generated on update current_timestamp"));
+        assert!(!is_generated_extra("auto_increment"));
+        assert!(!is_generated_extra(""));
     }
 
     #[test]
@@ -2262,6 +2551,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let resolved = ResolvedConnection {
             summary: ConnectionSummary::draft(&input, true),

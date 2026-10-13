@@ -15,8 +15,8 @@ export function ToolShell({ tool, right, children }: { tool: Tool; right?: React
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
-        <Icon name={meta.icon} size={15} className="text-accent" />
-        <span className="text-sm font-semibold tracking-tight text-foreground">{meta.label}</span>
+        <Icon name={meta.icon} size={14} className="text-accent" />
+        <span className="text-[13px] font-semibold tracking-tight text-foreground">{meta.label}</span>
         <Badge size="sm" variant="soft" className="hidden text-[10px] text-muted md:inline-flex">
           {meta.hint}
         </Badge>
@@ -42,8 +42,8 @@ export function useCollectionOptions(connectionId: string): { value: string; lab
 export function ToolBody({ form, children }: { form: ReactNode; children: ReactNode }) {
   return (
     <div className="flex h-full min-h-0">
-      <aside className="flex w-80 shrink-0 border-r border-border/40">
-        <ScrollArea hideScrollBar className="flex min-w-0 flex-1 flex-col gap-3 p-3">{form}</ScrollArea>
+      <aside className="flex w-72 shrink-0 border-r border-border/40">
+        <ScrollArea hideScrollBar className="flex min-w-0 flex-1 flex-col gap-2 p-2.5">{form}</ScrollArea>
       </aside>
       <div className="min-h-0 min-w-0 flex-1">{children}</div>
     </div>

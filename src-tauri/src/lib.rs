@@ -11,6 +11,9 @@ pub mod model;
 pub mod services;
 pub mod state;
 pub mod store;
+pub mod open_files;
+pub mod diagnostics;
+pub mod menu;
 
 use adapters::keyring::OsKeyring;
 use state::AppState;
@@ -23,19 +26,64 @@ use tauri::Manager;
 //        master key and integration sessions are created lazily on first use.
 // WHERE: src-tauri/src/commands/mod.rs (CommandName must match this list)
 pub fn run() -> Result<(), Box<dyn std::error::Error>> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    // Logging is the log plugin's job (src-tauri/src/diagnostics.rs): it owns the global logger.
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
+        // A second launch (Windows / Linux "Open with", a double-click on a database
+        // file) lands in the running app: open the files it was given and focus the window.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            open_files::on_second_launch(app, &argv);
+        }))
+        .plugin(diagnostics::log_plugin())
+        .plugin(
+            tauri_plugin_window_state::Builder::new()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
+                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
+                )
+                .build(),
+        )
         .setup(|app| {
             let data_dir = app.path().app_data_dir()?;
             std::fs::create_dir_all(&data_dir)?;
             let store = Store::open(&data_dir.join("db-free.sqlite"))?;
-            app.manage(AppState::new(store, Box::new(OsKeyring::default())));
+            // The master key lives in the OS keychain; on a machine without one it falls back to a 0600 file.
+            let keys = OsKeyring::default().with_file_fallback(data_dir.join("master.key"));
+            app.manage(AppState::new(store, Box::new(keys)));
             // Holds an update downloaded in the background until the user restarts.
             app.manage(commands::updates::StagedUpdate::default());
             // Cancel switches for backup / restore runs in flight.
             app.manage(commands::backup::BackupRuns::default());
+            // Workflow runs in flight, then the clock that fires Schedule nodes with every window closed.
+            app.manage(services::workflows::WorkflowRuns::default());
+            commands::workflows::start_scheduler(app.handle().clone());
+            // Settings → Editor → Keep query log for: trim the log once, at startup.
+            if let Some(state) = app.try_state::<AppState>() {
+                services::history::prune_on_start(&state);
+            }
+            // Files opened for one session never outlive the one that opened them.
+            open_files::sweep_stale_transients(app.handle());
+            // Windows / Linux pass a double-clicked file as an argument of the first launch.
+            open_files::open_from_args(app.handle(), std::env::args_os().skip(1));
+            // Chords last sent for the native menu; the UI refreshes them on startup.
+            app.manage(commands::windows::MenuShortcuts::default());
+            diagnostics::install_panic_hook(app.handle().clone());
+            app.set_menu(menu::build(app.handle(), &std::collections::BTreeMap::new())?)?;
+            app.on_menu_event(|handle, event| menu::dispatch(handle, event.id().as_ref()));
+            // The schema cache's background refresh tells the UI when it found the
+            // catalog different from the copy the sidebar was drawn from.
+            if let Some(state) = app.try_state::<AppState>() {
+                let handle = app.handle().clone();
+                state.schema_cache().set_notifier(move |event| {
+                    if let Err(err) = tauri::Emitter::emit(&handle, "schema-cache:updated", event) {
+                        log::debug!("schema-cache:updated not delivered: {err}");
+                    }
+                });
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -103,8 +151,105 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>> {
             commands::connections::ping_session,
             commands::compare::schema_diff,
             commands::compare::compare_table_data,
+            commands::workflows::cancel_workflow,
+            commands::workflows::list_workflow_schedules,
+            commands::workflows::test_workflow_regex,
+            commands::workflows::workflow_last_node_config,
+            commands::diagrams::list_diagram_customizations,
+            commands::diagrams::save_diagram_customizations,
+            commands::diagrams::autosave_document,
+            commands::diagrams::checkpoint_document,
+            commands::diagrams::list_document_versions,
+            commands::diagrams::restore_document_version,
+            commands::diagrams::delete_document_version,
+            commands::diagrams::diagram_ddl,
+            commands::diagrams::save_diagram_export,
+            commands::library::list_library,
+            commands::library::create_library_folder,
+            commands::library::rename_library_folder,
+            commands::library::move_library_folder,
+            commands::library::delete_library_folder,
+            commands::library::move_library_item,
+            commands::library::rename_document,
+            commands::library::duplicate_document,
+            commands::library::rename_saved_query,
+            commands::library::duplicate_saved_query,
+            commands::library::list_saved_query_versions,
+            commands::library::restore_saved_query_version,
+            commands::library::export_saved_queries,
+            commands::library::list_pins,
+            commands::library::pin_item,
+            commands::library::unpin_item,
+            commands::library::reorder_pins,
+            commands::library::list_recents,
+            commands::library::record_recent,
+            commands::library::clear_recents,
+            commands::changes::rows_as_sql,
+            commands::data::fetch_rows,
+            commands::data::list_fk_remaps,
+            commands::data::save_fk_remap,
+            commands::data::delete_fk_remap,
+            commands::tags::list_table_tags,
+            commands::tags::save_table_tag,
+            commands::tags::delete_table_tag,
+            commands::tags::reorder_table_tags,
+            commands::tags::tag_table,
+            commands::tags::set_tag_collapsed,
+            commands::tags::move_tagged_table,
+            commands::schema::ddl_profile,
+            commands::schema::describe_table,
+            commands::schema::preview_ddl,
+            commands::query::execute_batch,
+            commands::query::list_history_page,
+            commands::query::list_editor_history,
+            commands::query::read_sql_file,
+            commands::keys::scan_keys,
+            commands::keys::key_info,
+            commands::transfer::preview_export,
+            commands::transfer::preview_import,
+            commands::transfer::plan_json_import,
+            commands::transfer::run_json_import,
+            commands::transfer::inspect_sql_file,
+            commands::transfer::import_sql_file,
+            commands::connections::duplicate_connection,
+            commands::connections::validate_connection,
+            commands::connections::credential_status,
+            commands::connections::reset_credentials,
+            commands::connection_org::list_connection_org,
+            commands::connection_org::save_connection_tag,
+            commands::connection_org::delete_connection_tag,
+            commands::connection_org::save_connection_folder,
+            commands::connection_org::delete_connection_folder,
+            commands::connection_org::set_connection_org,
+            commands::connection_files::export_connections,
+            commands::connection_files::import_connections,
+            commands::connection_files::open_database_file,
+            commands::connection_files::save_transient_connection,
+            commands::connection_files::list_ssh_config_hosts,
+            commands::connection_files::create_demo_connection,
+            commands::windows::open_window,
+            commands::windows::close_window,
+            commands::windows::set_ui_zoom,
+            commands::windows::set_window_theme,
+            commands::windows::open_external,
+            commands::windows::open_log_folder,
+            commands::windows::log_ui_error,
+            commands::windows::set_menu_shortcuts,
+            commands::windows::export_theme_file,
+            commands::windows::import_theme_file,
+            commands::updates::app_info,
+            commands::ai::ai_settings_save,
+            commands::ai::ai_models,
+            commands::ai::ai_test,
+            commands::ai::ai_chat_list,
+            commands::ai::ai_chat_load,
+            commands::ai::ai_chat_rename,
+            commands::ai::ai_chat_delete,
+            commands::ai::ai_diagram_from_schema,
+            commands::sessions::close_session,
         ])
-        .run(tauri::generate_context!())?;
+        .build(tauri::generate_context!())?
+        .run(|app, event| open_files::on_run_event(app, &event));
     Ok(())
 }
 
@@ -205,6 +350,130 @@ mod export_bindings {
             crate::model::SchemaDiff::export_all(&cfg),
             crate::commands::compare::CompareTableDataRequest::export_all(&cfg),
             crate::model::DataCompare::export_all(&cfg),
+            crate::commands::workflows::CancelWorkflowRequest::export_all(&cfg),
+            crate::commands::workflows::TestRegexRequest::export_all(&cfg),
+            crate::commands::workflows::LastNodeConfigRequest::export_all(&cfg),
+            // Only reachable through the event stream, so it needs naming here.
+            crate::model::WorkflowEvent::export_all(&cfg),
+            crate::model::WorkflowScheduleStatus::export_all(&cfg),
+            crate::model::RegexTestResult::export_all(&cfg),
+            crate::model::NodeConfig::export_all(&cfg),
+            crate::commands::diagrams::DiagramScopeRequest::export_all(&cfg),
+            crate::commands::diagrams::SaveDiagramCustomizationsRequest::export_all(&cfg),
+            crate::commands::diagrams::AutosaveDocumentRequest::export_all(&cfg),
+            crate::commands::diagrams::CheckpointDocumentRequest::export_all(&cfg),
+            crate::commands::diagrams::DocumentHistoryRequest::export_all(&cfg),
+            crate::commands::diagrams::DocumentVersionRequest::export_all(&cfg),
+            crate::commands::diagrams::DiagramDdlRequest::export_all(&cfg),
+            crate::commands::diagrams::SaveDiagramExportRequest::export_all(&cfg),
+            crate::model::DocumentVersionSummary::export_all(&cfg),
+            crate::model::DiagramDdl::export_all(&cfg),
+            crate::commands::library::RenameRequest::export_all(&cfg),
+            crate::commands::library::CreateFolderRequest::export_all(&cfg),
+            crate::commands::library::MoveFolderRequest::export_all(&cfg),
+            crate::commands::library::MoveItemRequest::export_all(&cfg),
+            crate::commands::library::DuplicateDocumentRequest::export_all(&cfg),
+            crate::commands::library::DuplicateQueryRequest::export_all(&cfg),
+            crate::commands::library::ExportQueriesRequest::export_all(&cfg),
+            crate::commands::library::HomeEntityRequest::export_all(&cfg),
+            crate::commands::library::UnpinRequest::export_all(&cfg),
+            crate::commands::library::ReorderPinsRequest::export_all(&cfg),
+            crate::model::LibraryLayout::export_all(&cfg),
+            crate::model::SavedQueryVersion::export_all(&cfg),
+            crate::model::HomePin::export_all(&cfg),
+            crate::model::HomeRecent::export_all(&cfg),
+            crate::commands::changes::RowsSqlRequest::export_all(&cfg),
+            crate::commands::data::FetchRowsRequest::export_all(&cfg),
+            crate::commands::data::SaveFkRemapRequest::export_all(&cfg),
+            crate::commands::data::DeleteFkRemapRequest::export_all(&cfg),
+            crate::model::CommitReport::export_all(&cfg),
+            crate::model::FkRemap::export_all(&cfg),
+            crate::commands::tags::ListTagsRequest::export_all(&cfg),
+            crate::commands::tags::SaveTagRequest::export_all(&cfg),
+            crate::commands::tags::ReorderTagsRequest::export_all(&cfg),
+            crate::commands::tags::TagTableRequest::export_all(&cfg),
+            crate::commands::tags::TagCollapseRequest::export_all(&cfg),
+            crate::commands::tags::MoveTaggedTableRequest::export_all(&cfg),
+            crate::commands::schema::PreviewDdlRequest::export_all(&cfg),
+            crate::model::TableTag::export_all(&cfg),
+            crate::model::TagState::export_all(&cfg),
+            crate::model::DdlProfile::export_all(&cfg),
+            crate::model::TableSpec::export_all(&cfg),
+            crate::model::DdlPreview::export_all(&cfg),
+            crate::commands::query::ExecuteBatchRequest::export_all(&cfg),
+            crate::commands::query::HistoryPageRequest::export_all(&cfg),
+            crate::commands::query::EditorHistoryRequest::export_all(&cfg),
+            crate::model::HistoryPage::export_all(&cfg),
+            crate::commands::query::ReadSqlFileRequest::export_all(&cfg),
+            crate::model::OpenedSqlFile::export_all(&cfg),
+            // Only reachable through the batch's progress channel, so it needs naming here.
+            crate::model::BatchEvent::export_all(&cfg),
+            crate::model::BatchSummary::export_all(&cfg),
+            crate::commands::keys::ScanKeysRequest::export_all(&cfg),
+            crate::commands::keys::KeyInfoRequest::export_all(&cfg),
+            crate::model::RedisKeyPage::export_all(&cfg),
+            crate::model::RedisKeyInfo::export_all(&cfg),
+            crate::commands::transfer::PreviewExportRequest::export_all(&cfg),
+            crate::commands::transfer::PreviewImportRequest::export_all(&cfg),
+            crate::commands::transfer::JsonPlanRequest::export_all(&cfg),
+            crate::commands::transfer::JsonImportRequest::export_all(&cfg),
+            crate::commands::transfer::SqlFileRequest::export_all(&cfg),
+            crate::commands::transfer::SqlImportRequest::export_all(&cfg),
+            crate::model::ExportPreview::export_all(&cfg),
+            crate::model::ImportPreview::export_all(&cfg),
+            crate::model::JsonImportPlan::export_all(&cfg),
+            crate::model::JsonImportReport::export_all(&cfg),
+            crate::model::SqlFileInfo::export_all(&cfg),
+            crate::model::SqlImportReport::export_all(&cfg),
+            // Only reachable through the progress channels, so they need naming here.
+            crate::model::ExportProgress::export_all(&cfg),
+            crate::model::ImportProgress::export_all(&cfg),
+            crate::model::SqlImportProgress::export_all(&cfg),
+            crate::commands::connection_org::SaveConnectionTagRequest::export_all(&cfg),
+            crate::commands::connection_org::SaveConnectionFolderRequest::export_all(&cfg),
+            crate::commands::connection_org::OrgIdRequest::export_all(&cfg),
+            crate::commands::connection_org::SetConnectionOrgRequest::export_all(&cfg),
+            crate::commands::connection_files::ExportConnectionsRequest::export_all(&cfg),
+            crate::commands::connection_files::ImportConnectionsRequest::export_all(&cfg),
+            crate::commands::connection_files::OpenDatabaseFileRequest::export_all(&cfg),
+            crate::commands::connection_files::SaveTransientRequest::export_all(&cfg),
+            crate::model::ConnectionFieldIssue::export_all(&cfg),
+            crate::model::ConnectionOrg::export_all(&cfg),
+            crate::model::ConnectionImportReport::export_all(&cfg),
+            crate::model::ConnectionExportReport::export_all(&cfg),
+            crate::model::ConnectionOpenedEvent::export_all(&cfg),
+            crate::model::SshConfigHost::export_all(&cfg),
+            crate::model::CredentialStatus::export_all(&cfg),
+            crate::commands::windows::OpenWindowRequest::export_all(&cfg),
+            crate::commands::windows::SetZoomRequest::export_all(&cfg),
+            crate::commands::windows::SetWindowThemeRequest::export_all(&cfg),
+            crate::commands::windows::OpenExternalRequest::export_all(&cfg),
+            crate::commands::windows::LogUiErrorRequest::export_all(&cfg),
+            crate::commands::windows::MenuShortcutsRequest::export_all(&cfg),
+            crate::commands::windows::ExportThemeRequest::export_all(&cfg),
+            crate::commands::windows::ImportThemeRequest::export_all(&cfg),
+            crate::model::AppInfo::export_all(&cfg),
+            crate::model::CustomTheme::export_all(&cfg),
+            crate::model::ThemeBase::export_all(&cfg),
+            // Only reachable through events, so they need naming here.
+            crate::model::MenuActionEvent::export_all(&cfg),
+            crate::model::AppErrorEvent::export_all(&cfg),
+            crate::commands::ai::SaveAiSettingsRequest::export_all(&cfg),
+            crate::commands::ai::AiModelsRequest::export_all(&cfg),
+            crate::commands::ai::AiTestRequest::export_all(&cfg),
+            crate::commands::ai::AiChatsRequest::export_all(&cfg),
+            crate::commands::ai::AiChatRenameRequest::export_all(&cfg),
+            crate::commands::ai::DiagramFromSchemaRequest::export_all(&cfg),
+            crate::model::AiModelList::export_all(&cfg),
+            crate::model::AiTestResult::export_all(&cfg),
+            crate::model::AiChatSummary::export_all(&cfg),
+            crate::model::AiChatDetail::export_all(&cfg),
+            crate::model::AiDataAccess::export_all(&cfg),
+            crate::model::ChatMention::export_all(&cfg),
+            crate::model::ModelChoice::export_all(&cfg),
+            crate::commands::sessions::CloseSessionRequest::export_all(&cfg),
+            // Only reachable through an event, so it needs naming here.
+            crate::model::SchemaCacheUpdated::export_all(&cfg),
         ];
         for result in results {
             result.unwrap_or_else(|e| panic!("{e}"));

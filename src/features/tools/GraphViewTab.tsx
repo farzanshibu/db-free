@@ -377,13 +377,13 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
       }
     >
       <div className="flex h-full min-h-0 flex-col">
-        <div className="flex shrink-0 items-start gap-2 border-b border-border/40 p-3">
+        <div className="flex shrink-0 items-start gap-2 border-b border-border/40 p-2.5">
           <Textarea
             aria-label={`${language} query`}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             spellCheck={false}
-            className="min-h-20 flex-1 font-mono text-[12px]"
+            className="min-h-16 flex-1 font-mono text-xs"
             onKeyDown={(e) => {
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -402,7 +402,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
             </Button>
           </div>
         </div>
-        {error !== null ? <p className="shrink-0 px-3 py-1 text-xs text-danger">{error}</p> : null}
+        {error !== null ? <p className="shrink-0 px-2.5 py-1 text-xs text-danger">{error}</p> : null}
         <div className="flex min-h-0 flex-1">
           <div className="min-h-0 min-w-0 flex-1">
             {shown === null || graph === null || graph.nodes.length === 0 ? (
@@ -412,7 +412,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
             )}
           </div>
           {graph !== null && graph.nodes.length > 0 ? (
-            <aside className="flex w-72 shrink-0 flex-col border-l border-border/40">
+            <aside className="flex w-64 shrink-0 flex-col border-l border-border/40">
               <Legend
                 graph={graph}
                 hiddenLabels={hiddenLabels}
@@ -420,7 +420,7 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
                 onToggleLabel={(l) => setHiddenLabels((set) => toggle(set, l))}
                 onToggleType={(t) => setHiddenTypes((set) => toggle(set, t))}
               />
-              <ScrollArea className="min-h-0 flex-1 border-t border-border/40 p-3">
+              <ScrollArea className="min-h-0 flex-1 border-t border-border/40 p-2.5">
                 {selected === null ? (
                   <p className="text-xs text-muted">Select a node or a relationship.</p>
                 ) : (
@@ -475,7 +475,7 @@ function Legend({
   const typeCounts = new Map<string, number>();
   for (const e of graph.edges) typeCounts.set(e.type, (typeCounts.get(e.type) ?? 0) + 1);
   return (
-    <ScrollArea hideScrollBar className="max-h-56 p-3 text-[11px]">
+    <ScrollArea hideScrollBar className="max-h-56 p-2.5 text-[11px]">
       <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">Labels</div>
       <ul className="mb-2 flex flex-wrap gap-1">
         {[...labelCounts.entries()].map(([label, count]) => {

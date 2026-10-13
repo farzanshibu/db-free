@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type ComponentProps, type Rea
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/lib/icons";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 // WHAT:  The shadcn AI Elements Conversation: the scrolling transcript of a chat.
 // WHY:   A streaming answer grows while it is read. The thread must follow the
@@ -61,21 +62,16 @@ export function Conversation({ className, threshold = 32, children, ...props }: 
 
   return (
     <div data-slot="conversation" className={cn("relative flex min-h-0 flex-1 flex-col", className)} {...props}>
-      <div
-        ref={viewport}
-        onScroll={onScroll}
-        data-slot="conversation-viewport"
-        className="min-h-0 flex-1 overflow-y-auto overscroll-contain [scrollbar-width:thin]"
-      >
+      <ScrollArea ref={viewport} onScroll={onScroll} data-slot="conversation-viewport" className="min-h-0 flex-1 overscroll-contain">
         {children}
-      </div>
+      </ScrollArea>
       <ConversationScrollButton atBottom={atBottom} onScrollToBottom={scrollToBottom} />
     </div>
   );
 }
 
 export function ConversationContent({ className, ...props }: ComponentProps<"div">) {
-  return <div data-slot="conversation-content" className={cn("mx-auto flex w-full max-w-3xl flex-col gap-3 px-3 py-3 sm:px-4", className)} {...props} />;
+  return <div data-slot="conversation-content" className={cn("mx-auto flex w-full max-w-3xl flex-col gap-2 px-2.5 py-2 sm:px-3", className)} {...props} />;
 }
 
 export interface ConversationEmptyStateProps extends ComponentProps<"div"> {
@@ -86,10 +82,10 @@ export interface ConversationEmptyStateProps extends ComponentProps<"div"> {
 
 export function ConversationEmptyState({ className, icon, title, description, children, ...props }: ConversationEmptyStateProps) {
   return (
-    <div data-slot="conversation-empty-state" className={cn("mx-auto flex max-w-xl flex-col items-center justify-center px-4 pt-10 text-center", className)} {...props}>
-      {icon ? <div className="mb-3">{icon}</div> : null}
-      <h2 className="text-sm font-semibold tracking-tight text-foreground">{title}</h2>
-      {description ? <p className="mt-1.5 max-w-md text-xs leading-relaxed text-muted">{description}</p> : null}
+    <div data-slot="conversation-empty-state" className={cn("mx-auto flex max-w-xl flex-col items-center justify-center px-3 pt-6 text-center", className)} {...props}>
+      {icon ? <div className="mb-2">{icon}</div> : null}
+      <h2 className="text-[13px] font-semibold tracking-tight text-foreground">{title}</h2>
+      {description ? <p className="mt-1 max-w-md text-xs leading-relaxed text-muted">{description}</p> : null}
       {children}
     </div>
   );
@@ -108,7 +104,7 @@ export function ConversationScrollButton({ atBottom, onScrollToBottom }: Convers
       size="icon-sm"
       aria-label="Scroll to latest message"
       onClick={() => { onScrollToBottom(); }}
-      className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full glass-pill shadow-lg"
+      className="absolute bottom-2 left-1/2 -translate-x-1/2 rounded-full glass-pill shadow-lg"
     >
       <Icon name="arrow-down" />
     </Button>

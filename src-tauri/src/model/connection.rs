@@ -1,6 +1,8 @@
 // SOT: engine, environment, ssl-mode, ssh-tunnel-settings, connection-color, connection-folder, connection-input, connection-summary, connection-validation
 
 use crate::error::{AppError, AppResult};
+use crate::model::auth::{AuthSecretFlags, AuthSecrets, ConnectionAuth};
+use crate::model::connection_org::{is_secret_param, ConnectionExtras, ConnectionField, ConnectionFieldIssue};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -92,6 +94,8 @@ pub enum Engine {
     // Hosted presets (wire-compatible with an engine above)
     Supabase,
     Planetscale,
+    /// PlanetScale's Postgres product: wire-compatible with the Postgres family.
+    PlanetscalePostgres,
     Neon,
     // Ledger
     Immudb,
@@ -224,7 +228,7 @@ pub enum FormKind {
 }
 
 impl Engine {
-    pub const ALL: [Engine; 75] = [
+    pub const ALL: [Engine; 76] = [
         Engine::Postgres,
         Engine::Mysql,
         Engine::Mariadb,
@@ -281,6 +285,7 @@ impl Engine {
         Engine::CloudflareD1,
         Engine::Supabase,
         Engine::Planetscale,
+        Engine::PlanetscalePostgres,
         Engine::Neon,
         Engine::Immudb,
         Engine::Qldb,
@@ -314,6 +319,7 @@ impl Engine {
             | Engine::Postgis
             | Engine::Cockroachdb
             | Engine::Yugabytedb
+            | Engine::PlanetscalePostgres
             | Engine::IbmIms
             | Engine::RaimaRdm => Family::Postgres,
             Engine::Mysql | Engine::Mariadb | Engine::Planetscale | Engine::Tidb => Family::Mysql,
@@ -380,6 +386,7 @@ impl Engine {
             | Engine::Oracle
             | Engine::Supabase
             | Engine::Planetscale
+            | Engine::PlanetscalePostgres
             | Engine::Neon => EngineKind::Relational,
             Engine::Mongodb | Engine::Couchdb | Engine::Firestore | Engine::Convex => {
                 EngineKind::Document
@@ -543,6 +550,7 @@ impl Engine {
             Engine::CloudflareR2 => "cloudflare_r2",
             Engine::Supabase => "supabase",
             Engine::Planetscale => "planetscale",
+            Engine::PlanetscalePostgres => "planetscale_postgres",
             Engine::Neon => "neon",
             Engine::Immudb => "immudb",
             Engine::Qldb => "qldb",
@@ -625,6 +633,7 @@ impl Engine {
             Engine::CloudflareR2 => "Cloudflare R2",
             Engine::Supabase => "Supabase",
             Engine::Planetscale => "PlanetScale",
+            Engine::PlanetscalePostgres => "PlanetScale Postgres",
             Engine::Neon => "Neon",
             Engine::Immudb => "immudb",
             Engine::Qldb => "Amazon QLDB",
@@ -691,6 +700,7 @@ impl Engine {
             | Engine::Timescaledb
             | Engine::Pgvector
             | Engine::Postgis
+            | Engine::PlanetscalePostgres
             | Engine::IbmIms
             | Engine::RaimaRdm => Some(5432),
             Engine::Questdb => Some(8812),
@@ -909,6 +919,7 @@ impl ConnectionColor {
 }
 
 pub const MAX_FOLDER_LEN: usize = 80;
+pub const MAX_URI_PARAMS_LEN: usize = 2048;
 
 // WHAT:  How the SSH tunnel proves who it is: the password, or a private key
 //        file (optionally protected by a passphrase).
@@ -984,20 +995,29 @@ impl SshTunnel {
     }
 
     pub fn validate(&self) -> AppResult<()> {
+        match self.issues().into_iter().next() {
+            Some(issue) => Err(AppError::invalid_input(issue.message)),
+            None => Ok(()),
+        }
+    }
+
+    // WHAT:  Every problem with the tunnel settings, each tied to its form field.
+    pub fn issues(&self) -> Vec<ConnectionFieldIssue> {
         let blank = |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or_default().is_empty();
+        let mut issues = Vec::new();
         if blank(&self.host) {
-            return Err(AppError::invalid_input("SSH host is required when the tunnel is on."));
+            issues.push(ConnectionFieldIssue::new(ConnectionField::SshHost, "SSH host is required when the tunnel is on."));
         }
         if self.port == 0 {
-            return Err(AppError::invalid_input("SSH port must be between 1 and 65535."));
+            issues.push(ConnectionFieldIssue::new(ConnectionField::SshPort, "SSH port must be between 1 and 65535."));
         }
         if blank(&self.user) {
-            return Err(AppError::invalid_input("SSH user is required when the tunnel is on."));
+            issues.push(ConnectionFieldIssue::new(ConnectionField::SshUser, "SSH user is required when the tunnel is on."));
         }
         if self.auth == SshAuth::PrivateKey && blank(&self.key_path) {
-            return Err(AppError::invalid_input("Choose the SSH private key file."));
+            issues.push(ConnectionFieldIssue::new(ConnectionField::SshKeyPath, "Choose the SSH private key file."));
         }
-        Ok(())
+        issues
     }
 }
 
@@ -1028,80 +1048,123 @@ pub struct ConnectionInput {
     pub folder: Option<String>,
     pub color: Option<ConnectionColor>,
     pub favorite: bool,
+    /// URI parameters, TLS files, SRV flag and organisation (tags / folders).
+    pub extra: ConnectionExtras,
+    /// How the connection signs in: a password, unless a cloud identity is chosen.
+    #[serde(default)]
+    pub auth: ConnectionAuth,
+    /// Write-only like `password`: the keys, client secrets and tokens the chosen
+    /// method needs. A null field on an existing connection keeps the stored value;
+    /// an empty string removes it.
+    #[serde(default)]
+    pub auth_secrets: AuthSecrets,
 }
 
 impl ConnectionInput {
+    // WHAT:  The first problem with this input, as the error the commands return.
+    // HOW:   `check()` collects every problem with the field it belongs to; this
+    //        is its first entry, so a command that only needs to refuse a bad
+    //        input and the form that paints every field share one set of rules.
     pub fn validate(&self) -> AppResult<()> {
-        if self.name.trim().is_empty() {
-            return Err(AppError::invalid_input("Connection name is required."));
+        match self.check().into_iter().next() {
+            Some(issue) => Err(AppError::invalid_input(issue.message)),
+            None => Ok(()),
         }
-        if self.name.len() > 120 {
-            return Err(AppError::invalid_input(
-                "Connection name is too long (max 120).",
-            ));
+    }
+
+    // WHAT:  Every problem with this input, each tied to a form field.
+    // WHY:   One banner for the first failure made a form with three mistakes
+    //        take three round trips. Rust owns the rules (a TS copy would drift),
+    //        and `validate_connection` hands this list to the form.
+    // WHERE: src-tauri/src/commands/connections.rs (validate_connection)
+    pub fn check(&self) -> Vec<ConnectionFieldIssue> {
+        let mut issues: Vec<ConnectionFieldIssue> = Vec::new();
+        let mut add = |field: ConnectionField, message: &str| issues.push(ConnectionFieldIssue::new(field, message));
+        let blank = |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or_default().is_empty();
+        if self.name.trim().is_empty() {
+            add(ConnectionField::Name, "Connection name is required.");
+        } else if self.name.len() > 120 {
+            add(ConnectionField::Name, "Connection name is too long (max 120).");
         }
         if self.folder.as_deref().map(str::trim).unwrap_or_default().chars().count() > MAX_FOLDER_LEN {
-            return Err(AppError::invalid_input(format!("Folder name is too long (max {MAX_FOLDER_LEN}).")));
+            add(ConnectionField::Folder, &format!("Folder name is too long (max {MAX_FOLDER_LEN})."));
         }
-        let blank = |v: &Option<String>| v.as_deref().map(str::trim).unwrap_or_default().is_empty();
         match self.engine.form() {
             FormKind::File => {
                 if blank(&self.file_path) {
-                    return Err(AppError::invalid_input("A database file path is required."));
+                    add(ConnectionField::FilePath, "A database file path is required.");
                 }
             }
             FormKind::HttpToken => {
                 // Hosted services without a self-hosted URL fall back to the vendor endpoint.
-                let hosted = matches!(
-                    self.engine,
-                    Engine::ValTown | Engine::Pinecone | Engine::Snowflake
-                );
+                let hosted = matches!(self.engine, Engine::ValTown | Engine::Pinecone | Engine::Snowflake);
                 if blank(&self.host) && !hosted {
-                    return Err(AppError::invalid_input("Server URL or host is required."));
+                    add(ConnectionField::Host, "Server URL or host is required.");
                 }
                 if self.engine == Engine::CloudflareD1 && blank(&self.database) {
-                    return Err(AppError::invalid_input(
-                        "Cloudflare Database ID is required in the database field.",
-                    ));
+                    add(ConnectionField::Database, "Cloudflare Database ID is required in the database field.");
                 }
                 if self.engine == Engine::Snowflake && blank(&self.host) {
-                    return Err(AppError::invalid_input(
-                        "Snowflake account identifier is required in the host field.",
-                    ));
+                    add(ConnectionField::Host, "Snowflake account identifier is required in the host field.");
                 }
             }
             FormKind::Aws => {
                 if blank(&self.host) {
-                    return Err(AppError::invalid_input(
-                        "AWS region is required (e.g. us-east-1).",
-                    ));
+                    add(ConnectionField::Host, "AWS region is required (e.g. us-east-1).");
                 }
-                if blank(&self.username) {
-                    return Err(AppError::invalid_input("AWS access key ID is required."));
+                // Typed keys need the key id; a profile or the default chain brings its own.
+                if blank(&self.username) && self.auth.is_password() {
+                    add(ConnectionField::Username, "AWS access key ID is required.");
                 }
             }
             FormKind::Gcp => {
                 if blank(&self.database) {
-                    return Err(AppError::invalid_input(
-                        "Google Cloud project ID is required.",
-                    ));
+                    add(ConnectionField::Database, "Google Cloud project ID is required.");
                 }
             }
             FormKind::Server => {
                 if blank(&self.host) {
-                    return Err(AppError::invalid_input("Host is required."));
+                    add(ConnectionField::Host, "Host is required.");
                 }
                 // Database is optional: an empty value connects to the server's default
                 // database and the UI offers every database for switching.
                 if self.port == Some(0) {
-                    return Err(AppError::invalid_input("Port must be between 1 and 65535."));
+                    add(ConnectionField::Port, "Port must be between 1 and 65535.");
                 }
                 if self.ssh.enabled {
-                    self.ssh.validate()?;
+                    for issue in self.ssh.issues() {
+                        add(issue.field, &issue.message);
+                    }
                 }
             }
         }
-        Ok(())
+        // Sign-in method: its own settings. Secrets are write-only ("blank = keep"), so a
+        // missing one is reported when the token is minted, with the method's wording.
+        if let Err(AppError::InvalidInput { message }) = self.auth.validate(self.engine.family(), self.username.as_deref()) {
+            let user_missing = self.auth.needs_db_user(self.engine.family()) && blank(&self.username);
+            add(if user_missing { ConnectionField::Username } else { ConnectionField::Password }, &message);
+        }
+        let tls = &self.extra.tls;
+        if matches!(self.engine.family(), Family::Postgres | Family::Mysql) {
+            if !blank(&tls.cert_path) && blank(&tls.key_path) {
+                add(ConnectionField::TlsKeyPath, "A client certificate needs its private key file.");
+            }
+            if blank(&tls.cert_path) && !blank(&tls.key_path) {
+                add(ConnectionField::TlsCertPath, "A client key needs its certificate file.");
+            }
+        }
+        if let Some(params) = self.extra.uri_params.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+            if params.chars().any(char::is_control) {
+                add(ConnectionField::UriParams, "URI parameters cannot contain line breaks or control characters.");
+            }
+            if params.chars().count() > MAX_URI_PARAMS_LEN {
+                add(ConnectionField::UriParams, &format!("URI parameters are too long (max {MAX_URI_PARAMS_LEN})."));
+            }
+            if let Some((key, _)) = self.extra.uri_pairs().into_iter().find(|(k, _)| is_secret_param(k)) {
+                add(ConnectionField::UriParams, &format!("Remove \"{key}\" from the URI parameters and use the password field: parameters are stored unencrypted."));
+            }
+        }
+        issues
     }
 
     /// Strips the write-only secrets so the rest of the input can be logged or echoed.
@@ -1109,6 +1172,7 @@ impl ConnectionInput {
         ConnectionInput {
             password: None,
             ssh_secret: None,
+            auth_secrets: AuthSecrets::default(),
             ..self.clone()
         }
     }
@@ -1140,6 +1204,12 @@ pub struct ConnectionSummary {
     pub favorite: bool,
     pub created_at: String,
     pub updated_at: String,
+    pub extra: ConnectionExtras,
+    #[serde(default)]
+    pub auth: ConnectionAuth,
+    /// Which sign-in secrets are sealed in the store (the values never leave Rust).
+    #[serde(default)]
+    pub has_auth_secrets: AuthSecretFlags,
 }
 
 impl ConnectionSummary {
@@ -1171,6 +1241,9 @@ impl ConnectionSummary {
             favorite: input.favorite,
             created_at: now.clone(),
             updated_at: now,
+            extra: ConnectionExtras { transient: false, tunnel_origin_host: None, ..input.extra.clone() },
+            auth: input.auth.clone(),
+            has_auth_secrets: input.auth_secrets.flags(),
         }
     }
 }
@@ -1189,6 +1262,17 @@ pub struct ConnectionRecord {
 pub struct ResolvedConnection {
     pub summary: ConnectionSummary,
     pub secret: Option<String>,
+}
+
+// WHAT:  `~/.ssh/id_ed25519` → the user's home, as a shell would expand it.
+// WHY:   Key and certificate paths are typed or browsed by people; a leading `~`
+//        is how they write them, and the OS file APIs do not expand it.
+pub fn expand_home(path: &str) -> std::path::PathBuf {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
+    match (path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")), home) {
+        (Some(rest), Some(home)) => std::path::Path::new(&home).join(rest),
+        _ => std::path::PathBuf::from(path),
+    }
 }
 
 #[cfg(test)]
@@ -1213,6 +1297,78 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            extra: ConnectionExtras::default(),
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+        }
+    }
+
+    #[test]
+    fn check_names_the_field_of_every_problem() {
+        let mut input = base();
+        input.name = " ".into();
+        input.host = None;
+        input.port = Some(0);
+        input.ssh.enabled = true;
+        input.ssh.auth = SshAuth::PrivateKey;
+        let fields: Vec<ConnectionField> = input.check().into_iter().map(|i| i.field).collect();
+        assert_eq!(
+            fields,
+            vec![
+                ConnectionField::Name,
+                ConnectionField::Host,
+                ConnectionField::Port,
+                ConnectionField::SshHost,
+                ConnectionField::SshUser,
+                ConnectionField::SshKeyPath
+            ]
+        );
+        assert_eq!(input.validate().err().map(|e| e.to_string()).as_deref(), Some("Connection name is required."));
+        assert!(base().check().is_empty());
+    }
+
+    #[test]
+    fn tls_client_certificate_needs_its_key_on_the_families_that_read_both() {
+        let mut input = base();
+        input.extra.tls.cert_path = Some("/c.pem".into());
+        assert_eq!(input.check().first().map(|i| i.field), Some(ConnectionField::TlsKeyPath));
+        input.extra.tls.key_path = Some("/k.pem".into());
+        assert!(input.check().is_empty());
+        input.extra.tls.cert_path = None;
+        assert_eq!(input.check().first().map(|i| i.field), Some(ConnectionField::TlsCertPath));
+        // MongoDB takes one combined PEM, so a lone certificate is fine.
+        let mut mongo = base();
+        mongo.engine = Engine::Mongodb;
+        mongo.extra.tls.cert_path = Some("/both.pem".into());
+        assert!(mongo.check().is_empty());
+    }
+
+    #[test]
+    fn uri_params_may_not_carry_a_password() {
+        let mut input = base();
+        input.extra.uri_params = Some("application_name=db-free&password=hunter2".into());
+        let issue = input.check().into_iter().next();
+        assert_eq!(issue.as_ref().map(|i| i.field), Some(ConnectionField::UriParams));
+        assert!(issue.is_some_and(|i| i.message.contains("password")));
+        input.extra.uri_params = Some("authSource=admin&replicaSet=rs0".into());
+        assert!(input.check().is_empty());
+    }
+
+    #[test]
+    fn planetscale_postgres_rides_the_postgres_family() {
+        let e = Engine::PlanetscalePostgres;
+        assert_eq!(e.family(), Family::Postgres);
+        assert_eq!(e.form(), FormKind::Server);
+        assert_eq!(e.default_port(), Some(5432));
+        assert_eq!(Engine::parse("planetscale_postgres"), Some(e));
+    }
+
+    #[test]
+    fn home_expansion_only_touches_a_leading_tilde() {
+        assert_eq!(expand_home("/etc/hosts"), std::path::PathBuf::from("/etc/hosts"));
+        assert_eq!(expand_home("a/~/b"), std::path::PathBuf::from("a/~/b"));
+        if std::env::var_os("HOME").is_some() {
+            assert!(!expand_home("~/x").starts_with("~"));
         }
     }
 

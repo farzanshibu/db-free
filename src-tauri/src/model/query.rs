@@ -70,6 +70,7 @@ pub enum FilterOp {
     Lt,
     Lte,
     Contains,
+    NotContains,
     StartsWith,
     EndsWith,
     In,
@@ -81,6 +82,20 @@ impl FilterOp {
     pub fn needs_value(self) -> bool {
         !matches!(self, FilterOp::IsNull | FilterOp::IsNotNull)
     }
+}
+
+// WHAT:  How a table's filter rules combine: every rule must hold (the default), or
+//        any one of them.
+// WHY:   `FilterRule`/`PageQuery` are built by dozens of adapters, so the mode rides
+//        beside the query (`TablePageRequest`) instead of inside it.
+// WHERE: src-tauri/src/integrations/sql.rs (`with_filter_mode`), src/features/grid/FilterPopover.tsx
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(export)]
+pub enum FilterMode {
+    #[default]
+    All,
+    Any,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -111,9 +126,49 @@ pub struct PageQuery {
     pub limit: u32,
 }
 
+// WHAT:  What the grid needs to know about a column beyond `ColumnInfo`: the values
+//        an enum / SET column allows, and whether the database fills it in itself.
+// WHY:   `ColumnInfo` is built by every adapter, so these facts travel in their own
+//        list (one entry per column, matched by name) that only the SQL adapters
+//        that know them fill in.
+// HOW:   `generated` and `auto_increment` columns are read-only in the grid; a
+//        column that is NOT NULL with no default, no auto-increment and no
+//        generation is `REQUIRED` on insert (derived in the UI).
+// WHERE: src-tauri/src/integrations/mod.rs (`column_traits`), src/lib/columnTraits.ts
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ColumnTraits {
+    pub name: String,
+    /// Allowed values of an ENUM / SET column (or an enum array). Empty otherwise.
+    pub enum_values: Vec<String>,
+    /// Several of `enum_values` may be held at once: MySQL SET, an enum array.
+    pub multi: bool,
+    pub has_default: bool,
+    /// The default as the database spells it (`now()`, `0`, …), when it is readable.
+    pub default_expr: Option<String>,
+    /// The database computes the value (generated column, identity ALWAYS): never written.
+    pub generated: bool,
+    pub auto_increment: bool,
+}
+
+// WHAT:  A cell whose value was cut short for the page and where the full length
+//        stands. The grid shows the prefix and fetches the rest by key on demand.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct TruncatedCell {
+    pub row: u32,
+    pub col: u32,
+    /// The real size: characters for text and JSON, bytes for binary.
+    pub size: u64,
+}
+
 // WHAT:  One page of a table for the grid.
-// HOW:   `total` is exact when filters are applied (a count query runs), otherwise
-//        the engine's cheap estimate; `total_exact` says which.
+// HOW:   `total` is exact when filters are applied (a count query runs) or the table
+//        is small enough to count; otherwise the engine's cheap estimate.
+//        `total_exact` says which. `column_traits` is empty when the engine cannot say.
+//        `truncated` lists the cells cut to the requested size (see `truncate_over`).
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[serde(rename_all = "camelCase")]
 #[ts(export)]
@@ -123,6 +178,10 @@ pub struct TablePage {
     pub offset: u64,
     pub total: Option<i64>,
     pub total_exact: bool,
+    pub column_traits: Vec<ColumnTraits>,
+    pub truncated: Vec<TruncatedCell>,
+    /// Rows can be inserted, updated and deleted through this connection's dialect.
+    pub editable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
@@ -228,6 +287,16 @@ pub struct HistoryEntry {
     pub elapsed_ms: u64,
     pub row_count: Option<u64>,
     pub executed_at: String,
+    /// Upper-cased verb of the first statement (`SELECT`, `UPDATE`, `CREATE`…).
+    pub statement_type: Option<String>,
+    /// `schema.table` the first statement names, when it names one.
+    pub table_name: Option<String>,
+    /// The strongest intent in the script: Read, Write or Destructive.
+    pub operation: Option<StatementIntent>,
+    /// The database user the statement ran as.
+    pub user: Option<String>,
+    /// Typed in the query editor (as opposed to sent by a dashboard, workflow, import…).
+    pub from_editor: bool,
 }
 
 // WHAT:  An editor tab's unsaved text, persisted so restarts never lose work.

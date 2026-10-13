@@ -2,14 +2,16 @@
 
 use crate::error::{AppError, AppResult};
 use crate::integrations::{Capabilities, Integration};
+use crate::model::connection::expand_home;
 use crate::model::{
-    ColumnInfo, ConnectionSummary, Engine, FilterRule, ForeignKey, ObjectDetail, ObjectKind, ObjectRef, ObjectSummary,
+    ColumnInfo, ConnectionSummary, Engine, Family, FilterRule, ForeignKey, ObjectDetail, ObjectKind, ObjectRef, ObjectSummary,
     PageQuery, RangeQueryRequest, RangeResult, ResolvedConnection, ResultSet, SchemaCatalog, SearchRequest,
-    SearchResult, ServerStats, SshAuth, StatementResult, TableRef, VectorSearchRequest,
+    SearchResult, ServerStats, SshAuth, SslMode, StatementResult, TableRef, VectorSearchRequest,
 };
 use async_trait::async_trait;
-use russh::client::{self, Handle};
+use russh::client::{self, AuthResult, Handle, KeyboardInteractiveAuthResponse};
 use russh::keys::{self, HashAlg, PrivateKeyWithHashAlg, PublicKeyOrCertificate};
+use russh::MethodKind;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -31,11 +33,22 @@ use tokio::task::{JoinHandle, JoinSet};
 //        3. `integrations::connect_with_ssh` hands the adapter the same
 //           connection with host/port rewritten to the local end.
 //        4. `Tunnelled::close()` closes the adapter, then the tunnel.
-//        Limits: the adapter now talks to 127.0.0.1, so TLS `verify_full`
-//        (hostname check) fails unless the certificate names 127.0.0.1; and
-//        clustered drivers that discover other nodes (Mongo replica sets,
-//        Cassandra, Kafka brokers) are only reachable when they advertise the
-//        tunnelled address. One host is forwarded, never a list.
+//        Authentication: password, private key, or — when the server offers
+//        `keyboard-interactive` instead of `password` (PAM setups) — the same
+//        password answering its prompt. A prompt that asks for anything else
+//        (a verification code) is reported by name rather than guessed at.
+//        TLS through the tunnel: the adapter dials 127.0.0.1, so a driver that
+//        checks the certificate against the host it dialled would fail. The tunnel
+//        therefore records the real host (`extra.tunnel_origin_host`). SQL Server
+//        connects to the tunnel's port but verifies the certificate against that
+//        real name. sqlx (Postgres, MySQL) cannot separate the dial address from
+//        the verified name, so `verify_full` is applied as `verify_ca` (the chain
+//        is still checked; the SSH hop already authenticated the path). The
+//        MongoDB driver verifies against the dialled host: use `require` and a
+//        certificate that names it, or no TLS inside the tunnel. Clustered
+//        drivers that discover other nodes (Mongo replica sets, Cassandra, Kafka
+//        brokers) are only reachable when they advertise the tunnelled address.
+//        One host is forwarded, never a list.
 // WHERE: src-tauri/src/integrations/mod.rs (connect_with_ssh),
 //        src-tauri/src/services/connection.rs (TOFU pin), model::SshTunnel
 // ============================================================================
@@ -117,10 +130,16 @@ pub fn target_of(summary: &ConnectionSummary) -> AppResult<(String, u16)> {
 }
 
 // WHAT:  The same connection, pointed at the tunnel's local end.
+// HOW:   Remembers the real host for drivers that can verify it, and relaxes
+//        `verify_full` to `verify_ca` for the drivers that cannot (see the header).
 pub fn rewrite_to_local(conn: &ResolvedConnection, local_port: u16) -> ResolvedConnection {
     let mut local = conn.clone();
+    local.summary.extra.tunnel_origin_host = target_of(&conn.summary).ok().map(|(host, _)| host);
     local.summary.host = Some("127.0.0.1".to_string());
     local.summary.port = Some(local_port);
+    if local.summary.ssl_mode == SslMode::VerifyFull && matches!(local.summary.engine.family(), Family::Postgres | Family::Mysql) {
+        local.summary.ssl_mode = SslMode::VerifyCa;
+    }
     local
 }
 
@@ -177,10 +196,7 @@ impl Tunnel {
         let mut session = connected.map_err(|e| AppError::driver(format!("SSH connection to {ssh_host} failed: {e}")))?;
 
         let authenticated = match ssh.auth {
-            SshAuth::Password => session
-                .authenticate_password(user, secret.unwrap_or_default())
-                .await
-                .map_err(ssh_error)?,
+            SshAuth::Password => authenticate_with_password(&mut session, user, secret.unwrap_or_default()).await?,
             SshAuth::PrivateKey => {
                 let path = ssh.key_path.as_deref().map(str::trim).filter(|p| !p.is_empty())
                     .ok_or_else(|| AppError::invalid_input("Choose the SSH private key file."))?;
@@ -191,9 +207,10 @@ impl Tunnel {
                     .authenticate_publickey(user, PrivateKeyWithHashAlg::new(Arc::new(key), rsa_hash))
                     .await
                     .map_err(ssh_error)?
+                    .success()
             }
         };
-        if !authenticated.success() {
+        if !authenticated {
             return Err(AppError::driver(format!("SSH authentication as {user}@{ssh_host} was rejected.")));
         }
 
@@ -255,12 +272,58 @@ fn ssh_error(err: russh::Error) -> AppError {
     AppError::driver(format!("SSH: {err}"))
 }
 
-// WHAT:  `~/.ssh/id_ed25519` → the user's home, as a shell would expand it.
-fn expand_home(path: &str) -> std::path::PathBuf {
-    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"));
-    match (path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")), home) {
-        (Some(rest), Some(home)) => std::path::Path::new(&home).join(rest),
-        _ => std::path::PathBuf::from(path),
+/// Rounds of keyboard-interactive questions answered before giving up.
+const MAX_INTERACTIVE_ROUNDS: usize = 5;
+
+// WHAT:  Password login with a keyboard-interactive fallback.
+// WHY:   Servers using PAM often disable the `password` method and offer only
+//        `keyboard-interactive`; OpenSSH's client falls back silently, so a
+//        password that works in a terminal must work here too.
+// HOW:   `password` first. Only when the server lists keyboard-interactive among
+//        the methods it still accepts is that tried, with the same password.
+async fn authenticate_with_password(session: &mut Handle<Client>, user: &str, password: &str) -> AppResult<bool> {
+    let first = session.authenticate_password(user, password).await.map_err(ssh_error)?;
+    let interactive_offered = match &first {
+        AuthResult::Success => return Ok(true),
+        AuthResult::Failure { remaining_methods, .. } => remaining_methods.contains(&MethodKind::KeyboardInteractive),
+    };
+    if !interactive_offered {
+        return Ok(false);
+    }
+    let mut response = session.authenticate_keyboard_interactive_start(user, None::<String>).await.map_err(ssh_error)?;
+    for _ in 0..MAX_INTERACTIVE_ROUNDS {
+        match response {
+            KeyboardInteractiveAuthResponse::Success => return Ok(true),
+            KeyboardInteractiveAuthResponse::Failure { .. } => return Ok(false),
+            KeyboardInteractiveAuthResponse::InfoRequest { prompts, .. } => {
+                let mut answers = Vec::with_capacity(prompts.len());
+                for prompt in &prompts {
+                    match answer_for_prompt(&prompt.prompt, password) {
+                        Some(answer) => answers.push(answer),
+                        None => {
+                            return Err(AppError::driver(format!(
+                                "The SSH server asked \"{}\", which DB Free cannot answer. Use a key file or a host that accepts a password.",
+                                prompt.prompt.trim()
+                            )))
+                        }
+                    }
+                }
+                response = session.authenticate_keyboard_interactive_respond(answers).await.map_err(ssh_error)?;
+            }
+        }
+    }
+    Ok(false)
+}
+
+// WHAT:  What to type for one keyboard-interactive prompt: the password, if it asks for one.
+// WHY:   Anything else (a one-time code, a push approval) cannot be answered with
+//        the stored secret; guessing would burn the user's login attempts.
+fn answer_for_prompt(prompt: &str, password: &str) -> Option<String> {
+    let lower = prompt.to_ascii_lowercase();
+    if lower.contains("password") && !lower.contains("new password") && !lower.contains("verification") {
+        Some(password.to_string())
+    } else {
+        None
     }
 }
 
@@ -366,6 +429,39 @@ impl Integration for Tunnelled {
     fn ssh_host_key(&self) -> Option<String> {
         self.tunnel.host_key.clone()
     }
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        self.inner.column_traits(table).await
+    }
+    fn ddl_profile(&self) -> crate::model::DdlProfile {
+        self.inner.ddl_profile()
+    }
+    async fn describe_table(&self, table: &TableRef) -> AppResult<crate::model::TableSpec> {
+        self.inner.describe_table(table).await
+    }
+    fn create_table_sql(&self, spec: &crate::model::TableSpec) -> AppResult<Vec<String>> {
+        self.inner.create_table_sql(spec)
+    }
+    fn alter_table_sql(&self, spec: &crate::model::AlterTableSpec) -> AppResult<Vec<String>> {
+        self.inner.alter_table_sql(spec)
+    }
+    fn duplicate_table_sql(&self, spec: &crate::model::DuplicateSpec, source: &crate::model::TableSpec) -> AppResult<Vec<String>> {
+        self.inner.duplicate_table_sql(spec, source)
+    }
+    fn remove_table_sql(&self, spec: &crate::model::RemoveSpec) -> AppResult<Vec<String>> {
+        self.inner.remove_table_sql(spec)
+    }
+    fn namespace_sql(&self, spec: &crate::model::NamespaceSpec) -> AppResult<Vec<String>> {
+        self.inner.namespace_sql(spec)
+    }
+    async fn scan_keys(&self, scan: &crate::model::RedisKeyScan) -> AppResult<crate::model::RedisKeyPage> {
+        self.inner.scan_keys(scan).await
+    }
+    async fn key_info(&self, key: &str) -> AppResult<crate::model::RedisKeyInfo> {
+        self.inner.key_info(key).await
+    }
+    async fn close_session(&self, key: &str) {
+        self.inner.close_session(key).await
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +487,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         ConnectionSummary::draft(&input, false)
     }
@@ -427,6 +526,40 @@ mod tests {
         assert_eq!(local.summary.port, Some(40123));
         assert_eq!(local.secret.as_deref(), Some("pw"), "database credentials pass through untouched");
         assert_eq!(local.summary.database, conn.summary.database);
+    }
+
+    // WHAT:  C17 — the real host survives the rewrite so a driver that can verify it does.
+    #[test]
+    fn the_tunnel_remembers_the_real_host_for_tls() {
+        let mut mssql = summary(Engine::Mssql, "sql.corp.example:1433", None);
+        mssql.ssl_mode = SslMode::VerifyFull;
+        let local = rewrite_to_local(&ResolvedConnection { summary: mssql, secret: None }, 40000);
+        assert_eq!(local.summary.extra.tunnel_origin_host.as_deref(), Some("sql.corp.example"));
+        assert_eq!(local.summary.ssl_mode, SslMode::VerifyFull, "SQL Server verifies the real name, so nothing is relaxed");
+    }
+
+    #[test]
+    fn sqlx_families_cannot_verify_the_name_so_verify_full_becomes_verify_ca() {
+        for engine in [Engine::Postgres, Engine::Mysql, Engine::Supabase] {
+            let mut s = summary(engine, "db.internal", Some(5432));
+            s.ssl_mode = SslMode::VerifyFull;
+            let local = rewrite_to_local(&ResolvedConnection { summary: s, secret: None }, 41000);
+            assert_eq!(local.summary.ssl_mode, SslMode::VerifyCa, "{engine:?}");
+        }
+        let mut other = summary(Engine::Postgres, "db.internal", None);
+        other.ssl_mode = SslMode::Require;
+        let local = rewrite_to_local(&ResolvedConnection { summary: other, secret: None }, 41000);
+        assert_eq!(local.summary.ssl_mode, SslMode::Require, "only verify_full is relaxed");
+    }
+
+    // WHAT:  C16 — a keyboard-interactive password prompt is answered; anything else is not guessed.
+    #[test]
+    fn only_password_prompts_are_answered() {
+        assert_eq!(answer_for_prompt("Password: ", "pw").as_deref(), Some("pw"));
+        assert_eq!(answer_for_prompt("ops@bastion's password:", "pw").as_deref(), Some("pw"));
+        assert_eq!(answer_for_prompt("Verification code: ", "pw"), None);
+        assert_eq!(answer_for_prompt("Duo passcode or option (1-3): ", "pw"), None);
+        assert_eq!(answer_for_prompt("New password: ", "pw"), None, "never answer a change-password prompt with the old one");
     }
 
     #[test]

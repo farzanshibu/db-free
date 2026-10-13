@@ -4,6 +4,7 @@ import type { PermissionDecision, PermissionRequest, ToolCallRecord, ToolStatus 
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 
 // WHAT:  The timeline of what the assistant did to answer — every tool call, its
@@ -16,6 +17,9 @@ import { Spinner } from "@/components/ui/spinner";
 
 /// One icon per tool family, so the timeline is scannable without reading it.
 function iconFor(tool: string): IconName {
+  if (tool === "create_dashboard") return "chart-bar";
+  if (tool === "create_workflow") return "flow";
+  if (tool === "create_diagram") return "chart-relationship";
   if (tool.startsWith("render_")) return "chart";
   if (tool.startsWith("list_")) return "list";
   if (tool.startsWith("describe_")) return "columns";
@@ -43,7 +47,7 @@ function ToolRow({ call }: { call: ToolCallRecord }) {
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-2 px-2 py-1.5 text-left liquid-hover"
+        className="flex w-full items-center gap-2 px-2 py-1 text-left liquid-hover"
       >
         <Icon
           name={open ? "chevron-down" : "chevron-right"}
@@ -61,13 +65,15 @@ function ToolRow({ call }: { call: ToolCallRecord }) {
         <StatusDot status={call.status} />
       </button>
       {open ? (
-        <div className="border-t border-border/30 px-2 py-1.5">
+        <div className="border-t border-border/30 px-2 py-1">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-wider text-muted">
             {call.tool}
           </span>
-          <pre className="selectable mt-1 overflow-x-auto font-mono text-[10.5px] whitespace-pre-wrap text-muted">
-            {call.input}
-          </pre>
+          <ScrollArea orientation="horizontal" className="mt-1">
+            <pre className="selectable font-mono text-[10.5px] whitespace-pre-wrap text-muted">
+              {call.input}
+            </pre>
+          </ScrollArea>
           {failed && call.error !== null ? (
             <p className="selectable mt-1.5 rounded bg-danger-soft/60 p-1.5 font-mono text-[10.5px] text-danger">
               {call.error}
@@ -119,10 +125,12 @@ export function PermissionPrompt({
   onDecide: (decision: PermissionDecision) => void;
 }) {
   const destructive = request.intent === "destructive";
+  // A saved document is approved, not "run"; the server says what the button does.
+  const saves = request.tool.startsWith("create_");
   return (
     <div
       className={cn(
-        "my-2 rounded-xl border p-2.5 glass-modal",
+        "my-2 rounded-lg border p-2 glass-modal",
         destructive ? "border-danger/40 bg-danger-soft/30" : "border-warning/40 bg-surface-secondary/60",
       )}
     >
@@ -137,9 +145,13 @@ export function PermissionPrompt({
           <p className="mt-0.5 text-[10.5px] text-muted">{request.reason}</p>
 
           {request.statement !== null ? (
-            <pre className="selectable mt-1.5 max-h-40 overflow-auto rounded-lg border border-border/50 bg-surface/80 p-2 font-mono text-[10.5px] whitespace-pre-wrap text-foreground">
-              {request.statement}
-            </pre>
+            <div className="mt-1.5 overflow-hidden rounded-lg border border-border/50 bg-surface/80">
+              <ScrollArea orientation="both" className="max-h-40">
+                <pre className="selectable p-2 font-mono text-[10.5px] whitespace-pre-wrap text-foreground">
+                  {request.statement}
+                </pre>
+              </ScrollArea>
+            </div>
           ) : null}
 
           {request.statements.length > 0 ? (
@@ -157,30 +169,33 @@ export function PermissionPrompt({
               size="sm"
               variant="secondary"
               className={cn(
-                "glass-pill h-6 rounded-lg px-2.5 text-[11px] font-semibold liquid-hover",
+                "glass-pill h-6 rounded-lg px-2 text-[11px] font-semibold liquid-hover",
                 destructive ? "text-danger" : "text-accent",
               )}
               onClick={() => onDecide("allow")}
             >
               <Icon name="check" size={10} />
-              Run once
+              {request.actionLabel ?? "Run once"}
             </Button>
+            {/* Each dashboard, workflow or diagram is read and approved on its own. */}
+            {saves ? null : (
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-6 rounded-lg px-2 text-[11px] text-muted liquid-hover hover:text-foreground"
+                onClick={() => onDecide("allow_for_run")}
+              >
+                Allow for this answer
+              </Button>
+            )}
             <Button
               size="sm"
               variant="ghost"
-              className="h-6 rounded-lg px-2.5 text-[11px] text-muted liquid-hover hover:text-foreground"
-              onClick={() => onDecide("allow_for_run")}
-            >
-              Allow for this answer
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              className="h-6 rounded-lg px-2.5 text-[11px] text-muted liquid-hover hover:text-foreground"
+              className="h-6 rounded-lg px-2 text-[11px] text-muted liquid-hover hover:text-foreground"
               onClick={() => onDecide("deny")}
             >
               <Icon name="x" size={10} />
-              Don&apos;t run
+              {saves ? "Not now" : "Don\u2019t run"}
             </Button>
           </div>
         </div>

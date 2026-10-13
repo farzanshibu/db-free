@@ -1,179 +1,417 @@
-// SOT: workflow-tab, workflow-steps, workflow-runner-ui
-import { useState } from "react";
-import type { Document, WorkflowBody, WorkflowRunReport, WorkflowStep } from "@/lib/bindings";
+// SOT: workflow-tab, workflow-editor, workflow-autosave, workflow-run-controls, workflow-toolbar
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ReactFlowProvider, useReactFlow } from "@xyflow/react";
+import type { Document, NodeConfig, WorkflowBody, WorkflowEdge, WorkflowNode, WorkflowRunReport } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
-import { formatMs } from "@/lib/format";
 import { useWorkspace } from "@/stores/workspace";
-import { AppSelect, Field, Toggle } from "@/components/global/Field";
+import { AppSelect } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
-import { SqlEditor } from "@/features/editor/SqlEditor";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
-import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { EmptyCanvas } from "./EmptyCanvas";
+import { connectionOptions } from "./forms/DataForms";
+import { Inspector } from "./Inspector";
+import { autoLayout, canConnect, edgeId, leavesOf, newNode, removeNodes, upstreamOf, type NodeKind, type Wire } from "./model";
+import { NodePicker } from "./NodePicker";
+import { pickOutputFile } from "./pickers";
+import { EMPTY_VIEW, ensureRunListener, startRun, stopRun, useRunStore } from "./runStore";
+import { WorkflowCanvas } from "./WorkflowCanvas";
 
-let stepCounter = 0;
+/// Run all pauses this long between levels so the data can be watched moving.
+const WATCH_DELAY_MS = 350;
+const AUTOSAVE_MS = 1500;
 
-// WHAT:  Workflow = ordered SQL steps, each on a chosen connection; Run executes
-//        them through the guard in order and shows a per-step report.
-// WHERE: src-tauri/src/commands/workflows.rs
+interface EditorState {
+  name: string;
+  connectionId: string;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+  schedulesActive: boolean;
+  dirty: boolean;
+  /// Counts edits, so a save that finishes after a newer edit leaves the document dirty.
+  version: number;
+}
+
+function stateOf(doc: Document): EditorState {
+  const body: WorkflowBody = doc.body.kind === "workflow" ? doc.body.data : {};
+  const nodes = body.nodes ?? [];
+  const edges = body.edges ?? [];
+  // A workflow written without positions (by the AI assistant) arrives with every node at 0, 0.
+  const unplaced = nodes.length > 1 && nodes.every((n) => n.x === 0 && n.y === 0);
+  return {
+    name: doc.name,
+    connectionId: doc.connectionId ?? "",
+    nodes: unplaced ? autoLayout(nodes, edges) : nodes,
+    edges,
+    schedulesActive: body.schedulesActive ?? false,
+    dirty: false,
+    version: 0,
+  };
+}
+
+// WHAT:  A saved node's secrets, copied onto the editor's copy after a save.
+// WHY:   What was typed (`plain`) has been sealed by the core; the editor must stop
+//        holding it and show "saved" from then on.
+function adoptSecrets(local: WorkflowNode[], saved: readonly WorkflowNode[]): WorkflowNode[] {
+  return local.map((node) => {
+    const stored = saved.find((s) => s.id === node.id);
+    if (stored === undefined) return node;
+    if (node.config.kind === "email" && stored.config.kind === "email") return { ...node, config: { ...node.config, password: stored.config.password } };
+    if (node.config.kind === "slack" && stored.config.kind === "slack") return { ...node, config: { ...node.config, webhook: stored.config.webhook } };
+    return node;
+  });
+}
+
+function summaryOf(report: WorkflowRunReport): { ok: boolean; text: string } {
+  const failed = report.nodes.filter((n) => n.state === "error").length;
+  const ran = report.nodes.filter((n) => n.state === "success").length;
+  if (report.status === "stopped") return { ok: true, text: `Stopped after ${ran} node${ran === 1 ? "" : "s"}` };
+  if (report.status === "failed") return { ok: false, text: failed === 1 ? "Finished with 1 failed node" : `Finished with ${failed} failed nodes` };
+  return { ok: true, text: `Completed: ${ran} node${ran === 1 ? "" : "s"} ran` };
+}
+
 export function WorkflowTab({ document: doc }: { document: Document }) {
+  return (
+    <ReactFlowProvider>
+      <WorkflowEditor doc={doc} />
+    </ReactFlowProvider>
+  );
+}
+
+// WHAT:  The workflow editor: a canvas of nodes and wires, an inspector for the
+//        selected node, and a toolbar to run, stop, save and schedule.
+// WHY:   A workflow is a graph that runs in the core, node by node; this tab edits
+//        the saved document and shows the run as the core reports it.
+// HOW:   Edits autosave after a short pause and always before a run, because the core
+//        runs what is stored (including each node's saved destructive opt-in). A save
+//        by someone else (the AI assistant) replaces the view unless there are
+//        unsaved edits here, which win. Run all pauses briefly between levels so the
+//        data can be watched.
+// WHERE: src-tauri/src/services/workflows (engine), src/features/workflows/runStore.ts
+function WorkflowEditor({ doc }: { doc: Document }) {
   const saveDocument = useWorkspace((s) => s.saveDocument);
   const connections = useWorkspace((s) => s.connections);
+  const activeConnectionId = useWorkspace((s) => s.activeConnectionId);
+  const openChat = useWorkspace((s) => s.openChat);
   const showError = useWorkspace((s) => s.showError);
   const showInfo = useWorkspace((s) => s.showInfo);
-  const initial: WorkflowBody = doc.body.kind === "workflow" ? doc.body.data : { steps: [] };
-  const [steps, setSteps] = useState<WorkflowStep[]>(initial.steps);
-  const [name, setName] = useState(doc.name);
-  const [connectionId, setConnectionId] = useState<string>(doc.connectionId ?? "");
-  const [dirty, setDirty] = useState(false);
-  const [selectedId, setSelectedId] = useState<string | null>(initial.steps[0]?.id ?? null);
-  const [report, setReport] = useState<WorkflowRunReport | null>(null);
-  const [running, setRunning] = useState(false);
+  const { fitView } = useReactFlow();
+  const view = useRunStore((s) => s.views[doc.id] ?? EMPTY_VIEW);
 
-  const patchStep = (id: string, partial: Partial<WorkflowStep>) => {
-    setSteps((s) => s.map((x) => (x.id === id ? { ...x, ...partial } : x)));
-    setDirty(true);
-  };
-  const addStep = () => {
-    stepCounter += 1;
-    const step: WorkflowStep = { id: `step-${Date.now().toString(36)}-${stepCounter}`, name: `Step ${steps.length + 1}`, connectionId: null, sql: "", stopOnError: true };
-    setSteps((s) => [...s, step]);
-    setSelectedId(step.id);
-    setDirty(true);
-  };
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir;
-    if (j < 0 || j >= steps.length) return;
-    const copy = [...steps];
-    const [item] = copy.splice(i, 1);
-    if (item) copy.splice(j, 0, item);
-    setSteps(copy);
-    setDirty(true);
-  };
+  const [state, setState] = useState<EditorState>(() => stateOf(doc));
+  const latest = useRef(state);
+  const docRef = useRef(doc);
+  const stamp = useRef(doc.updatedAt);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const saveRef = useRef<() => Promise<boolean>>(() => Promise.resolve(true));
 
-  const save = async (): Promise<boolean> => {
+  useEffect(() => {
+    ensureRunListener();
+  }, []);
+  useEffect(() => {
+    docRef.current = doc;
+  }, [doc]);
+
+  const update = useCallback((change: (current: EditorState) => EditorState, markDirty = true) => {
+    const next = change(latest.current);
+    if (next === latest.current) return;
+    const stamped = markDirty ? { ...next, dirty: true, version: next.version + 1 } : next;
+    latest.current = stamped;
+    setState(stamped);
+  }, []);
+
+  // ------------------------------------------------------------------- saving
+  const save = useCallback(async (): Promise<boolean> => {
+    const current = latest.current;
+    const base = docRef.current;
+    setSaving(true);
     try {
-      await saveDocument({ ...doc, name, connectionId: connectionId.length > 0 ? connectionId : null, body: { kind: "workflow", data: { steps } } });
-      setDirty(false);
+      const saved = await saveDocument({
+        ...base,
+        name: current.name.trim() === "" ? base.name : current.name.trim(),
+        connectionId: current.connectionId === "" ? null : current.connectionId,
+        body: {
+          kind: "workflow",
+          data: { nodes: current.nodes, edges: current.edges, schedulesActive: current.schedulesActive },
+        },
+      });
+      stamp.current = saved.updatedAt;
+      docRef.current = saved;
+      if (latest.current.version === current.version) {
+        const savedNodes = saved.body.kind === "workflow" ? (saved.body.data.nodes ?? []) : [];
+        const next = { ...latest.current, nodes: adoptSecrets(latest.current.nodes, savedNodes), dirty: false };
+        latest.current = next;
+        setState(next);
+      }
       return true;
     } catch (raw) {
       showError(normalizeError(raw));
       return false;
-    }
-  };
-
-  const run = async () => {
-    if (dirty && !(await save())) return;
-    setRunning(true);
-    try {
-      const r = await ipc("run_workflow", { id: doc.id });
-      setReport(r);
-      showInfo(r.stoppedEarly ? "Workflow stopped on an error." : `Workflow finished: ${r.steps.length} step(s).`);
-    } catch (raw) {
-      showError(normalizeError(raw));
     } finally {
-      setRunning(false);
+      setSaving(false);
     }
+  }, [saveDocument, showError]);
+  useEffect(() => {
+    saveRef.current = save;
+  }, [save]);
+
+  useEffect(() => {
+    if (!state.dirty) return;
+    const timer = window.setTimeout(() => { void saveRef.current(); }, AUTOSAVE_MS);
+    return () => { window.clearTimeout(timer); };
+  }, [state.dirty, state.version]);
+
+  // Someone else saved this workflow: show it unless edits here are still waiting to be saved.
+  useEffect(() => {
+    if (doc.updatedAt === stamp.current) return;
+    stamp.current = doc.updatedAt;
+    if (latest.current.dirty) return;
+    const incoming = stateOf(doc);
+    latest.current = incoming;
+    setState(incoming);
+    setSelectedId((id) => (incoming.nodes.some((n) => n.id === id) ? id : null));
+  }, [doc]);
+
+  // ------------------------------------------------------------------ editing
+  const patchNode = useCallback(
+    (next: WorkflowNode) => {
+      update((s) => ({ ...s, nodes: s.nodes.map((n) => (n.id === next.id ? next : n)) }));
+    },
+    [update],
+  );
+
+  const addNode = useCallback(
+    async (kind: NodeKind) => {
+      let remembered: NodeConfig | null = null;
+      if (kind === "email" || kind === "slack") {
+        remembered = await ipc("workflow_last_node_config", { kind }).catch((): NodeConfig | null => null);
+      }
+      const created = newNode(kind, latest.current.nodes);
+      const node = remembered !== null && remembered.kind === kind ? { ...created, config: remembered } : created;
+      update((s) => ({ ...s, nodes: [...s.nodes, node] }));
+      setSelectedId(node.id);
+      window.setTimeout(() => { void fitView({ nodes: [{ id: node.id }], duration: 300, maxZoom: 1, padding: 1.2 }); }, 80);
+    },
+    [update, fitView],
+  );
+
+  const connect = useCallback(
+    (wire: Wire) => {
+      const verdict = canConnect(latest.current.nodes, latest.current.edges, wire);
+      if (!verdict.ok) {
+        showError(verdict.reason);
+        return;
+      }
+      update((s) => ({ ...s, edges: [...s.edges, { id: edgeId(wire.source, wire.sourceHandle, wire.target), source: wire.source, target: wire.target, sourceHandle: wire.sourceHandle }] }));
+    },
+    [update, showError],
+  );
+
+  const deleteItems = useCallback(
+    (nodeIds: readonly string[], edgeIds: readonly string[]) => {
+      update((s) => {
+        const removedEdges = new Set(edgeIds);
+        const pruned = removeNodes(s.nodes, s.edges, new Set(nodeIds));
+        const edges = pruned.edges.filter((e) => !removedEdges.has(e.id));
+        if (pruned.nodes.length === s.nodes.length && edges.length === s.edges.length) return s;
+        return { ...s, nodes: pruned.nodes, edges };
+      });
+      setSelectedId((id) => (id !== null && nodeIds.includes(id) ? null : id));
+    },
+    [update],
+  );
+
+  const moveNodes = useCallback(
+    (moves: readonly { id: string; x: number; y: number }[]) => {
+      update((s) => ({
+        ...s,
+        nodes: s.nodes.map((n) => {
+          const move = moves.find((m) => m.id === n.id);
+          return move === undefined || (move.x === n.x && move.y === n.y) ? n : { ...n, x: move.x, y: move.y };
+        }),
+      }));
+    },
+    [update],
+  );
+
+  const setNoteText = useCallback(
+    (id: string, text: string) => {
+      update((s) => ({ ...s, nodes: s.nodes.map((n) => (n.id === id && n.config.kind === "note" ? { ...n, config: { ...n.config, text } } : n)) }));
+    },
+    [update],
+  );
+
+  const tidy = () => {
+    update((s) => ({ ...s, nodes: autoLayout(s.nodes, s.edges) }));
+    window.setTimeout(() => { void fitView({ duration: 300, padding: 0.25, maxZoom: 1 }); }, 80);
   };
 
-  const selected = steps.find((s) => s.id === selectedId) ?? null;
-  const engine = connections.find((c) => c.id === (selected?.connectionId ?? connectionId))?.engine ?? "postgres";
-  const connOptions = [{ value: "", label: "— pick a connection —" }, ...connections.map((c) => ({ value: c.id, label: c.name }))];
+  // --------------------------------------------------------------------- running
+  // WHAT:  Saves, asks for any Save-to-file path that is still blank, and runs.
+  // WHY:   The first run of a Save node is where its path is chosen, once; a
+  //        scheduled run has nobody to ask, so a blank path would only fail there.
+  const run = useCallback(
+    async (nodeId?: string) => {
+      const current = latest.current;
+      const involved = nodeId === undefined ? new Set(current.nodes.map((n) => n.id)) : upstreamOf(current.edges, nodeId);
+      for (const node of current.nodes) {
+        if (!involved.has(node.id) || node.config.kind !== "save_file" || node.config.path.trim() !== "") continue;
+        const path = await pickOutputFile(current.name, node.config.format);
+        if (path === null) return;
+        const config = node.config;
+        update((s) => ({ ...s, nodes: s.nodes.map((n) => (n.id === node.id ? { ...n, config: { ...config, path } } : n)) }));
+      }
+      if (!(await saveRef.current())) return;
+      try {
+        const report = await startRun(doc.id, { ...(nodeId !== undefined ? { nodeId } : { stepDelayMs: WATCH_DELAY_MS }) });
+        const summary = summaryOf(report);
+        if (summary.ok) showInfo(summary.text);
+        else showError(summary.text);
+      } catch (raw) {
+        showError(normalizeError(raw));
+      }
+    },
+    [doc.id, showError, showInfo, update],
+  );
+
+  const stop = useCallback(() => {
+    void (async () => {
+      try {
+        await stopRun(doc.id);
+      } catch (raw) {
+        showError(normalizeError(raw));
+      }
+    })();
+  }, [doc.id, showError]);
+
+  const toggleSchedules = () => {
+    update((s) => ({ ...s, schedulesActive: !s.schedulesActive }));
+    window.setTimeout(() => { void saveRef.current(); }, 0);
+  };
+
+  // ------------------------------------------------------------------- the view
+  const selected = state.nodes.find((n) => n.id === selectedId) ?? null;
+  const hasSchedule = state.nodes.some((n) => n.config.kind === "schedule");
+  const runnable = leavesOf(state.nodes, state.edges).length > 0;
+  const askConnection = state.connectionId !== "" ? state.connectionId : activeConnectionId;
+
+  const inputColumns = useMemo(() => {
+    if (selected === null) return [];
+    const names: string[] = [];
+    for (const edge of state.edges.filter((e) => e.target === selected.id)) {
+      const previews = view.outputs[edge.source] ?? [];
+      const preview = previews.find((p) => p.handle === edge.sourceHandle) ?? previews[0];
+      for (const column of preview?.columns ?? []) if (!names.includes(column.name)) names.push(column.name);
+    }
+    return names;
+  }, [selected, state.edges, view.outputs]);
+
+  const saveStatus = saving ? "Saving…" : state.dirty ? "Unsaved changes" : "Saved";
+  const nodeCount = state.nodes.length;
 
   return (
-    <div className="flex h-full min-h-0">
+    <div
+      className="flex h-full min-h-0"
+      onKeyDown={(event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "s") {
+          event.preventDefault();
+          void saveRef.current();
+        }
+      }}
+    >
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface ">
+        <div className="flex app-toolbar shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface">
           <Input
-            value={name}
-            onChange={(e) => {
-              setName(e.target.value);
-              setDirty(true);
-            }}
-            className="h-7 w-48 rounded-md bg-transparent text-sm text-foreground"
+            value={state.name}
+            onChange={(event) => { update((s) => ({ ...s, name: event.target.value })); }}
+            className="h-6 w-48 rounded-md bg-transparent text-xs text-foreground"
             aria-label="Workflow name"
           />
-          <AppSelect ariaLabel="Default connection" value={connectionId} options={connOptions} onChange={(v) => { setConnectionId(v); setDirty(true); }} size="sm" className="w-56" icon="database" />
-          <Button size="sm" pending={running} onClick={() => void run()} disabled={steps.length === 0}>
-            <Icon name="play" size={12} />
-            Run
-          </Button>
-          <div className="ml-auto flex items-center gap-1">
-            <Button size="sm" onClick={() => void save()} disabled={!dirty}>Save{dirty ? " *" : ""}</Button>
+          <AppSelect
+            ariaLabel="Default connection"
+            value={state.connectionId}
+            options={connectionOptions(connections, "").map((o) => (o.value === "" ? { value: "", label: "Pick a connection" } : o))}
+            onChange={(connectionId) => { update((s) => ({ ...s, connectionId })); }}
+            size="sm"
+            className="w-44"
+            icon="database"
+          />
+          <NodePicker onPick={(kind) => void addNode(kind)} />
+          {view.running ? (
+            <Button size="sm" variant="danger-soft" onClick={stop}>
+              <Icon name="stop" size={12} />
+              Stop
+            </Button>
+          ) : (
+            <Button size="sm" disabled={!runnable} onClick={() => void run()}>
+              <Icon name="play" size={12} />
+              Run all
+            </Button>
+          )}
+          {view.running ? <Badge variant="soft">Running…</Badge> : null}
+          <div className="ml-auto flex items-center gap-1.5">
+            {hasSchedule ? (
+              <Button
+                size="sm"
+                variant={state.schedulesActive ? "soft" : "secondary"}
+                aria-pressed={state.schedulesActive}
+                title={state.schedulesActive ? "Scheduled fires run, even with this tab closed. Click to pause." : "Scheduled fires are ignored. Click to activate."}
+                onClick={toggleSchedules}
+              >
+                <span className={cn("size-1.5 rounded-full", state.schedulesActive ? "bg-success" : "bg-muted/60")} />
+                Schedules {state.schedulesActive ? "active" : "paused"}
+              </Button>
+            ) : null}
+            <IconButton icon="layers" label="Tidy up layout" disabled={nodeCount < 2} onClick={tidy} />
+            <span className="px-1 text-[11px] text-muted" aria-live="polite">
+              {saveStatus}
+            </span>
+            <Button size="sm" variant="secondary" disabled={!state.dirty || saving} onClick={() => void saveRef.current()}>
+              Save
+            </Button>
           </div>
         </div>
-        <ScrollArea className="min-h-0 flex-1 p-6">
-          <div className="mx-auto flex w-full max-w-[560px] flex-col items-center gap-0">
-            {steps.map((step, i) => {
-              const result = report?.steps.find((r) => r.stepId === step.id);
-              return (
-                <div key={step.id} className="flex w-full flex-col items-center">
-                  <Card
-                    role="button"
-                    tabIndex={0}
-                    onClick={() => setSelectedId(step.id)}
-                    onKeyDown={(e) => { if (e.key === "Enter") setSelectedId(step.id); }}
-                    className={cn("w-full cursor-pointer transition-all border glass-card", selectedId === step.id ? "border-accent ring-1 ring-accent/30" : "border-border/40 hover:border-border")}
-                  >
-                    <CardContent className="flex items-center gap-3 p-3 w-full">
-                      <span className="flex size-7 items-center justify-center rounded-full bg-surface-tertiary text-xs text-muted shrink-0">{i + 1}</span>
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium text-foreground">{step.name}</span>
-                        <span className="block truncate font-mono text-[11px] text-muted">{step.sql.replace(/\s+/g, " ").slice(0, 80) || "no SQL yet"}</span>
-                      </span>
-                      {result ? (
-                        <Badge size="sm" color={result.ok ? "success" : "danger"} variant="soft">{result.ok ? `ok · ${formatMs(result.elapsedMs)}${result.rows !== null ? ` · ${result.rows} rows` : ""}` : "error"}</Badge>
-                      ) : null}
-                      <span className="flex flex-col">
-                        <IconButton icon="arrow-up" label="Move up" disabled={i === 0} onClick={() => move(i, -1)} size={12} />
-                        <IconButton icon="arrow-down" label="Move down" disabled={i === steps.length - 1} onClick={() => move(i, 1)} size={12} />
-                      </span>
-                    </CardContent>
-                  </Card>
-                  {result && !result.ok && result.error ? (
-                    <Alert variant="danger" className="mt-1 w-full rounded-xl text-xs">
-                      <AlertIndicator />
-                      <AlertContent>
-                        <AlertDescription className="selectable font-mono text-[11px]">{result.error}</AlertDescription>
-                      </AlertContent>
-                    </Alert>
-                  ) : null}
-                  <div className="h-6 w-px bg-border/40" />
-                </div>
-              );
-            })}
-            <Button
-              onClick={addStep}
-              className="flex size-14 min-w-14 items-center justify-center rounded-full bg-accent text-accent-foreground shadow-lg hover:brightness-110"
-              aria-label="Add step"
-            >
-              <Icon name="plus" size={22} />
-            </Button>
-          </div>
-        </ScrollArea>
+        <div className="relative min-h-0 flex-1">
+          <WorkflowCanvas
+            nodes={state.nodes}
+            edges={state.edges}
+            statuses={view.nodes}
+            running={view.running}
+            tick={view.tick}
+            selectedId={selectedId}
+            onSelect={setSelectedId}
+            onMove={moveNodes}
+            onConnect={connect}
+            onDelete={deleteItems}
+            onNoteText={setNoteText}
+            onRunNode={(id) => void run(id)}
+          />
+          {nodeCount === 0 ? (
+            <EmptyCanvas
+              onPick={(kind) => void addNode(kind)}
+              onAskAi={askConnection === null ? null : (prompt) => { openChat(askConnection, `Build the workflow "${state.name}" (document id ${doc.id}). ${prompt}`); }}
+            />
+          ) : null}
+        </div>
       </div>
-      {selected ? (
-        <aside className="flex w-[420px] shrink-0 flex-col border-l border-border bg-surface">
-          <div className="flex flex-col gap-3 border-b border-border px-3 py-3">
-            <Field label="Step name" value={selected.name} onChange={(v) => patchStep(selected.id, { name: v })} />
-            <AppSelect label="Connection" value={selected.connectionId ?? ""} options={[{ value: "", label: "Workflow default" }, ...connections.map((c) => ({ value: c.id, label: c.name }))]} onChange={(v) => patchStep(selected.id, { connectionId: v.length > 0 ? v : null })} />
-            <Toggle checked={selected.stopOnError} onChange={(v) => patchStep(selected.id, { stopOnError: v })} label="Stop workflow if this step fails" />
-          </div>
-          <div className="min-h-0 flex-1">
-            <SqlEditor value={selected.sql} onChange={(sql) => patchStep(selected.id, { sql })} onRun={() => void run()} engine={engine} schema={{}} />
-          </div>
-          <div className="flex items-center border-t border-border px-3 py-2">
-            <Button size="sm" variant="danger-soft" className="ml-auto" onClick={() => { setSteps((s) => s.filter((x) => x.id !== selected.id)); setSelectedId(null); setDirty(true); }}>
-              <Icon name="trash" size={12} />
-              Delete step
-            </Button>
-          </div>
-        </aside>
+      {selected !== null ? (
+        <Inspector
+          key={selected.id}
+          node={selected}
+          workflowConnectionId={state.connectionId}
+          columns={inputColumns}
+          update={view.nodes[selected.id] ?? null}
+          previews={view.outputs[selected.id] ?? []}
+          running={view.running}
+          onChange={patchNode}
+          onRun={() => void run(selected.id)}
+          onStop={stop}
+          onDelete={() => { deleteItems([selected.id], []); }}
+        />
       ) : null}
     </div>
   );

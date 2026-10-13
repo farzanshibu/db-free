@@ -6,13 +6,15 @@ use crate::guard::dialect;
 use crate::guard::{self, SessionCtx};
 use crate::integrations;
 use crate::model::{
-    AgentArtifact, AgentAutonomy, ObjectKind, ObjectRef, PageQuery, PermissionDecision, PermissionRequest,
-    Family, QueryOutcome, StatementIntent, StatementResult, TableRef, Tool, UiBlock, UiGraphEdge,
+    AgentArtifact, AgentAutonomy, AiDataAccess, DocumentKind, ObjectKind, ObjectRef, PageQuery, PermissionDecision,
+    PermissionRequest, Family, QueryOutcome, StatementIntent, StatementResult, TableRef, Tool, UiBlock, UiGraphEdge,
     UiGraphNode, UiStat, UiTone, Value, WidgetKind,
 };
 use crate::services;
+use crate::services::agent::documents;
 use crate::services::agent::provider::ToolSpec;
 use crate::services::agent::skills;
+use crate::state::AppState;
 use serde_json::{Value as Json, json};
 
 // WHAT:  Every tool the model may call, and the dispatcher that runs one.
@@ -48,7 +50,7 @@ pub struct ToolRun {
 }
 
 impl ToolRun {
-    fn ok(summary: impl Into<String>, content: impl Into<String>) -> ToolRun {
+    pub(super) fn ok(summary: impl Into<String>, content: impl Into<String>) -> ToolRun {
         ToolRun {
             content: content.into(),
             is_error: false,
@@ -74,7 +76,7 @@ impl ToolRun {
         }
     }
 
-    fn with_artifact(mut self, artifact: AgentArtifact) -> ToolRun {
+    pub(super) fn with_artifact(mut self, artifact: AgentArtifact) -> ToolRun {
         self.artifact = Some(artifact);
         self
     }
@@ -102,9 +104,25 @@ pub trait PermissionGate: Send {
 /// Everything a dispatch needs beyond the arguments.
 pub struct ToolCtx<'a> {
     pub session: &'a SessionCtx,
+    /// For the tools that save app documents; nothing else here touches the store.
+    pub state: &'a AppState,
     pub autonomy: AgentAutonomy,
+    /// What this chat may see. Enforced again at dispatch, so a tool the model
+    /// was never offered cannot be reached by naming it anyway.
+    pub access: AiDataAccess,
     /// The timeline row this call belongs to; a permission prompt quotes it.
     pub call_id: String,
+}
+
+/// Tools that return rows of the user's data. A schema-only chat has none of them.
+const ROW_READING_TOOLS: [&str; 5] = ["sample_rows", "run_query", "render_chart", "render_table", "render_ui"];
+
+// WHAT:  Whether a call reads rows, which a schema-only chat refuses.
+// WHY:   `render_graph` is two tools in one: relationships come from foreign
+//        keys (schema), "query" mode runs a statement (rows).
+fn reads_rows(name: &str, args: &Json) -> bool {
+    ROW_READING_TOOLS.contains(&name)
+        || (name == "render_graph" && args.get("mode").and_then(Json::as_str) == Some("query"))
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +133,7 @@ pub struct ToolCtx<'a> {
 // WHY:   Advertising `list_schemas` to Redis or `explain_query` to S3 invites
 //        the model to call something that can only fail. The family profile
 //        already states what the adapter can do, so it decides the tool list.
-pub fn definitions(ctx: &SessionCtx) -> Vec<ToolSpec> {
+pub fn definitions(ctx: &SessionCtx, access: AiDataAccess) -> Vec<ToolSpec> {
     let engine = ctx.connection.engine;
     let profile = integrations::profile(engine.family());
     let caps = profile.capabilities;
@@ -232,8 +250,8 @@ pub fn definitions(ctx: &SessionCtx) -> Vec<ToolSpec> {
         ));
     }
 
-    if !profile.object_kinds.is_empty() {
-        let kinds: Vec<String> = profile.object_kinds.iter().map(|k| kind_name(*k)).collect();
+    let kinds: Vec<String> = profile.object_kinds.iter().filter(|kind| kind_visible(access, **kind)).map(|k| kind_name(*k)).collect();
+    if !kinds.is_empty() {
         tools.push(spec(
             "list_objects",
             "List database objects of one kind (views, indexes, functions, users, topics…). \
@@ -315,7 +333,7 @@ pub fn definitions(ctx: &SessionCtx) -> Vec<ToolSpec> {
 
     // Relationship graphs work on any engine that reports foreign keys; a native
     // graph query only makes sense where the engine has one.
-    let graph_query = profile.tools.contains(&Tool::GraphView);
+    let graph_query = profile.tools.contains(&Tool::GraphView) && access.reads_rows();
     let graph_modes: Vec<&str> =
         if graph_query { vec!["relationships", "query"] } else { vec!["relationships"] };
     tools.push(spec(
@@ -434,7 +452,42 @@ pub fn definitions(ctx: &SessionCtx) -> Vec<ToolSpec> {
         }),
     ));
 
+    // --- Tools that build something the user keeps -------------------------
+    tools.push(documents::dashboard_tool(language));
+    tools.push(documents::workflow_tool(language));
+    tools.push(documents::diagram_tool(engine.label()));
+
+    filter_for_access(tools, access)
+}
+
+// WHAT:  A schema-only chat is never offered the tools that read rows.
+fn filter_for_access(mut tools: Vec<ToolSpec>, access: AiDataAccess) -> Vec<ToolSpec> {
+    if !access.reads_rows() {
+        tools.retain(|tool| !ROW_READING_TOOLS.contains(&tool.name.as_str()));
+    }
     tools
+}
+
+/// Kinds that show what is running in the database right now, or that are
+/// records rather than structure. Statement text in a session list or a slow-query
+/// log carries the literal values people typed, so a schema-only chat never sees them.
+const LIVE_DATA_KINDS: [ObjectKind; 5] =
+    [ObjectKind::Session, ObjectKind::Lock, ObjectKind::Transaction, ObjectKind::SlowQuery, ObjectKind::Document];
+
+fn kind_visible(access: AiDataAccess, kind: ObjectKind) -> bool {
+    access.reads_rows() || !LIVE_DATA_KINDS.contains(&kind)
+}
+
+// WHAT:  The dispatch-time half of the same rule: naming a tool the model was
+//        never offered does not reach it.
+fn check_access(access: AiDataAccess, name: &str, args: &Json) -> AppResult<()> {
+    if !access.reads_rows() && reads_rows(name, args) {
+        return Err(AppError::read_only(format!(
+            "The user has allowed schema access only, so \"{name}\" is not available: you cannot read \
+             rows. Work from the schema and give the user statements to run themselves."
+        )));
+    }
+    Ok(())
 }
 
 // WHAT:  The serde wire name of an object kind, which is what the UI and the
@@ -515,6 +568,9 @@ pub fn title_for(name: &str, args: &Json) -> String {
         "render_ui" => format!("View: {}", s("title")),
         "list_skills" => "List task guides".to_string(),
         "load_skill" => format!("Load guide \"{}\"", s("id")),
+        "create_dashboard" => format!("Dashboard: {}", s("name")),
+        "create_workflow" => format!("Workflow: {}", s("name")),
+        "create_diagram" => format!("Diagram: {}", s("name")),
         other => other.to_string(),
     }
 }
@@ -537,6 +593,7 @@ pub async fn dispatch(
 }
 
 async fn run(ctx: &ToolCtx<'_>, name: &str, args: &Json, gate: &mut dyn PermissionGate) -> AppResult<ToolRun> {
+    check_access(ctx.access, name, args)?;
     match name {
         "list_databases" => list_databases(ctx).await,
         "list_schemas" => list_schemas(ctx).await,
@@ -555,6 +612,9 @@ async fn run(ctx: &ToolCtx<'_>, name: &str, args: &Json, gate: &mut dyn Permissi
         "render_ui" => render_ui(ctx, args, gate).await,
         "list_skills" => Ok(skills::list_run(ctx.session)),
         "load_skill" => skills::load_run(ctx.session, arg_str(args, "id")?),
+        "create_dashboard" => documents::create(ctx, DocumentKind::Dashboard, args, gate).await,
+        "create_workflow" => documents::create(ctx, DocumentKind::Workflow, args, gate).await,
+        "create_diagram" => documents::create(ctx, DocumentKind::Diagram, args, gate).await,
         other => Err(AppError::invalid_input(format!("Unknown tool \"{other}\"."))),
     }
 }
@@ -648,7 +708,14 @@ async fn list_tables(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
 
 async fn describe_table(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
     let table = resolve_table(ctx, args).await?;
-    let columns = services::schema::columns(ctx.session, &table).await?;
+    let (out, columns) = describe_text(ctx.session, &table).await?;
+    Ok(ToolRun::ok(format!("{columns} columns"), out))
+}
+
+// WHAT:  One table in full: columns, foreign keys touching it, and its definition.
+// WHY:   `describe_table` and the `@table` mention both show the model exactly this.
+pub(super) async fn describe_text(session: &SessionCtx, table: &TableRef) -> AppResult<(String, usize)> {
+    let columns = services::schema::columns(session, table).await?;
     if columns.is_empty() {
         return Err(AppError::not_found(format!(
             "\"{}\" has no columns, or does not exist.",
@@ -669,7 +736,7 @@ async fn describe_table(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
         out.push_str(&format!("- {} {}{suffix}\n", column.name, column.data_type));
     }
 
-    let fks = services::schema::foreign_keys(ctx.session).await.unwrap_or_default();
+    let fks = services::schema::foreign_keys(session).await.unwrap_or_default();
     let related: Vec<&crate::model::ForeignKey> = fks
         .iter()
         .filter(|fk| {
@@ -690,11 +757,11 @@ async fn describe_table(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
         }
     }
 
-    if let Ok(Some(ddl)) = services::schema::ddl(ctx.session, &table).await {
+    if let Ok(Some(ddl)) = services::schema::ddl(session, table).await {
         out.push_str(&format!("\nDefinition:\n{}\n", ddl.trim()));
     }
 
-    Ok(ToolRun::ok(format!("{} columns", columns.len()), out))
+    Ok((out, columns.len()))
 }
 
 async fn search_schema(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
@@ -773,6 +840,15 @@ async fn sample_rows(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
 
 async fn explain_query(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
     let statement = arg_str(args, "statement")?;
+    // EXPLAIN is wrapped around the text and sent as-is, so it must be one plain
+    // read: a second statement after a `;` would run, not be explained.
+    let parts = dialect::classify(ctx.session.connection.engine, statement);
+    if parts.len() != 1 || parts.iter().any(|part| part.kind != StatementKind::Read) {
+        return Err(AppError::invalid_input(
+            "explain_query takes exactly one read statement (SELECT, WITH…). Use run_query for anything else."
+                .to_string(),
+        ));
+    }
     let settings = crate::model::AiSettings { provider: crate::model::AiProvider::None, ..Default::default() };
     let report = services::ai::explain(
         ctx.session,
@@ -1180,6 +1256,7 @@ async fn authorize_and_execute(
                 }
                 _ => "This statement changes data in your database.".to_string(),
             },
+            action_label: None,
         };
         match gate.ask(request).await {
             PermissionDecision::Deny => {
@@ -1296,6 +1373,10 @@ fn qualified(schema: &Option<String>, name: &str) -> String {
 async fn resolve_table(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<TableRef> {
     let raw = arg_str(args, "table")?;
     let explicit = args.get("schema").and_then(Json::as_str).filter(|s| !s.is_empty());
+    table_ref(ctx.session, raw, explicit).await
+}
+
+pub(super) async fn table_ref(session: &SessionCtx, raw: &str, explicit: Option<&str>) -> AppResult<TableRef> {
     let (schema, name) = match (explicit, raw.split_once('.')) {
         (Some(s), _) => (Some(s.to_string()), raw.rsplit('.').next().unwrap_or(raw).to_string()),
         (None, Some((s, n))) => (Some(s.to_string()), n.to_string()),
@@ -1303,7 +1384,7 @@ async fn resolve_table(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<TableRef> {
     };
 
     // Match the catalogue so casing and an omitted schema still resolve.
-    let catalog = services::schema::catalog(ctx.session).await?;
+    let catalog = services::schema::catalog(session).await?;
     for candidate in &catalog.schemas {
         if let Some(want) = &schema {
             if !candidate.name.eq_ignore_ascii_case(want) {
@@ -1321,17 +1402,25 @@ async fn resolve_table(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<TableRef> {
 
 fn parse_kind(ctx: &ToolCtx<'_>, raw: &str) -> AppResult<ObjectKind> {
     let profile = integrations::profile(ctx.session.connection.engine.family());
-    profile
+    let kind = profile
         .object_kinds
         .iter()
         .copied()
+        .filter(|kind| kind_visible(ctx.access, *kind))
         .find(|kind| kind_name(*kind).eq_ignore_ascii_case(raw))
         .ok_or_else(|| {
             AppError::invalid_input(format!(
                 "\"{raw}\" is not an object kind this engine exposes. Available: {}",
-                profile.object_kinds.iter().map(|k| kind_name(*k)).collect::<Vec<_>>().join(", ")
+                profile
+                    .object_kinds
+                    .iter()
+                    .filter(|k| kind_visible(ctx.access, **k))
+                    .map(|k| kind_name(*k))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ))
-        })
+        })?;
+    Ok(kind)
 }
 
 fn parse_chart(raw: &str) -> AppResult<WidgetKind> {
@@ -1343,5 +1432,78 @@ fn parse_chart(raw: &str) -> AppResult<WidgetKind> {
         other => Err(AppError::invalid_input(format!(
             "\"{other}\" is not a chart kind. Use line, area, bar or pie."
         ))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn names(tools: &[ToolSpec]) -> Vec<&str> {
+        tools.iter().map(|t| t.name.as_str()).collect()
+    }
+
+    fn catalogue() -> Vec<ToolSpec> {
+        [
+            "list_tables", "describe_table", "sample_rows", "run_query", "explain_query", "render_chart", "render_table",
+            "render_graph", "render_ui", "create_dashboard", "create_workflow", "create_diagram",
+        ]
+        .iter()
+        .map(|name| spec(name, "", json!({ "type": "object" })))
+        .collect()
+    }
+
+    #[test]
+    fn full_access_keeps_every_tool() {
+        assert_eq!(filter_for_access(catalogue(), AiDataAccess::Full).len(), catalogue().len());
+    }
+
+    #[test]
+    fn schema_only_removes_exactly_the_row_reading_tools() {
+        let kept = filter_for_access(catalogue(), AiDataAccess::Schema);
+        let kept = names(&kept);
+        for gone in ["sample_rows", "run_query", "render_chart", "render_table", "render_ui"] {
+            assert!(!kept.contains(&gone), "{gone} reads rows");
+        }
+        for stays in ["list_tables", "describe_table", "explain_query", "render_graph", "create_dashboard", "create_workflow", "create_diagram"] {
+            assert!(kept.contains(&stays), "{stays} reads no rows");
+        }
+    }
+
+    #[test]
+    fn naming_a_hidden_tool_is_still_refused_at_dispatch() {
+        let none = json!({});
+        for name in ROW_READING_TOOLS {
+            assert!(check_access(AiDataAccess::Schema, name, &none).is_err(), "{name}");
+            assert!(check_access(AiDataAccess::Full, name, &none).is_ok(), "{name}");
+        }
+        assert!(check_access(AiDataAccess::Schema, "describe_table", &none).is_ok());
+    }
+
+    #[test]
+    fn a_graph_drawn_from_a_query_reads_rows_but_one_drawn_from_keys_does_not() {
+        let query = json!({ "mode": "query", "statement": "MATCH (n) RETURN n" });
+        let keys = json!({ "mode": "relationships" });
+        assert!(check_access(AiDataAccess::Schema, "render_graph", &query).is_err());
+        assert!(check_access(AiDataAccess::Schema, "render_graph", &keys).is_ok());
+        assert!(check_access(AiDataAccess::Schema, "render_graph", &json!({})).is_ok(), "mode defaults to relationships");
+    }
+
+    #[test]
+    fn a_schema_only_chat_does_not_see_live_activity_or_records() {
+        for kind in LIVE_DATA_KINDS {
+            assert!(!kind_visible(AiDataAccess::Schema, kind), "{kind:?}");
+            assert!(kind_visible(AiDataAccess::Full, kind), "{kind:?}");
+        }
+        for kind in [ObjectKind::Table, ObjectKind::View, ObjectKind::Index, ObjectKind::Function, ObjectKind::User] {
+            assert!(kind_visible(AiDataAccess::Schema, kind), "{kind:?} is structure");
+        }
+    }
+
+    #[test]
+    fn titles_name_the_documents_being_built() {
+        assert_eq!(title_for("create_dashboard", &json!({ "name": "Sales" })), "Dashboard: Sales");
+        assert_eq!(title_for("create_workflow", &json!({ "name": "Nightly" })), "Workflow: Nightly");
+        assert_eq!(title_for("create_diagram", &json!({ "name": "Shop" })), "Diagram: Shop");
     }
 }

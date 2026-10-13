@@ -10,6 +10,18 @@ pub mod documents;
 pub mod history;
 pub mod saved_queries;
 pub mod settings;
+pub mod migrations;
+pub mod diagram_customizations;
+pub mod document_versions;
+pub mod home;
+pub mod library;
+pub mod fk_remaps;
+pub mod tags;
+pub mod connection_org;
+pub mod demo;
+pub mod connection_auth;
+pub mod ai_chats;
+pub mod schema_cache;
 
 // WHAT:  The app's own SQLite file: saved connections, query history, editor buffers.
 // WHY:   One embedded store, no server; every sub-module is a table family.
@@ -157,7 +169,7 @@ impl Store {
                 .pragma_update(None, "user_version", SCHEMA_VERSION)
                 .map_err(AppError::store)?;
         }
-        Ok(())
+        migrations::apply(&self.conn)
     }
 
     pub(crate) fn conn(&self) -> &Connection {

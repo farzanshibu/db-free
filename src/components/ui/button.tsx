@@ -14,11 +14,14 @@ import { Icon } from "@/lib/icons";
 // WHERE: https://ui.shadcn.com/docs/components/button
 const buttonVariants = cva(
   [
-    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg",
-    "text-[13px] font-medium outline-none transition-[color,background-color,border-color,box-shadow] duration-150",
+    "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md",
+    "text-xs font-medium outline-none transition-[color,background-color,border-color,box-shadow] duration-150",
     "disabled:pointer-events-none disabled:opacity-45",
     "focus-visible:ring-2 focus-visible:ring-ring/60 focus-visible:ring-offset-0",
     "[&_svg]:pointer-events-none [&_svg]:shrink-0",
+    // While pending the spinner stands in for the button's own icon, so a
+    // "↻ Check for updates" button shows one spinning icon, not two.
+    "[&[data-pending=true]>svg:not(.animate-spin)]:hidden",
   ],
   {
     variants: {
@@ -44,12 +47,12 @@ const buttonVariants = cva(
         link: "text-link underline-offset-4 hover:underline",
       },
       size: {
-        xs: "h-6 min-w-6 gap-1 rounded-md px-1.5 text-[11px] [&_svg:not([class*='size-'])]:size-3",
-        sm: "h-7 min-w-7 gap-1 rounded-md px-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
-        md: "h-8 min-w-8 px-3 [&_svg:not([class*='size-'])]:size-4",
-        lg: "h-9 min-w-9 px-4 [&_svg:not([class*='size-'])]:size-4",
-        icon: "size-8 px-0 [&_svg:not([class*='size-'])]:size-4",
-        "icon-sm": "size-7 rounded-md px-0 [&_svg:not([class*='size-'])]:size-3.5",
+        xs: "h-5 min-w-5 gap-1 rounded-sm px-1.5 text-[11px] [&_svg:not([class*='size-'])]:size-3",
+        sm: "h-6 min-w-6 gap-1 px-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
+        md: "h-6.5 min-w-6.5 px-2.5 [&_svg:not([class*='size-'])]:size-3.5",
+        lg: "h-7.5 min-w-7.5 px-3 text-[13px] [&_svg:not([class*='size-'])]:size-4",
+        icon: "size-6.5 px-0 [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-sm": "size-6 px-0 [&_svg:not([class*='size-'])]:size-3.5",
       },
     },
     // A bare <Button> is the affirmative action of its surface — Save, Connect,

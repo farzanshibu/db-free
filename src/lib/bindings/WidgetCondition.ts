@@ -5,4 +5,8 @@ export type WidgetCondition = { op: ConditionOp, value: string,
 /**
  * Text / image URL / tint name to use when the condition matches.
  */
-content: string, };
+content: string, 
+/**
+ * Metric / Text: gradient background swatch used while the rule matches.
+ */
+bg: string | null, };

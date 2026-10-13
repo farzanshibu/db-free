@@ -1,13 +1,16 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Main window: core IPC, window dragging via data-tauri-drag-region, native file dialogs.",
+  "description": "Main window and the windows opened from it (one per connection, or extra): core IPC, window dragging via data-tauri-drag-region, native file dialogs.",
   "windows": [
-    "main"
+    "main",
+    "conn-*",
+    "win-*"
   ],
   "permissions": [
     "core:default",
     "dialog:default",
+    "notification:allow-notify",
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
     "core:window:allow-toggle-maximize",

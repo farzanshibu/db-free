@@ -1,6 +1,8 @@
 // SOT: postgres-integration, sqlx-adapter, pg-value-decoding, pg-catalog-queries, pg-object-explorer, pg-object-detail, pg-server-stats, pgvector-search
 
 use crate::integrations::sql::{order_clause, quote_literal, where_clause};
+use crate::integrations::cloud_auth;
+use crate::integrations::pooling::{self, Dialect, ErrorFacts, Hazard, PinOpener, PinnedConn, Pins};
 use crate::integrations::{qualified_name, quote_ident, Capabilities, Integration};
 use crate::error::{AppError, AppResult};
 use crate::model::{
@@ -24,7 +26,17 @@ use std::time::Duration;
 impl From<sqlx::Error> for AppError {
     fn from(err: sqlx::Error) -> Self {
         match err {
-            sqlx::Error::Database(db) => AppError::driver(db.message()),
+            sqlx::Error::Database(db) => match db.try_downcast_ref::<sqlx::postgres::PgDatabaseError>() {
+                // Postgres says where, and what to try; the editor underlines the spot and prints both.
+                Some(pg) => {
+                    let position = match pg.position() {
+                        Some(sqlx::postgres::PgErrorPosition::Original(at)) => u32::try_from(at).ok(),
+                        _ => None,
+                    };
+                    AppError::driver_with(pg.message(), position, pg.hint().map(str::to_string), pg.detail().map(str::to_string))
+                }
+                None => AppError::driver(db.message()),
+            },
             sqlx::Error::PoolTimedOut => AppError::timeout("Timed out waiting for a connection."),
             other => AppError::driver(other),
         }
@@ -34,11 +46,13 @@ impl From<sqlx::Error> for AppError {
 pub struct PostgresIntegration {
     pool: PgPool,
     database: String,
-    running: RunningPids,
+    running: Arc<RunningPids>,
     /// The connection a manual transaction is pinned to (see `begin_transaction`).
     tx: tokio::sync::Mutex<Option<Pinned>>,
     /// Mirrors `tx.is_some()` without waiting on a run that holds the lock.
     tx_open: AtomicBool,
+    /// One dedicated connection per query tab, beside the pool (see `integrations/pooling.rs`).
+    pins: Pins,
 }
 
 /// A pooled connection held out of the pool for a manual transaction.
@@ -59,6 +73,59 @@ fn ssl_mode(mode: SslMode) -> PgSslMode {
     }
 }
 
+// WHAT:  The TLS files and URI parameters a connection kept (`model::ConnectionExtras`).
+// WHY:   A private CA or mutual-TLS client certificate is a path on this machine,
+//        and `application_name` / `options` arrive with a pasted connection string.
+// HOW:   `~` in a path is expanded. `options` is libpq's `-c name=value` list.
+//        Parameters the adapter does not read (`pgbouncer`, `sslmode`…) are left
+//        for the code that does.
+fn apply_extras(mut opts: PgConnectOptions, s: &crate::model::ConnectionSummary) -> PgConnectOptions {
+    let path = |p: &Option<String>| p.as_deref().map(str::trim).filter(|p| !p.is_empty()).map(crate::model::connection::expand_home);
+    if let Some(ca) = path(&s.extra.tls.ca_path) {
+        opts = opts.ssl_root_cert(ca);
+    }
+    if let Some(cert) = path(&s.extra.tls.cert_path) {
+        opts = opts.ssl_client_cert(cert);
+    }
+    if let Some(key) = path(&s.extra.tls.key_path) {
+        opts = opts.ssl_client_key(key);
+    }
+    for (key, value) in s.extra.uri_pairs() {
+        match key.to_ascii_lowercase().as_str() {
+            "application_name" if !value.trim().is_empty() => opts = opts.application_name(value.trim()),
+            "options" => {
+                let pairs = startup_options(&value);
+                if !pairs.is_empty() {
+                    opts = opts.options(pairs);
+                }
+            }
+            _ => {}
+        }
+    }
+    opts
+}
+
+// WHAT:  libpq's `options` string → name / value pairs: `-c search_path=app -c statement_timeout=5s`.
+fn startup_options(raw: &str) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
+    let mut tokens = raw.split_whitespace();
+    while let Some(token) = tokens.next() {
+        let setting = if token == "-c" {
+            tokens.next()
+        } else if let Some(rest) = token.strip_prefix("-c") {
+            Some(rest)
+        } else {
+            token.strip_prefix("--")
+        };
+        if let Some((name, value)) = setting.and_then(|s| s.split_once('=')) {
+            if !name.is_empty() {
+                pairs.push((name.to_string(), value.to_string()));
+            }
+        }
+    }
+    pairs
+}
+
 // WHAT:  Opens a small pool (4) — a workbench never needs more, and it keeps the
 //        memory baseline low.
 pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration>> {
@@ -72,29 +139,62 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .filter(|d| !d.is_empty())
         .unwrap_or(DEFAULT_DATABASE)
         .to_string();
+    // Who to log in as, with what, over which TLS: the saved password unchanged, or the
+    // short-lived token of a cloud identity (RDS IAM, Azure AD, Cloud SQL IAM).
+    let plan = cloud_auth::db_plan(conn).await?;
     let mut opts = PgConnectOptions::new()
         .host(s.host.as_deref().unwrap_or("localhost"))
         .port(s.port.unwrap_or(5432))
-        .ssl_mode(ssl_mode(s.ssl_mode))
+        .ssl_mode(ssl_mode(plan.ssl_mode))
         .application_name("db-free")
         .database(&database);
-    if let Some(user) = s.username.as_deref() {
+    if let Some(user) = plan.user.as_deref() {
         opts = opts.username(user);
     }
-    if let Some(secret) = conn.secret.as_deref() {
+    if let Some(secret) = plan.password.as_deref() {
         opts = opts.password(secret);
     }
+    // A CA the user chose in the TLS settings wins over the one the sign-in method brings.
+    if let (Some(pem), None) = (plan.ca_pem.as_deref(), s.extra.tls.ca_path.as_deref()) {
+        opts = opts.ssl_root_cert_from_pem(pem.as_bytes().to_vec());
+    }
+    opts = apply_extras(opts, s);
+    // N3: behind PgBouncer or a Supabase / Neon pooler the next request lands on
+    // another server connection, so a cached prepared statement is gone by then.
+    // `?pgbouncer=true` from a pasted connection string counts as much as the port or host.
+    let uri_pairs = s.extra.uri_pairs();
+    let uri_options: Vec<(&str, &str)> = uri_pairs.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    if pooling::wants_simple_protocol(opts.get_host(), opts.get_port(), &uri_options) {
+        opts = opts.statement_cache_capacity(0);
+    }
+    let running = Arc::new(RunningPids::default());
     let pool = PgPoolOptions::new()
         .max_connections(4)
         .acquire_timeout(Duration::from_secs(15))
-        .connect_with(opts)
+        .connect_with(opts.clone())
         .await?;
+    // Pinned query-tab connections open with the pool's *current* options, so a
+    // refreshed token (below) reaches them too.
+    let pins = Pins::new(Arc::new(PgOpener { pool: pool.clone(), running: Arc::clone(&running) }), Dialect::Postgres);
+    if let Some(session) = plan.refresh.clone() {
+        // A pool opens connections lazily with the options it was built with; a
+        // 15-minute token would break every reconnect after the first quarter hour.
+        let live = pool.clone();
+        cloud_auth::keep_fresh(session, plan.expires_at, pool.close_event(), move |fresh| {
+            let mut next = opts.clone();
+            if let Some(user) = fresh.user.as_deref() {
+                next = next.username(user);
+            }
+            live.set_connect_options(next.password(&fresh.password));
+        });
+    }
     Ok(Arc::new(PostgresIntegration {
         pool,
         database,
-        running: RunningPids::default(),
+        running,
         tx: tokio::sync::Mutex::new(None),
         tx_open: AtomicBool::new(false),
+        pins,
     }))
 }
 
@@ -162,7 +262,7 @@ fn columns_of(row: &PgRow) -> Vec<ColumnMeta> {
 
 impl PostgresIntegration {
     async fn run(&self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        run_on(&self.pool, sql, max_rows).await
+        self.run_leased(None, sql, max_rows).await
     }
 
     // WHAT:  `execute` for a run the user can Stop: pins one pooled connection
@@ -173,10 +273,37 @@ impl PostgresIntegration {
     //        without an id (grid pages, catalog reads) skip it entirely.
     // WHERE: `cancel` below, src-tauri/src/guard/mod.rs (step 9)
     async fn run_tracked(&self, run_id: String, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
-        let mut conn = self.pool.acquire().await?;
-        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *conn).await?;
-        let _tracked = Tracked::new(&self.running, run_id, pid);
-        run_on(&mut *conn, sql, max_rows).await
+        self.run_leased(Some(run_id), sql, max_rows).await
+    }
+
+    // WHAT:  Runs a script on a pooled connection and hands the connection back
+    //        in the state the pool expects: no open or aborted transaction, no
+    //        leftover SET.
+    // WHY:   sqlx 0.8 returns a connection to the pool after only a ping and keeps
+    //        the server's transaction status private, so a script that did
+    //        `BEGIN` and failed (or was stopped, or never committed) put its
+    //        connection back inside that transaction. The next request that
+    //        drew it ran inside it or died with "current transaction is aborted".
+    // HOW:   `pooling::scan` reads the script first. A clean one (almost every
+    //        one) costs nothing extra. Otherwise the connection is rolled back
+    //        and/or `DISCARD ALL`ed before release, and closed instead of pooled
+    //        if that fails or this future is dropped mid-run (Stop, timeout).
+    // WHERE: integrations/pooling.rs (`scan`), `restore` below
+    async fn run_leased(&self, run_id: Option<String>, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        let hazard = pooling::scan(sql, Dialect::Postgres);
+        let mut lease = Lease { conn: self.pool.acquire().await?, unsafe_to_pool: hazard.any() };
+        let _tracked = match run_id {
+            Some(run_id) => {
+                let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut *lease.conn).await?;
+                Some(Tracked::new(&self.running, run_id, pid))
+            }
+            None => None,
+        };
+        let result = run_on(&mut *lease.conn, sql, max_rows).await;
+        if hazard.any() {
+            lease.unsafe_to_pool = !restore(&mut lease.conn, hazard, result.is_ok()).await;
+        }
+        result
     }
 
     // WHAT:  COMMIT or ROLLBACK the manual transaction and release its connection.
@@ -230,10 +357,155 @@ impl Drop for Tracked<'_> {
     }
 }
 
+// WHAT:  A pooled connection on loan for one script.
+// WHY:   If the script's future is dropped half-way (Stop, timeout) the connection
+//        can be mid-transaction, and the pool would hand it to the next caller.
+//        `unsafe_to_pool` stays set from the moment a script that touched
+//        transaction or session state starts until `restore` has put the
+//        connection right, and a lease dropped while it is set closes the
+//        connection rather than returning it.
+struct Lease {
+    conn: PoolConnection<Postgres>,
+    unsafe_to_pool: bool,
+}
+
+impl Drop for Lease {
+    fn drop(&mut self) {
+        if self.unsafe_to_pool {
+            self.conn.close_on_drop();
+        }
+    }
+}
+
+// WHAT:  Undoes what `hazard` says a script left on its connection. True when
+//        the connection is clean and may go back to the pool.
+// HOW:   Postgres keeps the transaction state to itself, so this asks the server:
+//        after a failure, a `SELECT 1` answers SQLSTATE 25P02 exactly when the
+//        transaction is aborted (a ROLLBACK outside a transaction would only
+//        log a warning); after a success the script's own BEGIN / COMMIT balance
+//        says whether one is still open. `DISCARD ALL` then drops SET values,
+//        temp tables, advisory locks, prepared statements and listeners; it
+//        cannot run inside a transaction, hence the rollback first. It also
+//        deallocates the statements sqlx cached on this connection, so the
+//        driver's cache is cleared with it: a later `sqlx::query` would
+//        otherwise Bind a name the server no longer knows.
+async fn restore(conn: &mut PoolConnection<Postgres>, hazard: Hazard, ran_ok: bool) -> bool {
+    if hazard.transaction {
+        let open = if ran_ok {
+            hazard.left_open
+        } else {
+            match sqlx::query("SELECT 1").execute(&mut **conn).await {
+                Ok(_) => false,
+                Err(sqlx::Error::Database(db)) => db.code().as_deref() == Some("25P02"),
+                Err(_) => true,
+            }
+        };
+        if open && run_on(&mut **conn, "ROLLBACK", 0).await.is_err() {
+            return false;
+        }
+    }
+    if hazard.state {
+        if run_on(&mut **conn, "DISCARD ALL", 0).await.is_err() {
+            return false;
+        }
+        if sqlx::Connection::clear_cached_statements(&mut **conn).await.is_err() {
+            return false;
+        }
+    }
+    true
+}
+
+// WHAT:  The driver's view of "this connection is gone", for the pinned sessions.
+fn connection_lost(err: &sqlx::Error) -> bool {
+    let transport = matches!(
+        err,
+        sqlx::Error::Io(_) | sqlx::Error::Tls(_) | sqlx::Error::Protocol(_) | sqlx::Error::PoolClosed | sqlx::Error::WorkerCrashed
+    );
+    let (sqlstate, message) = match err {
+        sqlx::Error::Database(db) => (db.code().map(|c| c.into_owned()), db.message().to_string()),
+        other => (None, other.to_string()),
+    };
+    pooling::is_connection_lost(ErrorFacts { transport, sqlstate: sqlstate.as_deref(), number: None, message: &message })
+}
+
+// WHAT:  One query tab's dedicated connection (see `integrations/pooling.rs`).
+// WHY:   Opened with `PgConnectOptions::connect`, not taken from the pool, so a
+//        tab never competes with the grid and sidebar for the pool's four
+//        connections and its state is never handed to anyone else.
+struct PgPin {
+    conn: Option<sqlx::PgConnection>,
+    pid: i32,
+    running: Arc<RunningPids>,
+    lost: bool,
+}
+
+#[async_trait]
+impl PinnedConn for PgPin {
+    async fn run(&mut self, sql: &str, max_rows: usize) -> AppResult<Vec<StatementResult>> {
+        let Some(conn) = self.conn.as_mut() else {
+            return Err(AppError::internal("The session connection is closed."));
+        };
+        // Registered for the life of this call so Stop can cancel the pinned backend.
+        let _tracked = crate::integrations::current_run_id().map(|id| Tracked::new(&self.running, id, self.pid));
+        match run_on_sqlx(&mut *conn, sql, max_rows).await {
+            Ok(out) => {
+                self.lost = false;
+                Ok(out)
+            }
+            Err(err) => {
+                self.lost = connection_lost(&err);
+                Err(AppError::from(err))
+            }
+        }
+    }
+
+    // `ping` is a bare Sync / ReadyForQuery, which answers in any transaction state.
+    async fn alive(&mut self) -> bool {
+        match self.conn.as_mut() {
+            Some(conn) => sqlx::Connection::ping(conn).await.is_ok(),
+            None => false,
+        }
+    }
+
+    fn lost(&self) -> bool {
+        self.lost
+    }
+
+    async fn close(&mut self) {
+        if let Some(conn) = self.conn.take() {
+            let _ = sqlx::Connection::close(conn).await;
+        }
+    }
+}
+
+struct PgOpener {
+    pool: PgPool,
+    running: Arc<RunningPids>,
+}
+
+#[async_trait]
+impl PinOpener for PgOpener {
+    async fn open(&self) -> AppResult<Box<dyn PinnedConn>> {
+        let opts = self.pool.connect_options();
+        let mut conn = sqlx::ConnectOptions::connect(&*opts).await?;
+        let pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()").fetch_one(&mut conn).await?;
+        Ok(Box::new(PgPin { conn: Some(conn), pid, running: Arc::clone(&self.running), lost: false }))
+    }
+}
+
 // WHAT:  Runs `sql` through the simple protocol and groups rows per statement.
 // HOW:   sqlx yields Right(row) per row and Left(result) when a statement ends.
 //        Generic over the executor so the pool and a pinned connection share it.
 async fn run_on<'c, E>(executor: E, sql: &'c str, max_rows: usize) -> AppResult<Vec<StatementResult>>
+where
+    E: Executor<'c, Database = sqlx::Postgres>,
+{
+    run_on_sqlx(executor, sql, max_rows).await.map_err(AppError::from)
+}
+
+// WHAT:  `run_on` with the driver's own error, for callers that must tell a dead
+//        connection from a bad statement (a pinned query-tab session).
+async fn run_on_sqlx<'c, E>(executor: E, sql: &'c str, max_rows: usize) -> Result<Vec<StatementResult>, sqlx::Error>
 where
     E: Executor<'c, Database = sqlx::Postgres>,
 {
@@ -394,6 +666,55 @@ impl Integration for PostgresIntegration {
         Ok(out)
     }
 
+    // WHAT:  Defaults, identity / generated flags and enum labels for the grid's editors.
+    // HOW:   `to_jsonb(a)` reads attidentity (PG10+) and attgenerated (PG12+) without
+    //        naming a column an older server does not have. An enum (or array of
+    //        one) carries its labels in sort order. `nextval(…)` defaults are serials.
+    async fn column_traits(&self, table: &TableRef) -> AppResult<Vec<crate::model::ColumnTraits>> {
+        let schema = table.schema.clone().unwrap_or_else(|| "public".to_string());
+        let rows = sqlx::query(
+            "SELECT a.attname::text AS name, a.atthasdef AS has_default, \
+                    COALESCE(to_jsonb(a)->>'attidentity', '') AS identity, \
+                    COALESCE(to_jsonb(a)->>'attgenerated', '') AS generated, \
+                    pg_get_expr(d.adbin, d.adrelid) AS default_expr, \
+                    (SELECT array_agg(e.enumlabel::text ORDER BY e.enumsortorder) FROM pg_enum e \
+                      WHERE e.enumtypid = CASE WHEN t.typtype = 'e' THEN t.oid WHEN et.typtype = 'e' THEN et.oid END) AS enum_values, \
+                    (t.typcategory = 'A') AS is_array \
+             FROM pg_attribute a \
+             JOIN pg_class c ON c.oid = a.attrelid \
+             JOIN pg_namespace n ON n.oid = c.relnamespace \
+             JOIN pg_type t ON t.oid = a.atttypid \
+             LEFT JOIN pg_type et ON et.oid = t.typelem AND t.typcategory = 'A' \
+             LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
+             WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped \
+             ORDER BY a.attnum",
+        )
+        .bind(&schema)
+        .bind(&table.name)
+        .fetch_all(&self.pool)
+        .await?;
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let identity: String = row.try_get("identity")?;
+            let generated: String = row.try_get("generated")?;
+            let default_expr: Option<String> = row.try_get("default_expr")?;
+            let enum_values: Option<Vec<String>> = row.try_get("enum_values")?;
+            let is_array: bool = row.try_get("is_array")?;
+            let serial = default_expr.as_deref().is_some_and(|d| d.starts_with("nextval("));
+            out.push(crate::model::ColumnTraits {
+                name: row.try_get("name")?,
+                multi: is_array && enum_values.is_some(),
+                enum_values: enum_values.unwrap_or_default(),
+                has_default: row.try_get("has_default")? || !identity.is_empty(),
+                default_expr,
+                // GENERATED ALWAYS (identity or expression) refuses any written value.
+                generated: identity == "a" || !generated.is_empty(),
+                auto_increment: serial || !identity.is_empty(),
+            });
+        }
+        Ok(out)
+    }
+
     async fn row_estimate(&self, table: &TableRef) -> AppResult<Option<i64>> {
         let schema = table.schema.clone().unwrap_or_else(|| "public".to_string());
         let estimate: Option<i64> = sqlx::query_scalar(
@@ -447,10 +768,19 @@ impl Integration for PostgresIntegration {
                 return run_on(&mut *pinned.conn, sql, max_rows).await;
             }
         }
+        // A query tab that named a session runs on its own connection, where SET,
+        // temp tables and BEGIN survive until its next Run.
+        if let Some(key) = pooling::current_session_key() {
+            return self.pins.run(&key, sql, max_rows).await;
+        }
         match crate::integrations::current_run_id() {
             Some(run_id) => self.run_tracked(run_id, sql, max_rows).await,
             None => self.run(sql, max_rows).await,
         }
+    }
+
+    async fn close_session(&self, key: &str) {
+        self.pins.close(key).await;
     }
 
     async fn cancel(&self, run_id: &str) {
@@ -498,6 +828,13 @@ impl Integration for PostgresIntegration {
         // Extended protocol (a prepared statement), unlike `run`: it refuses a
         // script instead of running its second statement un-EXPLAINed.
         let explain = format!("EXPLAIN (FORMAT JSON) {}", crate::integrations::plan::explain_target(sql));
+        // A plan for a tab's statement runs where that statement runs (its open
+        // transaction, or its session), so it sees the same search_path and temp tables.
+        if self.tx_open.load(Ordering::Acquire) || pooling::current_session_key().is_some() {
+            let statements = self.execute(&explain, 1).await?;
+            let Some(doc) = crate::integrations::plan::json_from_statements(statements) else { return Ok(None) };
+            return Ok(crate::integrations::plan::from_postgres_json(&doc));
+        }
         let row = sqlx::query(&explain).persistent(false).fetch_one(&self.pool).await?;
         let raw = row.try_get_raw(0)?;
         let text = raw.as_str().map_err(AppError::driver)?;
@@ -513,6 +850,7 @@ impl Integration for PostgresIntegration {
                 log::warn!("rollback on close failed: {err}");
             }
         }
+        self.pins.close_all().await;
         self.pool.close().await;
     }
 
@@ -2704,6 +3042,17 @@ mod tests {
         assert_eq!(bytea_to_base64("\\x"), "");
     }
 
+    #[test]
+    fn libpq_options_split_into_startup_settings() {
+        assert_eq!(
+            startup_options("-c search_path=app,public -c statement_timeout=5s"),
+            [("search_path".to_string(), "app,public".to_string()), ("statement_timeout".to_string(), "5s".to_string())]
+        );
+        assert_eq!(startup_options("-csearch_path=x --work_mem=64MB"), [("search_path".to_string(), "x".to_string()), ("work_mem".to_string(), "64MB".to_string())]);
+        assert!(startup_options("").is_empty());
+        assert!(startup_options("-c").is_empty() && startup_options("-c novalue").is_empty(), "a setting without = is ignored");
+    }
+
     // ---- object explorer -----------------------------------------------------
 
     fn text_row(cells: &[(&str, Option<&str>)]) -> TextRow {
@@ -3146,6 +3495,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let resolved = ResolvedConnection {
             summary: ConnectionSummary::draft(&input, true),

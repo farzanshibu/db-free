@@ -85,7 +85,7 @@ pub async fn connect(conn: &ResolvedConnection) -> AppResult<Arc<dyn Integration
         .post_json("/api/login", &json!({ "user": b64(user.as_bytes()), "password": b64(password.as_bytes()) }))
         .await
         .map_err(|e| match e {
-            AppError::Driver { message } if message.contains("invalid user") || message.contains("password") => AppError::not_connected(message),
+            AppError::Driver { message, .. } if message.contains("invalid user") || message.contains("password") => AppError::not_connected(message),
             other => other,
         })?;
     let token = login
@@ -1277,8 +1277,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_IMMUDB_PASSWORD").ok(),
         };

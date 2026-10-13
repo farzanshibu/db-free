@@ -572,6 +572,9 @@ mod tests {
             folder: None,
             color: None,
             favorite: false,
+            auth: Default::default(),
+            auth_secrets: Default::default(),
+            extra: Default::default(),
         };
         let summary = ConnectionSummary::draft(&input, false);
         let resolved = ResolvedConnection { summary: summary.clone(), secret: None };

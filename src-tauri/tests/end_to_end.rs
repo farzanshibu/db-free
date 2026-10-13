@@ -62,6 +62,9 @@ fn file_input(name: &str, engine: Engine, path: String, read_only: bool) -> Conn
         folder: None,
         color: None,
         favorite: false,
+        extra: Default::default(),
+        auth: Default::default(),
+        auth_secrets: Default::default(),
     }
 }
 
@@ -230,5 +233,5 @@ fn every_engine_is_wired_end_to_end() {
             assert_eq!(engine.default_port(), None, "{engine:?} is file based but has a port");
         }
     }
-    assert_eq!(Engine::ALL.len(), 75, "Engine::ALL is out of step with the enum");
+    assert_eq!(Engine::ALL.len(), 76, "Engine::ALL is out of step with the enum");
 }

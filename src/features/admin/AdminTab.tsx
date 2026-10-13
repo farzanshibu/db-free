@@ -46,15 +46,15 @@ export function AdminTab({ connectionId }: { connectionId: string }) {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
-        <Icon name="server" size={15} className="text-accent" />
-        <span className="text-sm font-semibold tracking-tight text-foreground">Server</span>
+        <Icon name="server" size={14} className="text-accent" />
+        <span className="text-[13px] font-semibold tracking-tight text-foreground">Server</span>
         <Badge size="sm" variant="soft" className="font-mono text-[10px]">
           {engineMeta(engine).label}
         </Badge>
         {info?.serverVersion ? <span className="truncate font-mono text-[10px] text-muted">{info.serverVersion}</span> : null}
       </div>
       {views.length > 1 ? (
-        <ScrollArea orientation="horizontal" hideScrollBar className="shrink-0 px-3 py-2">
+        <ScrollArea orientation="horizontal" hideScrollBar className="shrink-0 px-2.5 py-1.5">
           <Segmented label="Admin view" value={current} onChange={setView} options={views} />
         </ScrollArea>
       ) : null}
@@ -125,23 +125,23 @@ function Overview({ connectionId }: { connectionId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-1 text-xs text-muted">
+      <div className="flex shrink-0 items-center gap-2 px-2.5 pb-1 text-xs text-muted">
         <Segmented label="Refresh interval" value={interval} onChange={setIntervalMode} options={INTERVALS} />
         <IconButton icon="refresh" label="Refresh now" onClick={refresh} />
         {loading ? <Spinner size="sm" /> : null}
         {stats ? <span className="ml-auto font-mono text-[10px]">read {new Date(stats.collectedAt).toLocaleTimeString()}</span> : null}
       </div>
-      <ScrollArea className="min-h-0 flex-1 p-3">
+      <ScrollArea className="min-h-0 flex-1 p-2">
         {error !== null ? (
           <EmptyState icon="alert" title="Could not read server statistics" body={error} action={<Button size="sm" onClick={refresh}>Retry</Button>} />
         ) : stats === null ? null : stats.groups.length === 0 ? (
           <EmptyState icon="activity" title="No statistics" body="The adapter returned no figures for this server." />
         ) : (
-          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
             {stats.groups.map((group) => (
-              <section key={group.title} className="rounded-xl glass-card border-border/40 p-3">
-                <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">{group.title}</h3>
-                <ul className="grid grid-cols-2 gap-x-3 gap-y-2">
+              <section key={group.title} className="rounded-lg glass-card border-border/40 p-2">
+                <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">{group.title}</h3>
+                <ul className="grid grid-cols-2 gap-x-2 gap-y-2">
                   {group.stats.map((stat) => (
                     <StatTile key={stat.label} stat={stat} series={history.get(`${group.title}/${stat.label}`) ?? []} />
                   ))}
@@ -160,7 +160,7 @@ function StatTile({ stat, series }: { stat: Stat; series: number[] }) {
     <li className="min-w-0" title={stat.hint ?? undefined}>
       <div className="truncate text-[11px] text-muted">{stat.label}</div>
       <div className="flex items-end gap-2">
-        <span className="truncate font-mono text-[15px] font-semibold tabular-nums text-foreground">
+        <span className="truncate font-mono text-[13px] font-semibold tabular-nums text-foreground">
           {stat.value}
           {stat.unit ? <span className="ml-0.5 text-[10px] font-normal text-muted">{stat.unit}</span> : null}
         </span>
@@ -195,8 +195,8 @@ function KindList({ connectionId, kind }: { connectionId: string; kind: ObjectKi
   const visible = objects?.filter((o) => needle.length === 0 || o.reference.name.toLowerCase().includes(needle) || (o.detail ?? "").toLowerCase().includes(needle)) ?? [];
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-3 pb-2">
-        <SearchInput value={search} onChange={setSearch} aria-label={`Filter ${meta.plural.toLowerCase()}`} placeholder={`Filter ${meta.plural.toLowerCase()}…`} className="max-w-xs glass-input h-8 rounded-lg w-full text-xs" />
+      <div className="flex shrink-0 items-center gap-2 px-2.5 pb-1.5">
+        <SearchInput value={search} onChange={setSearch} aria-label={`Filter ${meta.plural.toLowerCase()}`} placeholder={`Filter ${meta.plural.toLowerCase()}…`} className="max-w-xs glass-input w-full text-xs" />
         <IconButton
           icon="refresh"
           label="Reload"
@@ -212,7 +212,7 @@ function KindList({ connectionId, kind }: { connectionId: string; kind: ObjectKi
           </Badge>
         ) : null}
       </div>
-      <ScrollArea className={cn("min-h-0 flex-1 px-2 pb-2")}>
+      <ScrollArea className={cn("min-h-0 flex-1 px-2 pb-1.5")}>
         {error !== null ? (
           <EmptyState icon="alert" title={`Could not list ${meta.plural.toLowerCase()}`} body={error} />
         ) : objects !== null && visible.length === 0 ? (

@@ -66,12 +66,12 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
       }
     >
       <div className="flex h-full min-h-0">
-        <aside className="flex w-72 shrink-0 flex-col border-r border-border/40">
-          <div className="flex flex-col gap-2 p-3">
+        <aside className="flex w-64 shrink-0 flex-col border-r border-border/40">
+          <div className="flex flex-col gap-2 p-2.5">
             {options.length > 0 ? <AppSelect label="Collection" value={collection} options={options} onChange={setCollection} /> : null}
             <Field label="Path" value={customCollection} onChange={setCustomCollection} optional placeholder={parent || "/db/apps"} mono description="Overrides the selection above." />
           </div>
-          <ScrollArea className="min-h-0 flex-1 px-2 pb-2">
+          <ScrollArea className="min-h-0 flex-1 px-2 pb-1.5">
             {loading && objects === null ? (
               <div className="flex items-center gap-2 p-2 text-[11px] text-muted">
                 <Spinner size="sm" /> loading…
@@ -97,7 +97,7 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
           ) : detail.definition === null ? (
             <EmptyState title={selected.name} body="The adapter returned no content for this document." />
           ) : (
-            <ScrollArea className="h-full p-4">
+            <ScrollArea className="h-full p-3">
               <XmlTree source={detail.definition} />
             </ScrollArea>
           )}

@@ -17,6 +17,8 @@ pub fn get(state: &AppState) -> AppResult<AppSettings> {
             None => AppSettings::default(),
         };
         settings.ai.has_api_key = store.get_setting(AI_KEY)?.is_some();
+        // Profiles, their keys and the default selection are derived here.
+        crate::services::ai_profiles::hydrate(store, &mut settings.ai)?;
         Ok(settings)
     })
 }
@@ -31,8 +33,11 @@ pub fn save(state: &AppState, settings: &AppSettings, api_key: Option<&str>) -> 
     };
     let mut stored = settings.clone();
     stored.ai.has_api_key = false;
-    let raw = serde_json::to_string(&stored).map_err(AppError::internal)?;
     state.with_store(|store| {
+        // The assistant's settings are saved by their own commands (keys, model
+        // lists); a stale copy held by this page must not roll them back.
+        crate::services::ai_profiles::keep_stored(store, &mut stored.ai)?;
+        let raw = serde_json::to_string(&stored).map_err(AppError::internal)?;
         store.set_setting(APP_KEY, &raw)?;
         match sealed {
             Some(Some(bytes)) => store.set_setting(AI_KEY, &base64::engine::general_purpose::STANDARD.encode(bytes))?,

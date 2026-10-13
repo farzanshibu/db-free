@@ -50,7 +50,7 @@ export function ObjectsPanel() {
 
   return (
     <aside className="flex h-full w-full min-w-0 flex-col glass-sidebar select-none">
-      <div className="@container drag-region flex h-11 app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40 " data-tauri-drag-region>
+      <div className="@container drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-1.5 border-b border-border/40 " data-tauri-drag-region>
         <ConnectionSwitcher caption="Objects" />
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
         <span className="flex shrink-0 items-center gap-0.5">
@@ -61,32 +61,32 @@ export function ObjectsPanel() {
       </div>
 
       {showSchemaSwitch ? (
-        <div className="flex items-center gap-1 px-3 py-2 text-xs text-muted">
+        <div className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-muted">
           <AppSelect ariaLabel="Schema" value={schemaFilter ?? "*"} options={schemaOptions} plain className="w-auto min-w-0" icon="folder" onChange={(v) => setSchemaFilter(id, v === "*" ? null : v)} />
         </div>
       ) : null}
 
       {searchOpen ? (
-        <div className="px-3 pb-2 pt-1">
-          <SearchInput value={search} onChange={setSearch} aria-label="Search objects" placeholder="Filter loaded objects…" autoFocus className="glass-input h-8 rounded-lg w-full text-xs" />
+        <div className="px-2.5 pb-1.5 pt-1">
+          <SearchInput value={search} onChange={setSearch} aria-label="Search objects" placeholder="Filter loaded objects…" autoFocus className="glass-input w-full text-xs" />
         </div>
       ) : null}
 
       <Separator className="opacity-50" />
 
-      <ScrollArea className="min-h-0 flex-1 px-1.5 py-1.5">
+      <ScrollArea className="min-h-0 flex-1 px-1.5 py-1">
         {connecting === id ? (
-          <div className="space-y-2.5 p-3">
+          <div className="space-y-2 p-2.5">
             <Skeleton className="h-4 w-3/4 rounded-md" />
             <Skeleton className="h-4 w-1/2 rounded-md" />
             <Skeleton className="h-4 w-5/6 rounded-md" />
           </div>
         ) : sections.length === 0 ? (
-          <p className="px-3 py-3 text-xs text-muted">This engine exposes no browsable objects beyond its {kinds.length === 0 ? "data" : "server state (see Server admin)"}.</p>
+          <p className="px-2.5 py-2 text-xs text-muted">This engine exposes no browsable objects beyond its {kinds.length === 0 ? "data" : "server state (see Server admin)"}.</p>
         ) : (
           sections.map((section) => (
             <div key={section.id} className="mb-1.5">
-              <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/80">
+              <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted/80">
                 <Icon name={section.id === "code" ? "code" : section.id === "security" ? "shield" : section.id === "server" ? "server" : section.id === "containers" ? "database" : "layers"} size={11} />
                 {section.label}
               </div>
@@ -98,7 +98,7 @@ export function ObjectsPanel() {
         )}
       </ScrollArea>
 
-      {info?.serverVersion ? <div className="truncate border-t border-border/40 px-3 py-1.5 font-mono text-[10px] text-muted/70">{info.serverVersion}</div> : null}
+      {info?.serverVersion ? <div className="truncate border-t border-border/40 px-2.5 py-1 font-mono text-[10px] text-muted/70">{info.serverVersion}</div> : null}
     </aside>
   );
 }

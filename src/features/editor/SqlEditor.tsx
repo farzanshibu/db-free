@@ -1,5 +1,5 @@
-// SOT: sql-editor, codemirror-setup, editor-theme, schema-completion, completion-dropdown, run-at-cursor, statement-gutter, snippet-expansion
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// SOT: sql-editor, codemirror-setup, editor-theme, completion-dropdown, run-target-gutter, statement-gutter, snippet-expansion, find-replace-host, error-squiggle-host, editor-handle, editor-shortcuts
+import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
 import { EditorState, Compartment, StateEffect, StateField, type Extension } from "@codemirror/state";
 import {
   EditorView,
@@ -21,30 +21,48 @@ import type { Completion } from "@codemirror/autocomplete";
 import { HighlightStyle, StreamLanguage, syntaxHighlighting, bracketMatching, type StreamParser } from "@codemirror/language";
 import { sql, MSSQL, MySQL, MariaSQL, PostgreSQL, SQLite, StandardSQL, type SQLDialect, type SQLNamespace } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
-import type { Engine, Snippet, StatementSpan } from "@/lib/bindings";
+import type { Engine, RunScope, Snippet, StatementSpan } from "@/lib/bindings";
+import { ENGINE_FACTS } from "@/lib/bindings/EngineFacts.gen";
 import { queryLanguageOf, type QueryLanguage } from "@/lib/queryLanguage";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Icon } from "@/lib/icons";
 import type { IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
-import { toCodeMirrorKey, type Keymap } from "@/lib/keymap";
+import { matchesChord, toCodeMirrorKey, type Keymap } from "@/lib/keymap";
 import { useKeymap } from "@/stores/useShortcut";
 import { useWorkspace } from "@/stores/workspace";
 import { useResolvedTheme, type ResolvedTheme } from "@/stores/useTheme";
-import { snippetForWord, snippetLanguageOf, snippetPreview, snippetsFor } from "@/lib/snippets";
+import { snippetForWord, snippetLanguageOf, snippetsFor } from "@/lib/snippets";
+import { isRedisEngine } from "@/lib/redisCommands";
+import { catalogFor } from "@/lib/sqlCatalog";
+import { computeCompletions, type CompletionItem, type CompletionKind, type EditorLanguage, type SchemaTable, type TemplateVariable } from "./completion";
+import { diagnosticsExtension, setDiagnostic, type EditorDiagnostic } from "./diagnostics";
+import { FindBar } from "./FindBar";
+import { EMPTY_STATUS, findExtension, findField, replaceAll, replaceCurrent, selectNearest, setFind, statusOf, stepFind, type FindQuery, type FindStatus } from "./findReplace";
+import { planRun, sameTarget, type Range, type RunTarget } from "./runTargets";
+import { mentionedTables, statementAround, tokenize } from "./sqlScan";
 
-// WHAT:  The one statement a run will send, and where it came from.
-// WHY:   PRD §4.3 — a tab holds a script; running the whole buffer when the caret
-//        sits inside one statement of it is rarely what was meant.
-// WHERE: src/features/editor/QueryPane.tsx (the Run button reads this)
-export interface RunTarget {
-  text: string;
-  from: number;
-  to: number;
-  /// 1-based place in the script. 0 when the user highlighted the text themselves.
-  index: number;
-  total: number;
-  selected: boolean;
+export type { RunTarget } from "./runTargets";
+export type { EditorDiagnostic } from "./diagnostics";
+export type { TemplateVariable } from "./completion";
+
+// WHAT:  What a parent can ask of the editor without owning its state.
+// WHY:   The inline AI prompt needs the caret's place on screen and a way to put
+//        its answer into the text as one undoable edit; the results pane needs to
+//        jump to an error. None of that belongs in props that re-render the editor.
+export interface SqlEditorHandle {
+  focus: () => void;
+  /// The main selection and the text it covers.
+  selection: () => { from: number; to: number; text: string };
+  /// Where the caret is, relative to the editor's box (null while it is scrolled out of view).
+  caretBox: () => { left: number; top: number; bottom: number; width: number; height: number } | null;
+  /// Replaces `from..to` as one undoable edit; selects what went in unless `select` is false.
+  replace: (from: number, to: number, insert: string, select?: boolean) => void;
+  /// The statement a "Run statement" would send now: the highlighted text, else the one the caret is in; null with none.
+  statementRange: () => { from: number; to: number } | null;
+  /// Moves the caret (or selects `from..to`) and scrolls it into view.
+  reveal: (from: number, to?: number) => void;
+  openFind: (withReplace: boolean) => void;
 }
 
 interface SqlEditorProps {
@@ -60,11 +78,27 @@ interface SqlEditorProps {
   spans?: readonly StatementSpan[] | undefined;
   onRunAll?: (() => void) | undefined;
   onTargetChange?: ((target: RunTarget) => void) | undefined;
+  /// What Run does with a bare caret: every statement, or the one it is in.
+  runScope?: RunScope | undefined;
+  /// `{{names}}` the surrounding page defines, offered inside `{{ }}`.
+  templateVars?: readonly TemplateVariable[] | undefined;
+  /// Where to draw the squiggle for the last error; a new object draws it again.
+  diagnostic?: EditorDiagnostic | null | undefined;
+  /// The tables the caret's statement names, so their columns can be fetched.
+  onMentionedTables?: ((names: string[]) => void) | undefined;
+  /// The editor's shortcuts for features its parent owns. A chord is only
+  /// claimed when the parent passes the callback, so a dashboard's ⌘S still saves the dashboard.
+  onInlineAi?: (() => void) | undefined;
+  onSave?: (() => void) | undefined;
+  onOpenFile?: (() => void) | undefined;
+  handleRef?: Ref<SqlEditorHandle> | undefined;
 }
 
 const NO_SPANS: readonly StatementSpan[] = [];
+const NO_VARIABLES: readonly TemplateVariable[] = [];
 
 const setSpans = StateEffect.define<readonly StatementSpan[]>();
+const setScope = StateEffect.define<RunScope>();
 
 // WHAT:  The statement boundaries the gutter and Run at cursor read.
 // WHY:   Rust answers a beat behind the typing. Between answers the offsets are
@@ -85,51 +119,39 @@ const spansField = StateField.define<readonly StatementSpan[]>({
   },
 });
 
+/// Run Without a Selection (Settings → Editor), as the editor holds it.
+const scopeField = StateField.define<RunScope>({
+  create: () => "current",
+  update(scope, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setScope)) return effect.value;
+    }
+    return scope;
+  },
+});
+
 // WHAT:  Keeps a span inside the document.
 // WHY:   Spans are computed a beat behind the typing that produced them; an offset
 //        past the end of the doc makes `lineAt` throw rather than merely look wrong.
-function clampSpan(state: EditorState, span: StatementSpan): { from: number; to: number } {
+function clampSpan(state: EditorState, span: StatementSpan): Range {
   const max = state.doc.length;
   const from = Math.min(Math.max(span.start, 0), max);
   return { from, to: Math.min(Math.max(span.end, from), max) };
 }
 
 // WHAT:  What ⌘/Ctrl + Enter, the toolbar Run and the gutter ▶ would send.
-// HOW:   A highlighted range wins outright — the user said what to run. Otherwise
-//        it is the statement the caret is inside, else the next one below it, else
-//        the last, so a caret parked on the blank line under a script still runs
-//        something sensible. Before the first split answers, it is the whole text.
+// HOW:   See `planRun`: a highlighted range runs as highlighted, several carets or
+//        selections run the statements they touch, a bare caret runs its statement
+//        or the whole buffer by the run-scope setting.
 function targetOf(state: EditorState): RunTarget {
   const spans = state.field(spansField, false) ?? [];
-  const selection = state.selection.main;
-  if (!selection.empty) {
-    return {
-      text: state.doc.sliceString(selection.from, selection.to),
-      from: selection.from,
-      to: selection.to,
-      index: 0,
-      total: spans.length,
-      selected: true,
-    };
-  }
-  const index = indexAt(state, spans, selection.head);
-  const span = index === -1 ? undefined : spans[index];
-  if (span === undefined) {
-    return { text: state.doc.toString(), from: 0, to: state.doc.length, index: 0, total: spans.length, selected: false };
-  }
-  const { from, to } = clampSpan(state, span);
-  return { text: state.doc.sliceString(from, to), from, to, index: index + 1, total: spans.length, selected: false };
+  const scope = state.field(scopeField, false) ?? "current";
+  return planRun(spans, state.selection.ranges.map((r) => ({ from: r.from, to: r.to })), state.doc.length, scope);
 }
 
-function indexAt(state: EditorState, spans: readonly StatementSpan[], pos: number): number {
-  const inside = spans.findIndex((s) => {
-    const { from, to } = clampSpan(state, s);
-    return pos >= from && pos <= to;
-  });
-  if (inside !== -1) return inside;
-  const below = spans.findIndex((s) => clampSpan(state, s).from > pos);
-  if (below !== -1) return below;
-  return spans.length - 1;
+function wholeTarget(state: EditorState): RunTarget {
+  const spans = state.field(spansField, false) ?? [];
+  return { kind: "all", pieces: [{ from: 0, to: state.doc.length }], count: Math.max(spans.length, 1), index: 0, total: spans.length };
 }
 
 /// The first line of a statement, which is where its ▶ sits.
@@ -143,18 +165,18 @@ function spanStartingAt(state: EditorState, lineFrom: number): number {
 
 const statementMark = Decoration.mark({ class: "cm-active-statement" });
 
-// WHAT:  Tints the statement the caret is in, so what Run will send is visible
-//        before it is sent. Only worth drawing when the buffer holds more than one.
+// WHAT:  Tints what Run will send when that is a statement or several, so it is
+//        visible before it is sent. Only worth drawing when the buffer holds more than one.
 function decorate(state: EditorState): DecorationSet {
   const target = targetOf(state);
-  if (target.selected || target.index === 0 || target.total < 2 || target.to <= target.from) return Decoration.none;
-  return Decoration.set([statementMark.range(target.from, target.to)]);
+  if ((target.kind !== "statement" && target.kind !== "several") || target.total < 2) return Decoration.none;
+  return Decoration.set(target.pieces.filter((p) => p.to > p.from).map((p) => statementMark.range(p.from, p.to)));
 }
 
 const activeStatement = StateField.define<DecorationSet>({
   create: (state) => decorate(state),
   update: (deco, tr) =>
-    tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setSpans)) ? decorate(tr.state) : deco,
+    tr.docChanged || tr.selection || tr.effects.some((e) => e.is(setSpans) || e.is(setScope)) ? decorate(tr.state) : deco,
   provide: (field) => EditorView.decorations.from(field),
 });
 
@@ -184,10 +206,11 @@ class RunMarker extends GutterMarker {
 // WHAT:  Theme built from the CSS tokens so light/dark follow the app.
 // WHERE: src/styles/globals.css (design tokens), src/stores/useTheme.ts
 const THEME_SPEC: Parameters<typeof EditorView.theme>[0] = {
-  "&": { backgroundColor: "var(--background)", color: "var(--foreground)", height: "100%", fontSize: "13px" },
+  // Settings → Fonts → Editor font size: App.tsx publishes it as --editor-font-size.
+  "&": { backgroundColor: "var(--background)", color: "var(--foreground)", height: "100%", fontSize: "var(--editor-font-size, 13px)" },
   ".cm-scroller": { fontFamily: "var(--font-mono)", lineHeight: "1.55" },
-  ".cm-content": { caretColor: "var(--color-accent)", padding: "12px 0" },
-  ".cm-line": { padding: "0 16px" },
+  ".cm-content": { caretColor: "var(--color-accent)", padding: "6px 0" },
+  ".cm-line": { padding: "0 12px" },
   ".cm-gutters": { backgroundColor: "transparent", color: "var(--color-muted)", border: "none", paddingRight: "4px" },
   ".cm-activeLine": { backgroundColor: "var(--color-surface-hover)" },
   ".cm-activeLineGutter": { backgroundColor: "transparent", color: "var(--foreground)" },
@@ -211,6 +234,14 @@ const THEME_SPEC: Parameters<typeof EditorView.theme>[0] = {
   ".cm-run-marker-active": { color: "var(--color-accent)", opacity: "1" },
   ".cm-run-marker-danger": { color: "var(--color-danger)", opacity: "0.8" },
   ".cm-active-statement": { backgroundColor: "var(--color-selection)" },
+  // Find and replace: every match softly, the current one firmly.
+  ".cm-find-match": { backgroundColor: "var(--color-warning-soft)", borderRadius: "2px" },
+  ".cm-find-current": { backgroundColor: "var(--color-warning-soft)", outline: "1px solid var(--color-warning)", borderRadius: "2px" },
+  // The error the last run pointed at.
+  ".cm-diagnostic-error": { textDecoration: "underline wavy var(--color-danger)", textDecorationSkipInk: "none", textUnderlineOffset: "3px" },
+  ".cm-diagnostic-card": { padding: "6px 10px", maxWidth: "420px", fontSize: "12px", lineHeight: "1.45", whiteSpace: "pre-wrap" },
+  ".cm-diagnostic-message": { color: "var(--color-danger)", fontWeight: "600" },
+  ".cm-diagnostic-hint, .cm-diagnostic-detail": { color: "var(--color-muted)", marginTop: "3px" },
 };
 
 // WHAT:  `{ dark }` tells CodeMirror which of its own base rules to use: the
@@ -337,6 +368,14 @@ function dialectFor(engine: Engine): SQLDialect {
   }
 }
 
+interface MutableRunHandler {
+  current: (target: RunTarget) => void;
+}
+
+interface MutableRunAllHandler {
+  current: (() => void) | undefined;
+}
+
 // WHAT:  The gutter of ▶ markers, one per statement, on the line it starts.
 // HOW:   Built once per editor and handed the caller's latest onRun through a ref,
 //        so the extension never has to be rebuilt when the callback identity moves.
@@ -348,12 +387,15 @@ function runGutterFor(onRun: MutableRunHandler): Extension {
       const span = found === -1 ? undefined : (view.state.field(spansField, false) ?? [])[found];
       if (span === undefined) return null;
       const target = targetOf(view.state);
-      return new RunMarker(!target.selected && target.index === found + 1, span.intent === "destructive");
+      const mine = clampSpan(view.state, span);
+      const active = (target.kind === "statement" || target.kind === "several") && target.pieces.some((p) => p.from === mine.from && p.to === mine.to);
+      return new RunMarker(active, span.intent === "destructive");
     },
     lineMarkerChange: (update) =>
       update.docChanged ||
       update.selectionSet ||
-      update.startState.field(spansField, false) !== update.state.field(spansField, false),
+      update.startState.field(spansField, false) !== update.state.field(spansField, false) ||
+      update.startState.field(scopeField, false) !== update.state.field(scopeField, false),
     initialSpacer: () => new RunMarker(false, false),
     domEventHandlers: {
       mousedown: (view, line) => {
@@ -361,20 +403,11 @@ function runGutterFor(onRun: MutableRunHandler): Extension {
         const all = view.state.field(spansField, false) ?? [];
         const span = found === -1 ? undefined : all[found];
         if (span === undefined) return false;
-        const { from, to } = clampSpan(view.state, span);
-        onRun.current({ text: view.state.doc.sliceString(from, to), from, to, index: found + 1, total: all.length, selected: false });
+        onRun.current({ kind: "statement", pieces: [clampSpan(view.state, span)], count: 1, index: found + 1, total: all.length });
         return true;
       },
     },
   });
-}
-
-interface MutableRunHandler {
-  current: (target: RunTarget) => void;
-}
-
-interface MutableRunAllHandler {
-  current: (() => void) | undefined;
 }
 
 // WHAT:  Run and Run all on the chords the user bound them to (Settings → Shortcuts).
@@ -388,26 +421,88 @@ function runKeysFor(keys: Keymap, onRun: MutableRunHandler, onRunAll: MutableRun
   const run = toCodeMirrorKey(keys.run);
   if (run !== null) bindings.push({ key: run, run: (view) => { onRun.current(targetOf(view.state)); return true; } });
   const runAll = toCodeMirrorKey(keys["run-all"]);
-  if (runAll !== null) bindings.push({ key: runAll, run: (view) => { (onRunAll.current ?? (() => onRun.current(wholeDoc(view.state))))(); return true; } });
-  return keymap.of(bindings);
+  if (runAll !== null) bindings.push({ key: runAll, run: (view) => { (onRunAll.current ?? (() => onRun.current(wholeTarget(view.state))))(); return true; } });
+  return [keymap.of(bindings), claimChords([keys.run, keys["run-all"]])];
 }
 
-function wholeDoc(state: EditorState): RunTarget {
-  return { text: state.doc.toString(), from: 0, to: state.doc.length, index: 0, total: 0, selected: false };
+// WHAT:  Stops a key the editor handled from also reaching the app's window-level
+//        shortcuts.
+// WHY:   ⌘S saves the query here and commits staged grid changes elsewhere, ⌘F
+//        finds here and in grids: a chord the focused editor owns must not fire
+//        the other.
+function claimChords(chords: readonly string[]): Extension {
+  const owned = chords.filter((c) => c.length > 0);
+  return EditorView.domEventHandlers({
+    keydown: (event) => {
+      if (owned.some((chord) => matchesChord(event, chord))) event.stopPropagation();
+      return false;
+    },
+  });
 }
 
-function sameTarget(a: RunTarget | null, b: RunTarget): boolean {
-  return a !== null && a.from === b.from && a.to === b.to && a.selected === b.selected && a.index === b.index && a.total === b.total;
+interface EditorActions {
+  inlineAi: (() => void) | undefined;
+  save: (() => void) | undefined;
+  openFile: (() => void) | undefined;
+  openFind: (withReplace: boolean) => void;
+  nextMatch: () => void;
+  previousMatch: () => void;
 }
 
-type CompletionKind = "snippet" | "table" | "column" | "keyword";
+interface MutableActions {
+  current: EditorActions;
+}
 
-interface CompletionItem {
-  label: string;
-  detail: string;
-  kind: CompletionKind;
-  /// Set for `snippet` items: accepting expands the body instead of inserting the label.
-  snippet?: Snippet;
+// WHAT:  The editor's own shortcuts: find, find next / previous, inline AI, save, open file.
+// WHY:   They are rebindable (Settings → Shortcuts) and ahead of the default keymap,
+//        which would otherwise take ⌘I for "select parent syntax".
+// HOW:   A chord is bound only when its callback exists: a dashboard tile's editor
+//        has no query to save, so ⌘S there goes on to the dashboard's own handler.
+function editorKeysFor(keys: Keymap, actions: MutableActions): Extension {
+  const bindings: CmKeyBinding[] = [];
+  const claimed: string[] = [];
+  const bind = (chord: string, run: () => boolean) => {
+    const key = toCodeMirrorKey(chord);
+    if (key === null) return;
+    bindings.push({ key, run, preventDefault: true });
+    claimed.push(chord);
+  };
+  bind(keys["find-in-query"], () => {
+    actions.current.openFind(false);
+    return true;
+  });
+  if (actions.current.inlineAi !== undefined) {
+    bind(keys["inline-ai"], () => {
+      actions.current.inlineAi?.();
+      return true;
+    });
+  }
+  if (actions.current.save !== undefined) {
+    bind(keys["save-query"], () => {
+      actions.current.save?.();
+      return true;
+    });
+  }
+  if (actions.current.openFile !== undefined) {
+    bind(keys["open-sql-file"], () => {
+      actions.current.openFile?.();
+      return true;
+    });
+  }
+  bindings.push(
+    { key: "Mod-Alt-f", run: () => { actions.current.openFind(true); return true; }, preventDefault: true },
+    { key: "Mod-g", run: () => { actions.current.nextMatch(); return true; }, preventDefault: true },
+    { key: "Shift-Mod-g", run: () => { actions.current.previousMatch(); return true; }, preventDefault: true },
+  );
+  return [keymap.of(bindings), claimChords(claimed)];
+}
+
+type Language = EditorLanguage;
+
+function languageOf(engine: Engine): Language {
+  if (catalogFor(engine) !== null) return "sql";
+  if (isRedisEngine(engine)) return "redis";
+  return ENGINE_FACTS[engine].family === "mongodb" ? "mongo" : "other";
 }
 
 interface CompletionSnapshot {
@@ -419,7 +514,16 @@ interface CompletionSnapshot {
   index: number;
 }
 
-const COMPLETION_ICONS: Record<CompletionKind, IconName> = { snippet: "flash", table: "table", column: "columns", keyword: "code" };
+const COMPLETION_ICONS: Record<CompletionKind, IconName> = {
+  snippet: "flash",
+  table: "table",
+  column: "columns",
+  keyword: "code",
+  function: "function",
+  variable: "braces",
+  command: "terminal",
+  method: "function",
+};
 const NO_SNIPPETS: readonly Snippet[] = [];
 
 /// The characters a snippet prefix may use; the run of them before the caret is
@@ -432,24 +536,6 @@ const SNIPPET_WORD = /[A-Za-z0-9_.-]+$/;
 //        walks the fields without anything else registered here.
 function expandSnippet(view: EditorView, body: string, from: number, to: number): void {
   snippet(body)(view, null, from, to);
-}
-const MAX_COMPLETIONS = 100;
-
-// WHAT:  The keyword half of the suggestion list. Tables and columns come from
-//        the live catalogue (`schema` prop); keywords are the connection's own
-//        language: SQL for SQL engines, Redis commands for Redis, Mongo command
-//        names and operators for Mongo, and so on.
-// WHERE: src/lib/queryLanguage.ts
-
-/// Words that may follow a table reference but are never an alias for it.
-const CLAUSE_WORDS = new Set([
-  "WHERE", "GROUP", "ORDER", "LIMIT", "OFFSET", "HAVING", "UNION", "JOIN", "LEFT", "RIGHT",
-  "INNER", "OUTER", "FULL", "CROSS", "ON", "USING", "SELECT", "FROM", "SET", "VALUES",
-]);
-
-interface SchemaTable {
-  name: string;
-  columns: string[];
 }
 
 // WHAT:  Flattens the catalogue namespace into tables. Only the shapes the
@@ -493,76 +579,49 @@ function collectTables(node: SQLNamespace, prefix: string, out: SchemaTable[]): 
   }
 }
 
-// WHAT:  alias (or bare table) → table name for the text before the caret, so
-//        `r.` after `FROM rental r` offers rental's columns. Clause keywords are
-//        never treated as aliases (`FROM t WHERE` must not alias t as WHERE).
-function aliasesOf(text: string): Map<string, string> {
-  const map = new Map<string, string>();
-  const pattern = /\b(?:FROM|JOIN)\s+([A-Za-z_][\w$]*(?:\.[A-Za-z_][\w$]*)*)(?:\s+(?:AS\s+)?([A-Za-z_][\w$]*))?/gi;
-  for (const match of text.matchAll(pattern)) {
-    const table = match[1] ?? "";
-    const alias = match[2] ?? "";
-    if (table.length === 0) continue;
-    map.set(table.toLowerCase(), table);
-    if (alias.length > 0 && !CLAUSE_WORDS.has(alias.toUpperCase())) map.set(alias.toLowerCase(), table);
+// WHAT:  The text suggestions are computed from: the statement around the caret
+//        when the buffer's statements are known, else the whole text.
+// WHY:   Scanning a 5,000-line script on every keystroke to learn which clause
+//        one statement is in is wasted work; the Rust splitter has already said
+//        where each statement is.
+function windowOf(state: EditorState): { text: string; caret: number; base: number } {
+  const caret = state.selection.main.head;
+  const spans = (state.field(spansField, false) ?? []).map((s) => clampSpan(state, s));
+  if (spans.length === 0) return { text: state.doc.toString(), caret, base: 0 };
+  const inside = spans.find((r) => caret >= r.from && caret <= r.to);
+  let from: number;
+  let to: number;
+  if (inside !== undefined) {
+    from = inside.from;
+    to = inside.to;
+  } else {
+    // Between statements: the gap is a new statement being typed.
+    const before = spans.filter((r) => r.to < caret);
+    from = before.length > 0 ? (before[before.length - 1]?.to ?? 0) : 0;
+    to = spans.find((r) => r.from > caret)?.from ?? state.doc.length;
   }
-  return map;
+  return { text: state.doc.sliceString(from, to), caret: caret - from, base: from };
 }
 
-function rankItems(partial: string, items: CompletionItem[]): CompletionItem[] {
-  const needle = partial.toLowerCase();
-  if (needle.length === 0) return items.slice(0, MAX_COMPLETIONS);
-  const prefix = items.filter((item) => item.label.toLowerCase().startsWith(needle));
-  if (prefix.length >= MAX_COMPLETIONS) return prefix.slice(0, MAX_COMPLETIONS);
-  const rest = items.filter((item) => !item.label.toLowerCase().startsWith(needle) && item.label.toLowerCase().includes(needle));
-  return [...prefix, ...rest].slice(0, MAX_COMPLETIONS);
-}
-
-// WHAT:  What the dropdown should show for this caret, or null when it should
-//        stay shut (selection open, caret after whitespace/punctuation, no match).
-// HOW:   `qualifier.` scopes to one table's columns (alias-aware); a bare word
-//        ranks tables, then columns, then keywords, prefix matches first.
-function computeCompletions(state: EditorState, schema: SQLNamespace, defaultSchema: string | undefined, snippets: readonly Snippet[], keywords: readonly string[]): { from: number; to: number; items: CompletionItem[] } | null {
-  const selection = state.selection.main;
-  if (!selection.empty) return null;
-  const head = selection.head;
-  const before = state.doc.sliceString(0, head);
-  const tables = tablesOf(schema);
-  if (tables.length === 0 && keywords.length === 0 && snippets.length === 0) return null;
-
-  // `alias.` scopes to a table's columns, but `JSON.` / `FT.` (Redis module
-  // commands) are words of their own, so only when the qualifier is a table.
-  const qualifiedMatch = /([A-Za-z_][\w$]*)\.([A-Za-z_][\w$]*)?$/.exec(before);
-  const qualified = qualifiedMatch !== null && keywords.some((k) => k.toLowerCase().startsWith(`${(qualifiedMatch[1] ?? "").toLowerCase()}.`)) ? null : qualifiedMatch;
-  if (qualified !== null) {
-    const qualifier = (qualified[1] ?? "").toLowerCase();
-    const partial = qualified[2] ?? "";
-    const aliases = aliasesOf(before);
-    const tableName = aliases.get(qualifier) ?? tables.find((t) => t.name.toLowerCase() === qualifier || t.name.toLowerCase().endsWith(`.${qualifier}`))?.name;
-    const columns = tableName === undefined ? tables.flatMap((t) => t.columns.map((c) => ({ label: c, detail: t.name, kind: "column" as const }))) : (tables.find((t) => t.name === tableName)?.columns ?? []).map((c) => ({ label: c, detail: tableName, kind: "column" as const }));
-    const items = rankItems(partial, columns);
-    if (items.length === 0) return null;
-    return { from: head - partial.length, to: head, items };
-  }
-
-  // `$match`, `JSON.GET`, `rdfs:label`, `db:open` are single words here.
-  const word = /([$?]?[A-Za-z_][\w$.:-]*)$/.exec(before);
-  if (word === null) return null;
-  const partial = word[1] ?? "";
-  if (partial.length === 0) return null;
-  const preferred = defaultSchema === undefined ? tables : [...tables.filter((t) => t.name.toLowerCase().startsWith(defaultSchema.toLowerCase())), ...tables.filter((t) => !t.name.toLowerCase().startsWith(defaultSchema.toLowerCase()))];
-  const candidates: CompletionItem[] = [
-    ...snippets.map((sn) => ({ label: sn.prefix, detail: sn.name.length > 0 ? sn.name : snippetPreview(sn.body), kind: "snippet" as const, snippet: sn })),
-    ...preferred.map((t) => ({ label: t.name, detail: `${t.columns.length} cols`, kind: "table" as const })),
-    ...preferred.flatMap((t) => t.columns.map((c) => ({ label: c, detail: t.name, kind: "column" as const }))),
-    ...keywords.map((k) => ({ label: k, detail: "keyword", kind: "keyword" as const })),
-  ];
-  const items = rankItems(partial, candidates);
-  if (items.length === 0) return null;
-  return { from: head - partial.length, to: head, items };
-}
-
-export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, onTargetChange, engine, schema, defaultSchema }: SqlEditorProps) {
+export function SqlEditor({
+  value,
+  spans = NO_SPANS,
+  onChange,
+  onRun,
+  onRunAll,
+  onTargetChange,
+  engine,
+  schema,
+  defaultSchema,
+  runScope = "current",
+  templateVars = NO_VARIABLES,
+  diagnostic = null,
+  onMentionedTables,
+  onInlineAi,
+  onSave,
+  onOpenFile,
+  handleRef,
+}: SqlEditorProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const viewRef = useRef<EditorView | null>(null);
   const langCompartment = useRef(new Compartment());
@@ -570,8 +629,10 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
   const onRunRef = useRef(onRun);
   const onRunAllRef = useRef(onRunAll);
   const onTargetRef = useRef(onTargetChange);
+  const onMentionedRef = useRef(onMentionedTables);
   const gutterCompartment = useRef(new Compartment());
   const runKeysCompartment = useRef(new Compartment());
+  const editorKeysCompartment = useRef(new Compartment());
   const themeCompartment = useRef(new Compartment());
   const appTheme = useResolvedTheme();
   const appThemeRef = useRef(appTheme);
@@ -581,28 +642,47 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
   const lastTarget = useRef<RunTarget | null>(null);
   const [completion, setCompletion] = useState<CompletionSnapshot | null>(null);
   const completionRef = useRef<CompletionSnapshot | null>(null);
-  const schemaRef = useRef(schema);
+  const tables = useMemo(() => tablesOf(schema), [schema]);
+  const tablesRef = useRef(tables);
+  const language = useMemo(() => languageOf(engine), [engine]);
+  const languageRef = useRef(language);
+  const engineRef = useRef(engine);
+  const catalog = useMemo(() => catalogFor(engine), [engine]);
+  const catalogRef = useRef(catalog);
+  const variablesRef = useRef(templateVars);
   // WHAT:  Snippets for this editor's language: the user's, then the built-ins.
   // WHERE: src/lib/snippets.ts, AppSettings.snippets
   const userSnippets = useWorkspace((s) => s.settings?.snippets ?? NO_SNIPPETS);
   const snippets = useMemo(() => snippetsFor(snippetLanguageOf(engine), userSnippets), [engine, userSnippets]);
   const snippetsRef = useRef(snippets);
   const defaultSchemaRef = useRef(defaultSchema);
-  // The connection's own language: completion words and the example an empty
-  // tab shows. Follows the engine if the tab is pointed at another connection.
-  const language = queryLanguageOf(engine);
-  const keywordsRef = useRef(language.keywords);
+  // The connection's own language: the highlighter's vocabulary and the example an
+  // empty tab shows. Follows the engine if the tab is pointed at another connection.
+  const nativeLanguage = queryLanguageOf(engine);
   const placeholderCompartment = useRef(new Compartment());
   const suppressCompletionRef = useRef(false);
+  const mentionTimer = useRef<number | null>(null);
+  const lastMentioned = useRef("");
+  const [find, setFindOpen] = useState<{ key: number; initial: string; replace: boolean } | null>(null);
+  const [findStatus, setFindStatus] = useState<FindStatus>(EMPTY_STATUS);
+  const findCounter = useRef(0);
+  const actionsRef = useRef<EditorActions>({ inlineAi: onInlineAi, save: onSave, openFile: onOpenFile, openFind: () => undefined, nextMatch: () => undefined, previousMatch: () => undefined });
+  const editorFontSize = useWorkspace((s) => s.settings?.editorFontSize);
+  const editorFont = useWorkspace((s) => s.settings?.editorFont);
+
   useEffect(() => {
     onChangeRef.current = onChange;
     onRunRef.current = onRun;
     onRunAllRef.current = onRunAll;
     onTargetRef.current = onTargetChange;
-    schemaRef.current = schema;
+    onMentionedRef.current = onMentionedTables;
+    tablesRef.current = tables;
+    languageRef.current = language;
+    engineRef.current = engine;
+    catalogRef.current = catalog;
+    variablesRef.current = templateVars;
     defaultSchemaRef.current = defaultSchema;
     snippetsRef.current = snippets;
-    keywordsRef.current = language.keywords;
   });
 
   const hideCompletion = useCallback(() => {
@@ -618,9 +698,10 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     if (item.snippet !== undefined) {
       expandSnippet(view, item.snippet.body, snapshot.from, snapshot.to);
     } else {
+      const insert = item.insert ?? item.label;
       view.dispatch({
-        changes: { from: snapshot.from, to: snapshot.to, insert: item.label },
-        selection: { anchor: snapshot.from + item.label.length },
+        changes: { from: snapshot.from, to: snapshot.to, insert },
+        selection: { anchor: snapshot.from + (item.caret ?? insert.length) },
       });
     }
     completionRef.current = null;
@@ -669,13 +750,30 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     }
     const host = hostRef.current;
     if (host === null) return;
-    const found = computeCompletions(view.state, schemaRef.current, defaultSchemaRef.current, snippetsRef.current, keywordsRef.current);
+    const state = view.state;
+    const found = state.selection.main.empty
+      ? (() => {
+          const scope = windowOf(state);
+          const result = computeCompletions({
+            text: scope.text,
+            caret: scope.caret,
+            engine: engineRef.current,
+            tables: tablesRef.current,
+            catalog: catalogRef.current,
+            language: languageRef.current,
+            snippets: snippetsRef.current,
+            defaultSchema: defaultSchemaRef.current,
+            variables: variablesRef.current,
+          });
+          return result === null ? null : { ...result, from: result.from + scope.base, to: result.to + scope.base };
+        })()
+      : null;
     if (found === null) {
       completionRef.current = null;
       setCompletion(null);
       return;
     }
-    const coords = view.coordsAtPos(view.state.selection.main.head);
+    const coords = view.coordsAtPos(state.selection.main.head);
     if (coords === null) {
       completionRef.current = null;
       setCompletion(null);
@@ -692,6 +790,127 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     setCompletion(snapshot);
   }, []);
 
+  // WHAT:  Tells the parent which tables the caret's statement names, shortly
+  //        after typing stops, so their columns are on hand when `alias.` is typed.
+  const announceMentions = useCallback((view: EditorView) => {
+    if (mentionTimer.current !== null) window.clearTimeout(mentionTimer.current);
+    mentionTimer.current = window.setTimeout(() => {
+      const callback = onMentionedRef.current;
+      if (callback === undefined || languageRef.current !== "sql") return;
+      const scope = windowOf(view.state);
+      const bounds = statementAround(scope.text, scope.caret);
+      const names = mentionedTables(tokenize(scope.text.slice(bounds.from, bounds.to))).map((t) => t.name);
+      const signature = names.join("|");
+      if (signature === lastMentioned.current) return;
+      lastMentioned.current = signature;
+      callback(names);
+    }, 300);
+  }, []);
+
+  // ---- find / replace ------------------------------------------------------------
+
+  const openFind = useCallback((withReplace: boolean) => {
+    const view = viewRef.current;
+    const selection = view?.state.selection.main;
+    const picked = view !== null && selection !== undefined && !selection.empty && selection.to - selection.from < 200 ? view.state.sliceDoc(selection.from, selection.to) : "";
+    findCounter.current += 1;
+    setFindOpen({ key: findCounter.current, initial: picked.includes("\n") ? "" : picked, replace: withReplace });
+  }, []);
+
+  const closeFind = useCallback(() => {
+    const view = viewRef.current;
+    view?.dispatch({ effects: setFind.of(null) });
+    setFindOpen(null);
+    setFindStatus(EMPTY_STATUS);
+    view?.focus();
+  }, []);
+
+  const changeFindQuery = useCallback((query: FindQuery) => {
+    const view = viewRef.current;
+    if (view === null) return;
+    view.dispatch({ effects: setFind.of(query.search.length === 0 ? null : query) });
+    if (query.search.length > 0) selectNearest(view);
+  }, []);
+
+  // The callbacks are read when a chord fires, so they can change every render.
+  useEffect(() => {
+    actionsRef.current = {
+      inlineAi: onInlineAi,
+      save: onSave,
+      openFile: onOpenFile,
+      openFind,
+      nextMatch: () => {
+        const view = viewRef.current;
+        if (view !== null) stepFind(view, 1);
+      },
+      previousMatch: () => {
+        const view = viewRef.current;
+        if (view !== null) stepFind(view, -1);
+      },
+    };
+  });
+
+  // Which chords the editor claims depends on which callbacks the parent supplies.
+  const hasInlineAi = onInlineAi !== undefined;
+  const hasSave = onSave !== undefined;
+  const hasOpenFile = onOpenFile !== undefined;
+  useEffect(() => {
+    viewRef.current?.dispatch({ effects: editorKeysCompartment.current.reconfigure(editorKeysFor(keysRef.current, actionsRef)) });
+  }, [hasInlineAi, hasSave, hasOpenFile]);
+
+  useImperativeHandle(
+    handleRef,
+    (): SqlEditorHandle => ({
+      focus: () => viewRef.current?.focus(),
+      selection: () => {
+        const view = viewRef.current;
+        const main = view?.state.selection.main;
+        if (view === null || main === undefined) return { from: 0, to: 0, text: "" };
+        return { from: main.from, to: main.to, text: view.state.sliceDoc(main.from, main.to) };
+      },
+      caretBox: () => {
+        const view = viewRef.current;
+        const host = hostRef.current;
+        if (view === null || host === null) return null;
+        const coords = view.coordsAtPos(view.state.selection.main.head);
+        if (coords === null) return null;
+        const box = host.getBoundingClientRect();
+        return { left: coords.left - box.left, top: coords.top - box.top, bottom: coords.bottom - box.top, width: box.width, height: box.height };
+      },
+      replace: (from, to, insert, select = true) => {
+        const view = viewRef.current;
+        if (view === null) return;
+        const max = view.state.doc.length;
+        const start = Math.min(Math.max(from, 0), max);
+        const end = Math.min(Math.max(to, start), max);
+        view.dispatch({
+          changes: { from: start, to: end, insert },
+          selection: select ? { anchor: start, head: start + insert.length } : { anchor: start + insert.length },
+          scrollIntoView: true,
+        });
+        view.focus();
+      },
+      statementRange: () => {
+        const view = viewRef.current;
+        if (view === null) return null;
+        const spans = view.state.field(spansField, false) ?? [];
+        const picked = planRun(spans, view.state.selection.ranges.map((r) => ({ from: r.from, to: r.to })), view.state.doc.length, "current");
+        const first = picked.pieces[0];
+        return picked.kind === "all" || first === undefined ? null : { from: first.from, to: picked.pieces[picked.pieces.length - 1]?.to ?? first.to };
+      },
+      reveal: (from, to) => {
+        const view = viewRef.current;
+        if (view === null) return;
+        const max = view.state.doc.length;
+        const start = Math.min(Math.max(from, 0), max);
+        view.dispatch({ selection: { anchor: start, head: Math.min(Math.max(to ?? start, start), max) }, scrollIntoView: true });
+        view.focus();
+      },
+      openFind,
+    }),
+    [openFind],
+  );
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -706,8 +925,13 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     const state = EditorState.create({
       doc: value,
       extensions: [
+        // Several carets or selections (Alt/⌘-click) each run the statement they touch.
+        EditorState.allowMultipleSelections.of(true),
         spansField,
+        scopeField,
         activeStatement,
+        findExtension(),
+        diagnosticsExtension(),
         gutterCompartment.current.of(spans.length > 0 ? statementGutter : []),
         lineNumbers(),
         highlightActiveLineGutter(),
@@ -717,6 +941,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
         bracketMatching(),
         closeBrackets(),
         runKeysCompartment.current.of(runKeysFor(keysRef.current, onRunRef, onRunAllRef)),
+        editorKeysCompartment.current.of(editorKeysFor(keysRef.current, actionsRef)),
         keymap.of([
           { key: "Escape", run: () => { if (completionRef.current === null) return false; hideCompletion(); return true; } },
           { key: "ArrowDown", run: () => moveCompletion(host, 1) },
@@ -729,7 +954,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
           indentWithTab,
         ]),
         langCompartment.current.of(languageConfig(engine, schema, defaultSchema)),
-        placeholderCompartment.current.of(placeholderExt(language.example)),
+        placeholderCompartment.current.of(placeholderExt(nativeLanguage.example)),
         syntaxHighlighting(highlight),
         themeCompartment.current.of(editorTheme(appThemeRef.current)),
         EditorView.updateListener.of((update) => {
@@ -737,12 +962,15 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
           if (update.docChanged || update.selectionSet) {
             announce(update.state);
             refreshCompletion(update.view);
+            announceMentions(update.view);
           }
+          if (update.state.field(findField, false) !== update.startState.field(findField, false)) setFindStatus(statusOf(update.view));
         }),
       ],
     });
     const view = new EditorView({ state, parent: host });
     viewRef.current = view;
+    view.dispatch({ effects: setScope.of(runScope) });
     announce(view.state);
     // A React ScrollArea cannot mount inside CodeMirror's own tooltip DOM, so
     // suggestions render in the app's own dropdown below — which means scroll
@@ -754,6 +982,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     return () => {
       scroller?.removeEventListener("scroll", hide);
       view.dom.removeEventListener("focusout", hide);
+      if (mentionTimer.current !== null) window.clearTimeout(mentionTimer.current);
       view.destroy();
       viewRef.current = null;
     };
@@ -779,13 +1008,35 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     view.dispatch({ effects: themeCompartment.current.reconfigure(editorTheme(appTheme)) });
   }, [appTheme]);
 
+  // The font and its size reach the editor through CSS variables; the editor only
+  // has to be told its lines are a different height now.
+  useEffect(() => {
+    viewRef.current?.requestMeasure();
+  }, [editorFontSize, editorFont]);
+
   // A rebind in Settings reaches an open editor without remounting it.
   useEffect(() => {
     keysRef.current = keys;
     const view = viewRef.current;
     if (!view) return;
-    view.dispatch({ effects: runKeysCompartment.current.reconfigure(runKeysFor(keys, onRunRef, onRunAllRef)) });
+    view.dispatch({
+      effects: [
+        runKeysCompartment.current.reconfigure(runKeysFor(keys, onRunRef, onRunAllRef)),
+        editorKeysCompartment.current.reconfigure(editorKeysFor(keys, actionsRef)),
+      ],
+    });
   }, [keys]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: setScope.of(runScope) });
+    const target = targetOf(view.state);
+    if (!sameTarget(lastTarget.current, target)) {
+      lastTarget.current = target;
+      onTargetRef.current?.(target);
+    }
+  }, [runScope]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -811,6 +1062,13 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
     }
   }, [spans]);
 
+  // The error the last run pointed at. A new object draws it again; any edit clears it.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({ effects: setDiagnostic.of(diagnostic) });
+  }, [diagnostic]);
+
   // WHAT:  The suggestion dropdown: the app's own floating panel with a
   //        shadcn ScrollArea, caret-anchored. Replaces CodeMirror's built-in
   //        tooltip so scrolling matches every other surface in the app.
@@ -824,6 +1082,32 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
 
   return (
     <div ref={hostRef} className="relative h-full min-h-0 w-full overflow-hidden">
+      {find !== null ? (
+        <FindBar
+          key={find.key}
+          initialSearch={find.initial}
+          replaceOpen={find.replace}
+          status={findStatus}
+          onQuery={changeFindQuery}
+          onNext={() => {
+            const view = viewRef.current;
+            if (view !== null) stepFind(view, 1);
+          }}
+          onPrevious={() => {
+            const view = viewRef.current;
+            if (view !== null) stepFind(view, -1);
+          }}
+          onReplace={() => {
+            const view = viewRef.current;
+            if (view !== null) replaceCurrent(view);
+          }}
+          onReplaceAll={() => {
+            const view = viewRef.current;
+            if (view !== null) replaceAll(view);
+          }}
+          onClose={closeFind}
+        />
+      ) : null}
       {completion !== null && completion.items.length > 0 ? (
         <div
           role="listbox"
@@ -835,6 +1119,7 @@ export function SqlEditor({ value, spans = NO_SPANS, onChange, onRun, onRunAll, 
             {completion.items.map((item, index) => (
               <div
                 key={`${item.kind}:${item.label}`}
+                title={item.info}
                 role="option"
                 aria-selected={index === completion.index}
                 data-completion-index={index}

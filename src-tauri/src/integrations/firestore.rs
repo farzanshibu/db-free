@@ -189,7 +189,7 @@ fn field_filter(rule: &FilterRule) -> Option<serde_json::Value> {
                 {"fieldFilter": {"field": field, "op": "LESS_THAN", "value": {"stringValue": format!("{v}\u{f8ff}")}}}
             ]}}));
         }
-        FilterOp::Contains | FilterOp::EndsWith => return None,
+        FilterOp::Contains | FilterOp::NotContains | FilterOp::EndsWith => return None,
     };
     Some(serde_json::json!({"fieldFilter": {"field": field, "op": op, "value": lenient_fs(v)}}))
 }
@@ -205,7 +205,7 @@ pub fn where_filter(filters: &[FilterRule]) -> Option<serde_json::Value> {
 }
 
 fn local_filters(filters: &[FilterRule]) -> Vec<FilterRule> {
-    filters.iter().filter(|f| matches!(f.op, FilterOp::Contains | FilterOp::EndsWith)).cloned().collect()
+    filters.iter().filter(|f| matches!(f.op, FilterOp::Contains | FilterOp::NotContains | FilterOp::EndsWith)).cloned().collect()
 }
 
 pub fn order_by(sort: &[SortRule]) -> serde_json::Value {
@@ -595,7 +595,7 @@ fn with_admin_hint(err: AppError, what: &str) -> AppError {
         AppError::Timeout { .. } => err,
         AppError::NotConnected { message } => AppError::NotConnected { message: format!("{hint} ({message})") },
         AppError::NotFound { message } => AppError::NotFound { message: format!("{hint} ({message})") },
-        other => AppError::Driver { message: format!("{hint} ({})", other.message()) },
+        other => AppError::driver(format!("{hint} ({})", other.message())),
     }
 }
 
@@ -997,7 +997,7 @@ mod tests {
         let hinted = with_admin_hint(AppError::not_connected("Authentication failed (403 Forbidden): denied"), "Listing indexes");
         assert!(matches!(&hinted, AppError::NotConnected { message } if message.contains("indexAdmin") && message.contains("denied")));
         let hinted = with_admin_hint(AppError::driver("501 Not Implemented"), "Listing indexes");
-        assert!(matches!(&hinted, AppError::Driver { message } if message.contains("emulator")));
+        assert!(matches!(&hinted, AppError::Driver { message, .. } if message.contains("emulator")));
         assert!(matches!(with_admin_hint(AppError::timeout("slow"), "x"), AppError::Timeout { .. }));
         assert_eq!(encode_query_value("a b/c"), "a%20b%2Fc");
         assert_eq!(collection_group_of("projects/p/databases/d/collectionGroups/orders/indexes/x"), Some("orders"));

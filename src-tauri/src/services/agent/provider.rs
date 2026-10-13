@@ -1,20 +1,21 @@
 // SOT: agent-provider, rig-adapter, llm-transcript, llm-streaming, tool-definition-wire
 
 use crate::error::{AppError, AppResult};
-use crate::model::{AiProvider, AiSettings};
+use crate::model::AiProvider;
+use crate::services::ai_profiles::ResolvedModel;
 use futures::StreamExt;
 use rig_core::client::CompletionClient;
 use rig_core::completion::message::{AssistantContent, Message, ToolCall, ToolResultContent, UserContent};
 use rig_core::completion::{CompletionModel, ToolDefinition};
-use rig_core::providers::{anthropic, ollama, openai, openrouter};
+use rig_core::providers::{anthropic, gemini, ollama, openai, openrouter};
 use rig_core::streaming::StreamedAssistantContent;
 
 // WHAT:  The only file that speaks to an LLM vendor. Wraps rig-core so the loop
 //        above it works in this codebase's own types.
-// WHY:   Four providers with three different tool-calling wire shapes. rig gives
+// WHY:   Five providers with several different tool-calling wire shapes. rig gives
 //        one `CompletionModel` over all of them and — the part worth the
 //        dependency — reassembles tool-call arguments that arrive in fragments,
-//        so the loop always sees a whole call.
+//        so the loop always sees a whole call. (Five now: Gemini joined.)
 // HOW:   `Transcript` owns the message history as rig types and never lends them
 //        out; callers exchange `PendingCall` / `ToolOutput`, which carry the rig
 //        handle privately so a result can be matched back to its call.
@@ -78,19 +79,22 @@ pub enum Chat {
     Openai(openai::completion::CompletionModel),
     Openrouter(openrouter::completion::CompletionModel),
     Ollama(ollama::CompletionModel),
+    Gemini(gemini::completion::CompletionModel),
 }
 
 impl Chat {
-    // WHAT:  Build the model named in Settings → AI.
-    // WHY:   The key is unsealed per request and never stored on the model.
-    pub fn build(settings: &AiSettings, api_key: Option<&str>) -> AppResult<Chat> {
-        let model = settings.model.trim();
+    // WHAT:  Build the model a run resolved to (the chat's pick, else the default).
+    // WHY:   The key arrives with the resolved model for this request only and is
+    //        never stored on the client.
+    pub fn build(resolved: &ResolvedModel) -> AppResult<Chat> {
+        let model = resolved.model.trim();
         if model.is_empty() {
             return Err(AppError::invalid_input("Set an AI model in Settings → AI."));
         }
-        let base = settings.base_url.as_deref().map(str::trim).filter(|u| !u.is_empty());
+        let base = resolved.base_url.as_deref().map(str::trim).filter(|u| !u.is_empty());
+        let api_key = resolved.api_key.as_deref();
 
-        match settings.provider {
+        match resolved.provider {
             AiProvider::None => Err(AppError::invalid_input("Choose an AI provider in Settings → AI first.")),
             AiProvider::Anthropic => {
                 let key = require_key(api_key, "Anthropic")?;
@@ -123,6 +127,15 @@ impl Chat {
                 }
                 let client = builder.build().map_err(client_error)?;
                 Ok(Chat::Openrouter(client.completion_model(model)))
+            }
+            AiProvider::Google => {
+                let key = require_key(api_key, "Google")?;
+                let mut builder = gemini::Client::builder().api_key(key);
+                if let Some(url) = base {
+                    builder = builder.base_url(url);
+                }
+                let client = builder.build().map_err(client_error)?;
+                Ok(Chat::Gemini(client.completion_model(model)))
             }
             AiProvider::Ollama => {
                 // Local daemon: no credential, but the builder still wants the slot filled.
@@ -166,6 +179,24 @@ impl Transcript {
 
     pub fn push_user(&mut self, text: &str) {
         self.messages.push(Message::user(text));
+    }
+
+    // WHAT:  Pick a conversation back up without asking anything new.
+    // WHY:   A run that stopped on its step limit left the model's last tool
+    //        results unanswered; those already end the transcript, and every
+    //        request must end on the user's turn, so nothing needs adding. After
+    //        a restart the transcript is only the saved text and ends on the
+    //        assistant's reply, which a request may not: `nudge` closes it.
+    pub fn resume(&mut self, nudge: &str) {
+        if !matches!(self.messages.last(), Some(Message::User { .. })) {
+            self.push_user(nudge);
+        }
+    }
+
+    /// A reply the assistant gave in an earlier session, replayed as plain text
+    /// when a saved chat is resumed.
+    pub fn push_assistant_text(&mut self, text: &str) {
+        self.messages.push(Message::Assistant { id: None, content: vec![AssistantContent::text(text)] });
     }
 
     /// Turns so far. The loop uses it to decide when to compact.
@@ -294,6 +325,7 @@ impl Transcript {
             Chat::Openai(model) => drive!(model),
             Chat::Openrouter(model) => drive!(model),
             Chat::Ollama(model) => drive!(model),
+            Chat::Gemini(model) => drive!(model),
         }
 
         // Replay fidelity: the assistant turn goes back exactly as it came.
@@ -361,3 +393,27 @@ pub fn tool(name: &str, description: &str, parameters: serde_json::Value) -> Too
 
 /// Re-exported so the tool registry can name the type without importing rig.
 pub type ToolSpec = ToolDefinition;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // WHAT:  Continue after a step-limit stop must not invent a question.
+    #[test]
+    fn resuming_adds_a_line_only_when_the_transcript_does_not_end_on_the_users_turn() {
+        let mut saved = Transcript::new();
+        saved.push_user("audit every table");
+        saved.push_assistant_text("checked 12 of 40");
+        saved.resume("keep going");
+        assert_eq!(saved.len(), 3, "a restored chat ends on the assistant's reply, so it is closed with the nudge");
+
+        let mut live = Transcript::new();
+        live.push_user("audit every table");
+        live.resume("keep going");
+        assert_eq!(live.len(), 1, "a transcript that already ends on the user's turn is left alone");
+
+        let mut empty = Transcript::new();
+        empty.resume("keep going");
+        assert_eq!(empty.len(), 1, "even a fresh transcript must end on the user's turn");
+    }
+}

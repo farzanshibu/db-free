@@ -2,7 +2,7 @@
 
 use crate::error::{AppError, AppResult};
 use crate::guard::SessionCtx;
-use crate::model::{AiProvider, AiSettings, Engine, Family, PlanReport, StatementResult, Value};
+use crate::model::{AiModel, AiProvider, AiSettings, Engine, Family, PlanReport, StatementResult, Value};
 use std::time::Duration;
 
 // WHAT:  Bring-your-own-key assistant: schema-aware NL→SQL and plan explanations.
@@ -337,7 +337,15 @@ pub async fn schema_context(
     Ok(out)
 }
 
+// WHY:   EXPLAIN prefixes only the first statement; a script would run its rest un-explained.
+fn is_one_statement(sql: &str) -> bool {
+    crate::guard::destructive::split_statements(sql).iter().filter(|s| !s.trim().trim_end_matches(';').trim().is_empty()).count() <= 1
+}
+
 pub async fn explain(ctx: &SessionCtx, req: &AiRequest<'_>, sql: &str, max_rows: usize) -> AppResult<PlanReport> {
+    if !is_one_statement(sql) {
+        return Err(AppError::invalid_input("Explain takes one statement at a time."));
+    }
     let engine = ctx.connection.engine;
     let explain_sql = match engine.family() {
         Family::Postgres | Family::Duckdb => format!("EXPLAIN (FORMAT TEXT) {sql}"),
@@ -564,6 +572,37 @@ async fn complete(
             }
             Ok(json.pointer("/choices/0/message/content").and_then(|c| c.as_str()).unwrap_or_default().to_string())
         }
+        AiProvider::Google => {
+            let key = req.api_key.ok_or_else(|| AppError::invalid_input("Add your Google API key in Settings → AI."))?;
+            let base = req.settings.base_url.clone().unwrap_or_else(|| GOOGLE_BASE.to_string());
+            let mut contents = Vec::new();
+            if let Some(history) = conversation_history {
+                for msg in history {
+                    contents.push(serde_json::json!({
+                        "role": if msg.role == "assistant" { "model" } else { "user" },
+                        "parts": [{ "text": msg.content }]
+                    }));
+                }
+            }
+            contents.push(serde_json::json!({ "role": "user", "parts": [{ "text": user }] }));
+            let body = serde_json::json!({
+                "systemInstruction": { "parts": [{ "text": system }] },
+                "contents": contents
+            });
+            let response = client
+                .post(format!("{}/v1beta/models/{model}:generateContent", base.trim_end_matches('/')))
+                .header("x-goog-api-key", key)
+                .json(&body)
+                .send()
+                .await?;
+            let status = response.status();
+            let json: serde_json::Value = response.json().await?;
+            if !status.is_success() {
+                let msg = json.pointer("/error/message").and_then(|m| m.as_str()).unwrap_or("request failed");
+                return Err(AppError::driver(format!("Gemini API {status}: {msg}")));
+            }
+            Ok(gemini_text(&json))
+        }
         AiProvider::Ollama => {
             let base = req.settings.base_url.clone().unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
             let mut messages_json = vec![
@@ -597,11 +636,190 @@ async fn complete(
     }
 }
 
+/// Text parts of a Gemini `generateContent` reply, joined.
+fn gemini_text(json: &serde_json::Value) -> String {
+    json.pointer("/candidates/0/content/parts")
+        .and_then(|parts| parts.as_array())
+        .map(|parts| parts.iter().filter_map(|part| part.get("text").and_then(|t| t.as_str())).collect::<Vec<_>>().join(""))
+        .unwrap_or_default()
+}
+
+// ---------------------------------------------------------------------------
+// Model discovery
+// ---------------------------------------------------------------------------
+
+const OPENAI_BASE: &str = "https://api.openai.com/v1";
+const OPENROUTER_BASE: &str = "https://openrouter.ai/api/v1";
+const ANTHROPIC_BASE: &str = "https://api.anthropic.com";
+const GOOGLE_BASE: &str = "https://generativelanguage.googleapis.com";
+const OLLAMA_BASE: &str = "http://127.0.0.1:11434";
+
+// WHAT:  Ask a provider which chat models it offers.
+// WHY:   The model picker and Settings → AI list real model ids instead of
+//        asking people to remember them, and the same request doubles as the
+//        "Test" button: it needs the key and the endpoint to be right.
+// HOW:   One GET per provider (OpenAI-compatible `/models`, Anthropic's models
+//        API, Gemini's `v1beta/models`, Ollama's `/api/tags`). The parsers are
+//        pure so each response shape is pinned by a test. `timeout` bounds the
+//        whole request: 5 s for Test, longer for a plain refresh.
+// WHERE: src-tauri/src/services/ai_profiles.rs (cache + orchestration)
+pub async fn fetch_models(
+    provider: AiProvider,
+    base_url: Option<&str>,
+    api_key: Option<&str>,
+    timeout: Duration,
+) -> AppResult<Vec<AiModel>> {
+    let client = reqwest::Client::builder().timeout(timeout).build().map_err(AppError::internal)?;
+    let base = base_url.map(str::trim).filter(|b| !b.is_empty()).map(|b| b.trim_end_matches('/').to_string());
+    let need_key = |name: &str| -> AppResult<String> {
+        api_key
+            .map(str::trim)
+            .filter(|k| !k.is_empty())
+            .map(str::to_string)
+            .ok_or_else(|| AppError::invalid_input(format!("Add your {name} API key first.")))
+    };
+
+    let request = match provider {
+        AiProvider::None => return Err(AppError::invalid_input("Choose a provider first.")),
+        AiProvider::Openai => {
+            let key = need_key("OpenAI")?;
+            client.get(format!("{}/models", base.as_deref().unwrap_or(OPENAI_BASE))).bearer_auth(key)
+        }
+        AiProvider::Openrouter => {
+            let key = need_key("OpenRouter")?;
+            client.get(format!("{}/models", base.as_deref().unwrap_or(OPENROUTER_BASE))).bearer_auth(key)
+        }
+        AiProvider::Anthropic => {
+            let key = need_key("Anthropic")?;
+            client
+                .get(format!("{}/v1/models?limit=1000", base.as_deref().unwrap_or(ANTHROPIC_BASE)))
+                .header("x-api-key", key)
+                .header("anthropic-version", "2023-06-01")
+        }
+        AiProvider::Google => {
+            let key = need_key("Google")?;
+            client
+                .get(format!("{}/v1beta/models?pageSize=1000", base.as_deref().unwrap_or(GOOGLE_BASE)))
+                .header("x-goog-api-key", key)
+        }
+        AiProvider::Ollama => client.get(format!("{}/api/tags", base.as_deref().unwrap_or(OLLAMA_BASE))),
+    };
+
+    let response = request.send().await.map_err(|err| {
+        if err.is_timeout() {
+            AppError::timeout(format!("The provider did not answer within {} s.", timeout.as_secs()))
+        } else if err.is_connect() {
+            AppError::driver(format!("Could not reach the provider: {err}"))
+        } else {
+            AppError::driver(format!("Model request failed: {err}"))
+        }
+    })?;
+    let status = response.status();
+    let payload: serde_json::Value = response
+        .json()
+        .await
+        .map_err(|err| AppError::driver(format!("The provider answered with something that is not JSON ({status}): {err}")))?;
+    if !status.is_success() {
+        let message = payload
+            .pointer("/error/message")
+            .or_else(|| payload.get("error").filter(|e| e.is_string()))
+            .or_else(|| payload.get("message"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("request failed");
+        return Err(if status.as_u16() == 401 || status.as_u16() == 403 {
+            AppError::invalid_input(format!("The provider rejected the key ({status}): {message}"))
+        } else {
+            AppError::driver(format!("{status}: {message}"))
+        });
+    }
+
+    // A custom OpenAI base URL is a proxy or a local server, whose model ids are
+    // not OpenAI's: filtering them by OpenAI's naming would hide all of them.
+    let filter_openai = base.is_none();
+    Ok(parse_models(provider, &payload, filter_openai))
+}
+
+// WHAT:  A provider's response body as a list of chat models.
+pub fn parse_models(provider: AiProvider, payload: &serde_json::Value, filter_openai: bool) -> Vec<AiModel> {
+    let items = |key: &str| payload.get(key).and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let text = |item: &serde_json::Value, key: &str| item.get(key).and_then(|v| v.as_str()).map(str::to_string);
+    let mut models: Vec<AiModel> = match provider {
+        AiProvider::None => Vec::new(),
+        AiProvider::Openai => {
+            let mut data = items("data");
+            // Newest first, the way the provider's own picker lists them.
+            data.sort_by_key(|m| std::cmp::Reverse(m.get("created").and_then(|c| c.as_i64()).unwrap_or(0)));
+            data.iter()
+                .filter_map(|m| text(m, "id"))
+                .filter(|id| !filter_openai || is_openai_chat_model(id))
+                .map(|id| AiModel { label: id.clone(), id })
+                .collect()
+        }
+        AiProvider::Openrouter => items("data")
+            .iter()
+            .filter_map(|m| text(m, "id").map(|id| AiModel { label: text(m, "name").unwrap_or_else(|| id.clone()), id }))
+            .collect(),
+        AiProvider::Anthropic => items("data")
+            .iter()
+            .filter_map(|m| text(m, "id").map(|id| AiModel { label: text(m, "display_name").unwrap_or_else(|| id.clone()), id }))
+            .collect(),
+        AiProvider::Google => items("models")
+            .iter()
+            .filter(|m| is_google_chat_model(m))
+            .filter_map(|m| {
+                let id = text(m, "name")?.trim_start_matches("models/").to_string();
+                Some(AiModel { label: text(m, "displayName").unwrap_or_else(|| id.clone()), id })
+            })
+            .collect(),
+        AiProvider::Ollama => items("models")
+            .iter()
+            .filter_map(|m| text(m, "name").or_else(|| text(m, "model")))
+            .map(|id| AiModel { label: id.clone(), id })
+            .collect(),
+    };
+    let mut seen = std::collections::HashSet::new();
+    models.retain(|m| !m.id.is_empty() && seen.insert(m.id.clone()));
+    models
+}
+
+// WHAT:  OpenAI's `/models` also lists embeddings, speech, image and moderation
+//        models; only the ones a chat can use belong in the picker.
+fn is_openai_chat_model(id: &str) -> bool {
+    let base = if let Some(rest) = id.strip_prefix("ft:") { rest.split(':').next().unwrap_or(rest) } else { id };
+    let lower = base.to_lowercase();
+    let chatty = lower.starts_with("gpt-")
+        || lower.starts_with("chatgpt-")
+        || ["o1", "o3", "o4"].iter().any(|p| lower == *p || lower.starts_with(&format!("{p}-")));
+    chatty
+        && !["audio", "embedding", "image", "moderation", "realtime", "search", "transcri", "tts"]
+            .iter()
+            .any(|bad| lower.contains(bad))
+}
+
+fn is_google_chat_model(model: &serde_json::Value) -> bool {
+    let id = model.get("name").and_then(|n| n.as_str()).unwrap_or("").trim_start_matches("models/").to_lowercase();
+    let can_generate = model
+        .get("supportedGenerationMethods")
+        .and_then(|m| m.as_array())
+        .is_some_and(|methods| methods.iter().any(|m| m.as_str() == Some("generateContent")));
+    id.starts_with("gemini-")
+        && can_generate
+        && !["embedding", "image", "imagen", "live", "native-audio", "tts", "veo"].iter().any(|bad| id.contains(bad))
+}
+
 // `From<reqwest::Error>` for AppError lives in integrations/clickhouse.rs (one impl per crate).
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn explain_takes_one_statement() {
+        assert!(is_one_statement("SELECT 1"));
+        assert!(is_one_statement("SELECT 1;"));
+        assert!(is_one_statement("SELECT 'a;b' FROM t"), "a semicolon inside a literal is not a separator");
+        assert!(!is_one_statement("SELECT 1; DELETE FROM t"));
+    }
 
     #[test]
     fn fence_extraction() {
@@ -629,5 +847,71 @@ mod tests {
         );
         let unclosed = "<think>still thinking";
         assert_eq!(strip_think_blocks(unclosed), "");
+    }
+
+    #[test]
+    fn openai_models_keep_chat_models_newest_first() {
+        let payload = serde_json::json!({ "data": [
+            { "id": "text-embedding-3-small", "created": 5 },
+            { "id": "gpt-4o", "created": 10 },
+            { "id": "whisper-1", "created": 3 },
+            { "id": "o3-mini", "created": 30 },
+            { "id": "gpt-4o-audio-preview", "created": 40 },
+            { "id": "gpt-4o-realtime-preview", "created": 41 },
+            { "id": "gpt-4.1", "created": 50 },
+            { "id": "dall-e-3", "created": 2 },
+            { "id": "ft:gpt-4o-mini:acme::abc", "created": 20 },
+            { "id": "omni-moderation-latest", "created": 1 },
+        ]});
+        let ids: Vec<String> = parse_models(AiProvider::Openai, &payload, true).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, vec!["gpt-4.1", "o3-mini", "ft:gpt-4o-mini:acme::abc", "gpt-4o"]);
+    }
+
+    #[test]
+    fn a_custom_openai_endpoint_is_not_filtered_by_openai_naming() {
+        let payload = serde_json::json!({ "data": [{ "id": "llama-3.1-8b-instruct" }, { "id": "qwen2.5-coder" }] });
+        let ids: Vec<String> = parse_models(AiProvider::Openai, &payload, false).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, vec!["llama-3.1-8b-instruct", "qwen2.5-coder"]);
+    }
+
+    #[test]
+    fn anthropic_models_use_display_names() {
+        let payload = serde_json::json!({ "data": [{ "id": "claude-opus-5", "display_name": "Claude Opus 5" }, { "id": "claude-haiku" }] });
+        let models = parse_models(AiProvider::Anthropic, &payload, true);
+        assert_eq!(models[0], AiModel { id: "claude-opus-5".into(), label: "Claude Opus 5".into() });
+        assert_eq!(models[1].label, "claude-haiku");
+    }
+
+    #[test]
+    fn gemini_models_need_generate_content_and_drop_media_models() {
+        let payload = serde_json::json!({ "models": [
+            { "name": "models/gemini-2.5-pro", "displayName": "Gemini 2.5 Pro", "supportedGenerationMethods": ["generateContent", "countTokens"] },
+            { "name": "models/text-embedding-004", "supportedGenerationMethods": ["embedContent"] },
+            { "name": "models/gemini-embedding-001", "supportedGenerationMethods": ["generateContent"] },
+            { "name": "models/gemini-2.0-flash-live", "supportedGenerationMethods": ["generateContent"] },
+            { "name": "models/gemini-2.5-flash", "supportedGenerationMethods": ["generateContent"] },
+            { "name": "models/gemini-no-methods" },
+        ]});
+        let models = parse_models(AiProvider::Google, &payload, true);
+        assert_eq!(models.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), vec!["gemini-2.5-pro", "gemini-2.5-flash"]);
+        assert_eq!(models[0].label, "Gemini 2.5 Pro");
+    }
+
+    #[test]
+    fn ollama_and_openrouter_models() {
+        let tags = serde_json::json!({ "models": [{ "name": "llama3.1:latest" }, { "model": "qwen2.5:7b" }, { "name": "llama3.1:latest" }] });
+        let ids: Vec<String> = parse_models(AiProvider::Ollama, &tags, true).into_iter().map(|m| m.id).collect();
+        assert_eq!(ids, vec!["llama3.1:latest", "qwen2.5:7b"], "duplicates collapse");
+        let router = serde_json::json!({ "data": [{ "id": "anthropic/claude-opus-5", "name": "Claude Opus 5" }, { "id": "" }] });
+        let models = parse_models(AiProvider::Openrouter, &router, true);
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].label, "Claude Opus 5");
+    }
+
+    #[test]
+    fn gemini_reply_text_is_joined() {
+        let reply = serde_json::json!({ "candidates": [{ "content": { "parts": [{ "text": "SELECT " }, { "text": "1;" }] } }] });
+        assert_eq!(gemini_text(&reply), "SELECT 1;");
+        assert_eq!(gemini_text(&serde_json::json!({})), "");
     }
 }

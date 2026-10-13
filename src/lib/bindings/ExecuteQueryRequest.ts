@@ -12,4 +12,10 @@ schema: string | null,
 /**
  * Names this run so `cancel_query` can stop it. Omitted = not stoppable.
  */
-runId?: string, };
+runId?: string, 
+/**
+ * Names the query tab this run belongs to (its tab id). The adapter keeps one
+ * dedicated connection per key, so SET, temp tables and BEGIN persist between
+ * Runs; the tab's close sends `close_session`. Omitted = the shared pool.
+ */
+sessionKey?: string, };

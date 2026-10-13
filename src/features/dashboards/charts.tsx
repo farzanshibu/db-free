@@ -1,46 +1,42 @@
-// SOT: dashboard-charts, chart-data-extraction, line-chart, area-chart, bar-chart, pie-chart, sankey, map-chart, progress-meter, stat-tile, text-widget, image-widget, widget-conditions, chart-tooltip, chart-legend
-import { useMemo, useState } from "react";
-import type { QueryOutcome, StatementResult, Value, Widget, WidgetCondition } from "@/lib/bindings";
-import { formatCell, formatCount } from "@/lib/format";
+// SOT: dashboard-charts, chart-data-extraction, line-chart, area-chart, bar-chart, pie-chart, sankey, map-chart, progress-meter, metric-tile, stat-tile, text-widget, image-widget, widget-conditions, chart-tooltip, chart-legend
+import { useId, useMemo, useState } from "react";
+import type { LegendMode, QueryOutcome, Value, Widget } from "@/lib/bindings";
+import { formatCount } from "@/lib/format";
 import { cn } from "@/lib/cn";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { useResolvedTheme } from "@/stores/useTheme";
+import type { Appearance } from "./appearance";
+import { cellText, isNumericColumn, isRows, rowsOf, toNumber } from "./cells";
+import { matchedCondition } from "./conditions";
+import { formatChange, formatMetricValue, legendVisible, relativeChange } from "./format";
+import { SlippyMap } from "./SlippyMap";
+import { parseMapPoints } from "./mapTiles";
+import { substitute } from "./template";
+import { ON_GRADIENT } from "./tiles";
 
 // WHAT:  Inline-SVG charts for dashboard widgets, following the dataviz method:
 //        2px lines, <=24px bars with 4px rounded data-ends and 2px surface gaps,
 //        10% area wash, legend for >=2 series, hover tooltips, text in text tokens,
 //        categorical hues assigned in fixed order (never cycled).
 // WHY:   No chart library: small bundle, works offline, theme via CSS tokens.
-// WHERE: src/styles/globals.css (--color-series-*), ./DashboardTab.tsx
+// HOW:   Line, bar and pie take the optional presentation of the widget
+//        (`legendMode`, `formatValue`, `stacked`); left out they draw as they
+//        always did, which is what the chat's chart artifacts rely on.
+// WHERE: src/styles/globals.css (--color-series-*), ./DashboardTab.tsx, src/features/chat/ArtifactView.tsx
 export const SERIES_COLORS = ["var(--color-series-1)", "var(--color-series-2)", "var(--color-series-3)", "var(--color-series-4)", "var(--color-series-5)", "var(--color-series-6)", "var(--color-series-7)"] as const;
+
+// Kept here so every earlier importer keeps working.
+export { isNumericColumn, isRows } from "./cells";
+export { conditionMatches } from "./conditions";
+export { substitute } from "./template";
 
 export interface ChartData {
   labels: string[];
   series: { name: string; values: number[] }[];
 }
 
-export function isRows(s: StatementResult): s is Extract<StatementResult, { kind: "rows" }> {
-  return s.kind === "rows";
-}
-
-function cellText(v: Value | undefined): string {
-  return v === undefined ? "" : v.t === "null" ? "" : formatCell(v).text;
-}
-
-function toNumber(v: Value | undefined): number {
-  if (!v) return NaN;
-  if (v.t === "int" || v.t === "float") return v.v;
-  if (v.t === "decimal" || v.t === "text") return Number(v.v);
-  if (v.t === "bool") return v.v ? 1 : 0;
-  return NaN;
-}
-
-export function isNumericColumn(rows: readonly (readonly Value[])[], i: number): boolean {
-  const first = rows.find((r) => {
-    const v = r[i];
-    return v !== undefined && v.t !== "null";
-  })?.[i];
-  return first !== undefined && (first.t === "int" || first.t === "float" || first.t === "decimal");
-}
+/// How a chart writes a number on its axes and in its tooltips.
+type Formatter = (value: number) => string;
 
 // WHAT:  First non-numeric column = x labels; every numeric column = one series.
 //        A single numeric column with no label column is indexed 1..n.
@@ -130,7 +126,7 @@ export function chartGroups(rows: readonly (readonly Value[])[], group: number, 
 
 /// A group value as a series name; NULL is its own group.
 export function groupName(v: Value | undefined): string {
-  return v === undefined || v.t === "null" ? "NULL" : formatCell(v).text;
+  return v === undefined || v.t === "null" ? "NULL" : cellText(v);
 }
 
 function fmt(n: number): string {
@@ -139,50 +135,11 @@ function fmt(n: number): string {
 }
 
 // ---------------------------------------------------------------- conditions
-function firstCell(outcome: QueryOutcome | null): Value | undefined {
-  return outcome?.statements.find(isRows)?.result.rows[0]?.[0];
-}
-
-export function conditionMatches(cond: WidgetCondition, cell: Value | undefined): boolean {
-  const text = cellText(cell);
-  const num = toNumber(cell);
-  const target = Number(cond.value);
-  const bothNumeric = Number.isFinite(num) && Number.isFinite(target) && cond.value.trim().length > 0;
-  switch (cond.op) {
-    case "equals":
-      return bothNumeric ? num === target : text === cond.value;
-    case "not_equals":
-      return bothNumeric ? num !== target : text !== cond.value;
-    case "gt":
-      return bothNumeric && num > target;
-    case "gte":
-      return bothNumeric && num >= target;
-    case "lt":
-      return bothNumeric && num < target;
-    case "lte":
-      return bothNumeric && num <= target;
-    case "contains":
-      return text.toLowerCase().includes(cond.value.toLowerCase());
-  }
-}
-
-// WHAT:  "Evaluates the first column of the first row. Last match wins."
+// WHAT:  The content of the rule that matches the result ("Last match wins"),
+//        or `fallback`, with {{column}} and {{a / b}} placeholders filled in.
 export function matchedContent(widget: Widget, outcome: QueryOutcome | null, fallback: string): string {
-  const cell = firstCell(outcome);
-  let content = fallback;
-  for (const c of widget.conditions) if (conditionMatches(c, cell)) content = c.content;
-  return substitute(content, outcome);
-}
-
-// WHAT:  Replaces {{column}} with the first row's value for that column.
-export function substitute(text: string, outcome: QueryOutcome | null): string {
-  const rows = outcome?.statements.find(isRows);
-  if (!rows) return text;
-  const first = rows.result.rows[0] ?? [];
-  return text.replace(/\{\{\s*([^}\s]+)\s*\}\}/g, (_, name: string) => {
-    const i = rows.result.columns.findIndex((c) => c.name === name);
-    return i >= 0 ? cellText(first[i]) : "";
-  });
+  const matched = matchedCondition(widget.conditions, outcome);
+  return substitute(matched === null ? fallback : matched.content, outcome);
 }
 
 // ---------------------------------------------------------------- shared bits
@@ -194,17 +151,17 @@ function Tooltip({ x, y, label, rows }: { x: number; y: number; label: string; r
         <div key={r.name} className="flex items-center gap-1.5">
           <span className="size-2 rounded-sm" style={{ background: r.color }} />
           <span className="text-muted">{r.name}</span>
-          <span className="ml-auto pl-3 tabular-nums">{r.value}</span>
+          <span className="ml-auto pl-2.5 tabular-nums">{r.value}</span>
         </div>
       ))}
     </div>
   );
 }
 
-function Legend({ data, colors }: { data: ChartData; colors: readonly string[] }) {
-  if (data.series.length < 2) return null;
+function Legend({ data, colors, mode }: { data: ChartData; colors: readonly string[]; mode: LegendMode }) {
+  if (!legendVisible(mode, data.series.length >= 2) || data.series.length === 0) return null;
   return (
-    <div className="flex flex-wrap items-center justify-center gap-3 px-2 pb-1 text-[11px] text-muted">
+    <div className="flex flex-wrap items-center justify-center gap-2 px-2 pb-1 text-[11px] text-muted">
       {data.series.map((s, i) => (
         <span key={s.name} className="flex items-center gap-1.5">
           <span className="size-2 rounded-sm" style={{ background: colors[i % colors.length] }} />
@@ -216,7 +173,7 @@ function Legend({ data, colors }: { data: ChartData; colors: readonly string[] }
 }
 
 function Empty({ hint }: { hint: string }) {
-  return <div className="flex h-full items-center justify-center px-4 text-center text-xs text-muted">{hint}</div>;
+  return <div className="flex h-full items-center justify-center px-3 text-center text-xs text-muted">{hint}</div>;
 }
 
 function AxisLabels({ x, y }: { x: string | null; y: string | null }) {
@@ -229,11 +186,15 @@ function AxisLabels({ x, y }: { x: string | null; y: string | null }) {
   );
 }
 
-function ChangeBadge({ change }: { change: number }) {
+/// `↗ +12.5%` / `↘ -3.0%` for a fraction; white-on-glass when the tile has a gradient.
+function ChangeBadge({ change, onGradient = false, className }: { change: number; onGradient?: boolean; className?: string }) {
+  const up = change >= 0;
   return (
-    <span className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-medium", change >= 0 ? "bg-success-soft text-success" : "bg-danger-soft text-danger")}>
-      {change >= 0 ? "+" : ""}
-      {change.toFixed(1)}%
+    <span
+      className={cn("rounded-md px-1.5 py-0.5 text-[11px] font-medium", onGradient ? "" : up ? "bg-success-soft text-success" : "bg-danger-soft text-danger", className)}
+      style={onGradient ? { background: "color-mix(in oklch, var(--tile-on-gradient) 22%, transparent)", color: ON_GRADIENT } : undefined}
+    >
+      {up ? "↗" : "↘"} {formatChange(change)}
     </span>
   );
 }
@@ -241,23 +202,27 @@ function ChangeBadge({ change }: { change: number }) {
 function changeOf(values: number[]): number | null {
   const last = values.at(-1);
   const prev = values.at(-2);
-  return last !== undefined && prev !== undefined && prev !== 0 ? ((last - prev) / Math.abs(prev)) * 100 : null;
+  return last !== undefined && prev !== undefined && Number.isFinite(last) && Number.isFinite(prev) ? relativeChange(last, prev) : null;
 }
 
 // ---------------------------------------------------------------- metric / sparkline
-export function StatTile({ data, widget, tint }: { data: ChartData; widget: Widget; tint: string }) {
-  const values = data.series[0]?.values ?? [];
-  const last = values.at(-1);
-  const change = changeOf(values);
+// WHAT:  The headline number of a metric, in the widget's format, with the
+//        change against its comparison value and, for a series, the strip under it.
+// WHERE: ./metric.ts (the numbers), ./appearance.ts (colours and background)
+export function MetricTile({ widget, appearance }: { widget: Widget; appearance: Appearance }) {
+  const stats = appearance.metric;
+  const onGradient = appearance.onGradient;
+  const ink = onGradient ? ON_GRADIENT : appearance.accent;
+  const value = stats?.value ?? null;
+  const headline = value === null ? "—" : formatMetricValue(value, widget.format, widget.currency);
+  const change = widget.showChange ? (stats?.change ?? null) : null;
   return (
-    <div className="flex h-full flex-col p-3">
-      <div className="flex items-start justify-between">
-        <span className="text-[40px] leading-none font-semibold tabular-nums" style={{ color: tint }}>{last === undefined ? "-" : fmt(last)}</span>
-        {widget.showChange && change !== null ? <ChangeBadge change={change} /> : null}
-      </div>
-      {values.length > 1 ? (
-        <div className="mt-auto h-10">
-          <LineChart data={{ labels: data.labels, series: data.series.slice(0, 1) }} colors={[tint]} compact area />
+    <div className="relative flex h-full flex-col items-center justify-center gap-1 px-2.5 pb-1.5">
+      {change !== null ? <ChangeBadge change={change} onGradient={onGradient} className="absolute top-1.5 right-2" /> : null}
+      <span className="max-w-full truncate text-[34px] leading-tight font-semibold tabular-nums" style={{ color: ink }}>{headline}</span>
+      {stats?.series ? (
+        <div className="mt-1 h-10 w-full">
+          <LineChart data={{ labels: stats.series.labels, series: [{ name: "", values: stats.series.values }] }} colors={[ink]} compact area />
         </div>
       ) : null}
     </div>
@@ -268,11 +233,7 @@ export function SparklineWidget({ data, widget, tint }: { data: ChartData; widge
   const change = changeOf(data.series[0]?.values ?? []);
   return (
     <div className="relative h-full p-2">
-      {widget.showChange && change !== null ? (
-        <span className="absolute top-1 right-2 z-10">
-          <ChangeBadge change={change} />
-        </span>
-      ) : null}
+      {widget.showChange && change !== null ? <ChangeBadge change={change} className="absolute top-1 right-2 z-10" /> : null}
       <LineChart data={{ labels: data.labels, series: data.series.slice(0, 1) }} colors={[tint]} compact area />
     </div>
   );
@@ -284,19 +245,44 @@ interface LineProps {
   colors: readonly string[];
   compact?: boolean;
   area?: boolean;
+  /// Area only: series stack instead of overlapping.
+  stacked?: boolean;
   xLabel?: string | null;
   yLabel?: string | null;
+  legendMode?: LegendMode;
+  formatValue?: Formatter | null;
 }
 
-export function LineChart({ data, colors, compact = false, area = false, xLabel = null, yLabel = null }: LineProps) {
+/// Upper (and, stacked, lower) edge of every series at every label.
+function stackEdges(data: ChartData, stack: boolean): { top: number[][]; bottom: number[][] | null } {
+  if (!stack) return { top: data.series.map((s) => s.values), bottom: null };
+  let running = data.labels.map(() => 0);
+  const top: number[][] = [];
+  const bottom: number[][] = [];
+  for (const s of data.series) {
+    bottom.push(running);
+    running = running.map((r, i) => {
+      const v = s.values[i];
+      return r + (v !== undefined && Number.isFinite(v) ? v : 0);
+    });
+    top.push(running);
+  }
+  return { top, bottom };
+}
+
+export function LineChart({ data, colors, compact = false, area = false, stacked = false, xLabel = null, yLabel = null, legendMode = "auto", formatValue = null }: LineProps) {
   const [hover, setHover] = useState<number | null>(null);
+  const gradient = useId().replace(/:/g, "");
+  const fv = formatValue ?? fmt;
+  const stack = area && stacked && data.series.length > 1;
+  const { top, bottom } = useMemo(() => stackEdges(data, stack), [data, stack]);
   const W = 400;
   const H = compact ? 60 : 200;
   const padX = compact ? 2 : 36;
   const padTop = compact ? 4 : 12;
   const padBottom = compact ? 4 : 26;
   const n = data.labels.length;
-  const all = data.series.flatMap((s) => s.values).filter(Number.isFinite);
+  const all = top.flat().filter(Number.isFinite);
   const min = Math.min(...all, 0);
   const max = Math.max(...all, 0);
   const span = max - min || 1;
@@ -304,7 +290,7 @@ export function LineChart({ data, colors, compact = false, area = false, xLabel 
   if (n === 1) {
     return (
       <div className="flex h-full items-center justify-center gap-2">
-        <span className={compact ? "text-2xl font-semibold tabular-nums" : "text-[40px] font-semibold tabular-nums"} style={{ color: colors[0] }}>{fmt(data.series[0]?.values[0] ?? NaN)}</span>
+        <span className={compact ? "text-xl font-semibold tabular-nums" : "text-[40px] font-semibold tabular-nums"} style={{ color: colors[0] }}>{fv(data.series[0]?.values[0] ?? NaN)}</span>
       </div>
     );
   }
@@ -312,47 +298,65 @@ export function LineChart({ data, colors, compact = false, area = false, xLabel 
   const px = (i: number) => padX + i * step;
   const py = (v: number) => padTop + (1 - ((Number.isFinite(v) ? v : min) - min) / span) * (H - padTop - padBottom);
   const tickEvery = Math.max(1, Math.ceil(n / 8));
+  const edge = (values: readonly number[]) => values.map((v, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
+  const tooltipTop = hover === null ? 0 : Math.max(...top.map((t) => t[hover] ?? min));
   return (
     <div className="relative flex h-full w-full flex-col">
       <div className="relative min-h-0 flex-1">
-        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" role="img" aria-label="Line chart">
+        <svg viewBox={`0 0 ${W} ${H}`} preserveAspectRatio="none" className="h-full w-full" role="img" aria-label={stack ? "Stacked area chart" : area ? "Area chart" : "Line chart"}>
+          {stack ? (
+            <defs>
+              {data.series.map((s, si) => (
+                <linearGradient key={s.name} id={`${gradient}-${si}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor={colors[si % colors.length] ?? "currentColor"} stopOpacity={0.55} />
+                  <stop offset="100%" stopColor={colors[si % colors.length] ?? "currentColor"} stopOpacity={0.08} />
+                </linearGradient>
+              ))}
+            </defs>
+          ) : null}
           {!compact ? [0, 0.5, 1].map((t) => <line key={t} x1={padX} x2={W - padX} y1={padTop + (H - padTop - padBottom) * t} y2={padTop + (H - padTop - padBottom) * t} stroke="var(--separator)" strokeWidth={1} />) : null}
           {data.series.map((s, si) => {
             const color = colors[si % colors.length] ?? colors[0] ?? "currentColor";
-            const path = s.values.map((v, i) => `${i === 0 ? "M" : "L"}${px(i).toFixed(1)},${py(v).toFixed(1)}`).join(" ");
-            const areaPath = `${path} L${px(n - 1).toFixed(1)},${(H - padBottom).toFixed(1)} L${px(0).toFixed(1)},${(H - padBottom).toFixed(1)} Z`;
+            const upper = top[si] ?? s.values;
+            const lower = bottom?.[si];
+            const line = edge(upper);
+            const wash =
+              lower !== undefined
+                ? `${line} ${[...lower].reverse().map((v, k) => `L${px(n - 1 - k).toFixed(1)},${py(v).toFixed(1)}`).join(" ")} Z`
+                : `${line} L${px(n - 1).toFixed(1)},${(H - padBottom).toFixed(1)} L${px(0).toFixed(1)},${(H - padBottom).toFixed(1)} Z`;
             return (
               <g key={s.name}>
-                {area ? <path d={areaPath} fill={color} opacity={0.12} /> : null}
-                <path d={path} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
-                {hover !== null ? <circle cx={px(hover)} cy={py(s.values[hover] ?? min)} r={4} fill={color} stroke="var(--surface)" strokeWidth={2} /> : null}
+                {area ? <path d={wash} fill={stack ? `url(#${gradient}-${si})` : color} opacity={stack ? 1 : 0.12} /> : null}
+                <path d={line} fill="none" stroke={color} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />
+                {hover !== null ? <circle cx={px(hover)} cy={py(upper[hover] ?? min)} r={4} fill={color} stroke="var(--surface)" strokeWidth={2} /> : null}
               </g>
             );
           })}
           {!compact ? (
             <>
-              <text x={padX - 4} y={padTop + 4} textAnchor="end" fontSize={10} fill="var(--muted)">{fmt(max)}</text>
-              <text x={padX - 4} y={H - padBottom} textAnchor="end" fontSize={10} fill="var(--muted)">{fmt(min)}</text>
+              <text x={padX - 4} y={padTop + 4} textAnchor="end" fontSize={10} fill="var(--muted)">{fv(max)}</text>
+              <text x={padX - 4} y={H - padBottom} textAnchor="end" fontSize={10} fill="var(--muted)">{fv(min)}</text>
               {data.labels.map((l, i) => (i % tickEvery === 0 ? <text key={i} x={px(i)} y={H - padBottom + 14} textAnchor="middle" fontSize={10} fill="var(--muted)">{l.slice(0, 8)}</text> : null))}
             </>
           ) : null}
           {data.labels.map((_, i) => (
-            <rect key={i} x={px(i) - step / 2} y={0} width={step} height={H} fill="transparent" onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />
+            <rect key={i} x={px(i) - step / 2} y={0} width={step} height={H} fill="transparent" onMouseEnter={() => { setHover(i); }} onMouseLeave={() => { setHover(null); }} />
           ))}
         </svg>
         {hover !== null ? (
-          <Tooltip x={(px(hover) / W) * 100} y={Math.max(18, (py(data.series[0]?.values[hover] ?? min) / H) * 100)} label={data.labels[hover] ?? ""} rows={data.series.map((s, si) => ({ name: s.name, value: fmt(s.values[hover] ?? NaN), color: colors[si % colors.length] ?? "" }))} />
+          <Tooltip x={(px(hover) / W) * 100} y={Math.max(18, (py(tooltipTop) / H) * 100)} label={data.labels[hover] ?? ""} rows={data.series.map((s, si) => ({ name: s.name, value: fv(s.values[hover] ?? NaN), color: colors[si % colors.length] ?? "" }))} />
         ) : null}
         <AxisLabels x={compact ? null : xLabel} y={compact ? null : yLabel} />
       </div>
-      {!compact ? <Legend data={data} colors={colors} /> : null}
+      {!compact ? <Legend data={data} colors={colors} mode={legendMode} /> : null}
     </div>
   );
 }
 
 // ---------------------------------------------------------------- bar
-export function BarChart({ data, colors, horizontal = false, xLabel = null, yLabel = null }: { data: ChartData; colors: readonly string[]; horizontal?: boolean; xLabel?: string | null; yLabel?: string | null }) {
+export function BarChart({ data, colors, horizontal = false, xLabel = null, yLabel = null, legendMode = "auto", formatValue = null }: { data: ChartData; colors: readonly string[]; horizontal?: boolean; xLabel?: string | null; yLabel?: string | null; legendMode?: LegendMode; formatValue?: Formatter | null }) {
   const [hover, setHover] = useState<number | null>(null);
+  const fv = formatValue ?? fmt;
   const W = 400;
   const H = 200;
   const padX = horizontal ? 70 : 36;
@@ -396,7 +400,7 @@ export function BarChart({ data, colors, horizontal = false, xLabel = null, yLab
                   ? `M${x},${y + len} V${y + r} Q${x},${y} ${x + r},${y} H${x + thick - r} Q${x + thick},${y} ${x + thick},${y + r} V${y + len} Z`
                   : `M${x},${y} V${y + len - r} Q${x},${y + len} ${x + r},${y + len} H${x + thick - r} Q${x + thick},${y + len} ${x + thick},${y + len - r} V${y} Z`;
               }
-              return <path key={`${label}-${s.name}`} d={d} fill={color} opacity={hover === null || hover === i ? 1 : 0.5} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />;
+              return <path key={`${label}-${s.name}`} d={d} fill={color} opacity={hover === null || hover === i ? 1 : 0.5} onMouseEnter={() => { setHover(i); }} onMouseLeave={() => { setHover(null); }} />;
             }),
           )}
           {horizontal
@@ -404,14 +408,15 @@ export function BarChart({ data, colors, horizontal = false, xLabel = null, yLab
             : n <= 14
               ? data.labels.map((l, i) => <text key={i} x={padX + i * slot + slot / 2} y={H - 8} textAnchor="middle" fontSize={10} fill="var(--muted)">{l.slice(0, 8)}</text>)
               : null}
-          {!horizontal ? <text x={padX - 4} y={padTop + 4} textAnchor="end" fontSize={10} fill="var(--muted)">{fmt(max)}</text> : null}
+          {!horizontal ? <text x={padX - 4} y={padTop + 4} textAnchor="end" fontSize={10} fill="var(--muted)">{fv(max)}</text> : null}
+          {horizontal ? <text x={W - padX} y={H - 1} textAnchor="end" fontSize={10} fill="var(--muted)">{fv(max)}</text> : null}
         </svg>
         {hover !== null ? (
-          <Tooltip x={horizontal ? 50 : ((padX + hover * slot + slot / 2) / W) * 100} y={horizontal ? ((padTop + hover * slot) / H) * 100 : 20} label={data.labels[hover] ?? ""} rows={data.series.map((s, si) => ({ name: s.name, value: fmt(s.values[hover] ?? NaN), color: colors[si % colors.length] ?? "" }))} />
+          <Tooltip x={horizontal ? 50 : ((padX + hover * slot + slot / 2) / W) * 100} y={horizontal ? ((padTop + hover * slot) / H) * 100 : 20} label={data.labels[hover] ?? ""} rows={data.series.map((s, si) => ({ name: s.name, value: fv(s.values[hover] ?? NaN), color: colors[si % colors.length] ?? "" }))} />
         ) : null}
         <AxisLabels x={xLabel} y={yLabel} />
       </div>
-      <Legend data={data} colors={colors} />
+      <Legend data={data} colors={colors} mode={legendMode} />
     </div>
   );
 }
@@ -428,8 +433,14 @@ function sliceAngles(values: readonly number[], total: number): { a0: number; a1
   return out;
 }
 
-export function PieChart({ data, tint }: { data: ChartData; tint: string }) {
+/// A slice's fill strength: the first is solid, the next fade in steps, as the tint is the only hue.
+function sliceOpacity(i: number): number {
+  return 1 - (i % 6) * 0.13;
+}
+
+export function PieChart({ data, tint, legendMode = "auto", formatValue = null }: { data: ChartData; tint: string; legendMode?: LegendMode; formatValue?: Formatter | null }) {
   const [hover, setHover] = useState<number | null>(null);
+  const fv = formatValue ?? fmt;
   const values = (data.series[0]?.values ?? []).map((v) => (Number.isFinite(v) && v > 0 ? v : 0));
   const total = values.reduce((a, b) => a + b, 0);
   if (total <= 0) return <Empty hint="Return a label column and a positive numeric column." />;
@@ -445,17 +456,34 @@ export function PieChart({ data, tint }: { data: ChartData; tint: string }) {
     return `M${p(s0, R)} A${R},${R} 0 ${large} 1 ${p(s1, R)} L${p(s1, r)} A${r},${r} 0 ${large} 0 ${p(s0, r)} Z`;
   };
   const current = hover === null ? undefined : slices[hover];
+  const showLegend = legendVisible(legendMode, slices.filter((s) => s.v > 0).length >= 2);
   return (
-    <div className="relative flex h-full w-full items-center justify-center">
-      <svg viewBox="0 0 200 200" className="h-full max-h-full" role="img" aria-label="Pie chart">
-        {slices.map((s) => (
-          <path key={s.i} d={arc(s.a0, s.a1)} fill={tint} opacity={hover === null || hover === s.i ? 1 - (s.i % 6) * 0.13 : 0.35} onMouseEnter={() => setHover(s.i)} onMouseLeave={() => setHover(null)} />
-        ))}
-      </svg>
-      {current ? (
-        <div className="pointer-events-none absolute rounded-md border border-border bg-overlay px-2 py-1 text-[11px] text-foreground shadow">
-          <span className="text-muted">{current.label}</span> {fmt(current.v)} ({((current.v / total) * 100).toFixed(1)}%)
-        </div>
+    <div className="flex h-full w-full items-center gap-2">
+      <div className="relative flex h-full min-w-0 flex-1 items-center justify-center">
+        <svg viewBox="0 0 200 200" className="h-full max-h-full" role="img" aria-label="Pie chart">
+          {slices.map((s) => (
+            <path key={s.i} d={arc(s.a0, s.a1)} fill={tint} opacity={hover === null || hover === s.i ? sliceOpacity(s.i) : 0.35} onMouseEnter={() => { setHover(s.i); }} onMouseLeave={() => { setHover(null); }} />
+          ))}
+        </svg>
+        {current ? (
+          <div className="pointer-events-none absolute rounded-md border border-border bg-overlay px-2 py-1 text-[11px] text-foreground shadow">
+            <span className="text-muted">{current.label}</span> {fv(current.v)} ({((current.v / total) * 100).toFixed(1)}%)
+          </div>
+        ) : null}
+      </div>
+      {showLegend ? (
+        <ScrollArea className="max-h-full w-[42%] shrink-0 py-1 pr-2 text-[11px]">
+          <ul className="flex flex-col gap-1">
+            {slices.map((s) => (
+              <li key={s.i} className="flex min-w-0 items-center gap-1.5" onMouseEnter={() => { setHover(s.i); }} onMouseLeave={() => { setHover(null); }}>
+                <span className="size-2 shrink-0 rounded-sm" style={{ background: tint, opacity: sliceOpacity(s.i) }} />
+                <span className="truncate text-muted">{s.label}</span>
+                <span className="ml-auto shrink-0 pl-1 tabular-nums">{fv(s.v)}</span>
+                <span className="w-9 shrink-0 text-right text-muted tabular-nums">{((s.v / total) * 100).toFixed(0)}%</span>
+              </li>
+            ))}
+          </ul>
+        </ScrollArea>
       ) : null}
     </div>
   );
@@ -491,7 +519,7 @@ export function SankeyChart({ outcome, tint }: { outcome: QueryOutcome | null; t
           const w = l.width;
           const c = (x0 + x1) / 2;
           const d = `M${x0},${y0} C${c},${y0} ${c},${y1} ${x1},${y1} L${x1},${y1 + w} C${c},${y1 + w} ${c},${y0 + w} ${x0},${y0 + w} Z`;
-          return <path key={i} d={d} fill={tint} opacity={hover === null || hover === i ? 0.35 : 0.12} onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)} />;
+          return <path key={i} d={d} fill={tint} opacity={hover === null || hover === i ? 0.35 : 0.12} onMouseEnter={() => { setHover(i); }} onMouseLeave={() => { setHover(null); }} />;
         })}
         {model.nodes.map((n) => (
           <g key={n.name}>
@@ -510,10 +538,10 @@ export function SankeyChart({ outcome, tint }: { outcome: QueryOutcome | null; t
 }
 
 function buildSankey(outcome: QueryOutcome | null): SankeyModel | null {
-  const rows = outcome?.statements.find(isRows);
-  if (!rows || rows.result.columns.length < 3) return null;
+  const rows = rowsOf(outcome);
+  if (!rows || rows.columns.length < 3) return null;
   const flows = new Map<string, { s: string; t: string; v: number }>();
-  for (const r of rows.result.rows) {
+  for (const r of rows.rows) {
     const s = cellText(r[0]);
     const t = cellText(r[1]);
     const v = toNumber(r[2]);
@@ -577,58 +605,27 @@ function buildSankey(outcome: QueryOutcome | null): SankeyModel | null {
 }
 
 // ---------------------------------------------------------------- map (lat, lon[, label])
+// WHAT:  A basemap with a marker per row. The basemap follows the app theme.
+// WHERE: ./SlippyMap.tsx (the viewer), ./mapTiles.ts (points and geometry)
 export function MapChart({ outcome, tint, pulse }: { outcome: QueryOutcome | null; tint: string; pulse: boolean }) {
-  const points = useMemo(() => {
-    const rows = outcome?.statements.find(isRows);
-    if (!rows) return [];
-    const cols = rows.result.columns.map((c) => c.name.toLowerCase());
-    const latI = cols.findIndex((c) => c.startsWith("lat"));
-    const lonI = cols.findIndex((c) => c.startsWith("lon") || c.startsWith("lng"));
-    const li = latI >= 0 ? latI : 0;
-    const lo = lonI >= 0 ? lonI : 1;
-    const labelI = cols.findIndex((_, i) => i !== li && i !== lo);
-    return rows.result.rows
-      .map((r) => ({ lat: toNumber(r[li]), lon: toNumber(r[lo]), label: labelI >= 0 ? cellText(r[labelI]) : "" }))
-      .filter((p) => Number.isFinite(p.lat) && Number.isFinite(p.lon) && Math.abs(p.lat) <= 90 && Math.abs(p.lon) <= 180);
-  }, [outcome]);
-  if (points.length === 0) return <Empty hint="Return latitude and longitude columns (lat, lon) plus an optional label." />;
-  const W = 360;
-  const H = 180;
-  const x = (lon: number) => ((lon + 180) / 360) * W;
-  const y = (lat: number) => ((90 - lat) / 180) * H;
-  return (
-    <div className="h-full w-full">
-      <svg viewBox={`0 0 ${W} ${H}`} className="h-full w-full" role="img" aria-label="Map">
-        <rect width={W} height={H} fill="var(--surface-secondary)" />
-        {[-60, -30, 0, 30, 60].map((lat) => <line key={`lat${lat}`} x1={0} x2={W} y1={y(lat)} y2={y(lat)} stroke="var(--separator)" strokeWidth={lat === 0 ? 1 : 0.5} />)}
-        {[-150, -120, -90, -60, -30, 0, 30, 60, 90, 120, 150].map((lon) => <line key={`lon${lon}`} x1={x(lon)} x2={x(lon)} y1={0} y2={H} stroke="var(--separator)" strokeWidth={lon === 0 ? 1 : 0.5} />)}
-        {points.map((p, i) => (
-          <g key={i}>
-            {pulse ? <circle cx={x(p.lon)} cy={y(p.lat)} r={8} fill={tint} opacity={0.25} className="animate-ping" style={{ transformOrigin: `${x(p.lon)}px ${y(p.lat)}px` }} /> : null}
-            <circle cx={x(p.lon)} cy={y(p.lat)} r={3.5} fill={tint} stroke="var(--surface)" strokeWidth={1.5}>
-              <title>{p.label ? `${p.label}: ` : ""}{p.lat.toFixed(3)}, {p.lon.toFixed(3)}</title>
-            </circle>
-          </g>
-        ))}
-      </svg>
-    </div>
-  );
+  const theme = useResolvedTheme();
+  const points = useMemo(() => parseMapPoints(outcome), [outcome]);
+  return <SlippyMap points={points} tint={tint} pulse={pulse} basemap={theme} hint="Return latitude and longitude columns (lat, lon) plus an optional label." />;
 }
 
 // ---------------------------------------------------------------- progress
 export function ProgressMeter({ outcome, widget, tint }: { outcome: QueryOutcome | null; widget: Widget; tint: string }) {
-  const rows = outcome?.statements.find(isRows);
-  const first = rows?.result.rows[0];
+  const first = rowsOf(outcome)?.rows[0];
   const value = toNumber(first?.[0]);
   const max = widget.maxValue ?? toNumber(first?.[1]);
   if (!Number.isFinite(value) || !Number.isFinite(max) || max <= 0) return <Empty hint="Return a value (and optionally a target) or set the maximum in options." />;
   const pct = Math.max(0, Math.min(100, (value / max) * 100));
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-2 px-6">
-      <div className="h-2.5 w-full overflow-hidden rounded-full bg-surface-tertiary">
+    <div className="flex h-full flex-col items-center justify-center gap-2 px-3">
+      <div className="h-2 w-full overflow-hidden rounded-full bg-surface-tertiary">
         <div className="h-full rounded-full" style={{ width: `${pct}%`, background: tint }} />
       </div>
-      <div className="flex items-center gap-3 text-sm">
+      <div className="flex items-center gap-2 text-xs">
         {widget.showPercent ? <span className="font-medium" style={{ color: tint }}>{pct.toFixed(0)}%</span> : null}
         {widget.showValues ? <span className="text-muted">{fmt(value)} / {fmt(max)}</span> : null}
       </div>
@@ -637,22 +634,24 @@ export function ProgressMeter({ outcome, widget, tint }: { outcome: QueryOutcome
 }
 
 // ---------------------------------------------------------------- text / image
-export function TextWidget({ widget, outcome }: { widget: Widget; outcome: QueryOutcome | null }) {
+export function TextWidget({ widget, outcome, onGradient = false }: { widget: Widget; outcome: QueryOutcome | null; onGradient?: boolean }) {
   const text = matchedContent(widget, outcome, widget.text ?? "");
-  if (text.trim().length === 0) return <Empty hint="Add content in the options. Use {{column}} to insert query values." />;
+  if (text.trim().length === 0) return <Empty hint="Add content in the options. Use {{column}} or {{a / b * 100}} to insert query values." />;
   return (
-    <ScrollArea className="h-full p-3">
-      <div className="selectable text-sm whitespace-pre-wrap text-foreground">{text}</div>
+    <ScrollArea className="h-full p-2.5">
+      <div className="selectable flex min-h-full items-center justify-center text-center text-[13px] font-semibold break-words whitespace-pre-wrap text-foreground" style={onGradient ? { color: ON_GRADIENT } : undefined}>{text}</div>
     </ScrollArea>
   );
 }
 
 export function ImageWidget({ widget, outcome, gif }: { widget: Widget; outcome: QueryOutcome | null; gif: boolean }) {
   const url = matchedContent(widget, outcome, widget.url ?? "").trim();
+  const [failed, setFailed] = useState<string | null>(null);
   if (url.length === 0) return <Empty hint={gif ? "Paste a GIF URL in the options." : "Paste an image URL in the options."} />;
+  if (failed === url) return <Empty hint="The image could not be loaded." />;
   return (
     <div className="flex h-full items-center justify-center overflow-hidden p-2">
-      <img src={url} alt={widget.title} className="max-h-full max-w-full rounded-md object-contain" />
+      <img src={url} alt={widget.title} referrerPolicy="no-referrer" className="max-h-full max-w-full rounded-md object-contain" onError={() => { setFailed(url); }} />
     </div>
   );
 }

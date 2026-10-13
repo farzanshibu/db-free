@@ -96,6 +96,14 @@ VENDOR_OWNERS = {
     # The agent framework. Only the provider adapter speaks rig; the loop, the
     # tools and the permission gate work in this codebase's own types.
     "rig_core": ("services/agent/provider.rs",),
+    # Workflows: each crate is confined to the one file that speaks it.
+    "regex": ("services/workflows/text.rs",),
+    "chrono_tz": ("services/workflows/schedule.rs",),
+    "lettre": ("integrations/smtp.rs",),
+    "rquickjs": ("integrations/js_sandbox.rs",),
+    # Multi-table export writes a ZIP of per-table files; only the export service speaks it.
+    "zip": ("services/export.rs",),
+    "quick_xml": ("services/connection_formats.rs",),
 }
 
 HARDCODED_COLOR = re.compile(
@@ -174,7 +182,7 @@ def check_rust(path: Path, text: str) -> list[Finding]:
                 findings.append(Finding(path, line_of(text, idx), "layering",
                     f"Commands never reach `{forbidden}` directly. Call a function in src-tauri/src/services/ instead."))
         commands = len(re.findall(r"^\s*#\[tauri::command\]", text, flags=re.M))
-        guarded = len(re.findall(r"guard::(?:local|session|statement)\(", text))
+        guarded = len(re.findall(r"guard::(?:local|session|session_in_session|statement|statement_in_session)\(", text))
         if commands and guarded < commands:
             findings.append(Finding(path, 1, "block-bypass",
                 f"{commands} command(s) but only {guarded} pass through guard::local / guard::session / guard::statement. Every command goes through the block."))

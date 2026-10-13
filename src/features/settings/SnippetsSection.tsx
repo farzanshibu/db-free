@@ -45,8 +45,8 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
 
   return (
     <>
-      <div className="flex items-center gap-3">
-        <h2 className="text-sm font-semibold text-foreground">Snippets</h2>
+      <div className="flex items-center gap-2">
+        <h2 className="text-[13px] font-semibold text-foreground">Snippets</h2>
         <Button size="sm" variant="secondary" className="ml-auto" disabled={editing !== null} onClick={() => setEditing({ index: null, draft: BLANK })}>
           <Icon name="plus" size={12} />
           Add snippet
@@ -56,8 +56,8 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
         Type a prefix in the query editor and press Tab to expand it; Tab then walks the <span className="font-mono">{"${field}"}</span> placeholders. Snippets also appear in the suggestion list.
       </p>
       {editing !== null ? (
-        <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-surface p-4">
-          <div className="grid grid-cols-3 gap-3">
+        <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-surface p-3">
+          <div className="grid grid-cols-3 gap-2">
             <Field label="Prefix" value={editing.draft.prefix} onChange={(v) => patchDraft({ prefix: v })} placeholder="audit" mono autoFocus />
             <Field label="Name" value={editing.draft.name} onChange={(v) => patchDraft({ name: v })} placeholder="Audit columns" optional />
             <AppSelect<SnippetLanguage>
@@ -85,11 +85,11 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
         </div>
       ) : null}
       {snippets.length === 0 ? (
-        <p className="rounded-md border border-dashed border-border px-3 py-3 text-center text-xs text-muted">No snippets of your own yet.</p>
+        <p className="rounded-md border border-dashed border-border px-2.5 py-2 text-center text-xs text-muted">No snippets of your own yet.</p>
       ) : (
         <ul className="divide-y divide-separator rounded-md border border-border bg-surface">
           {snippets.map((sn, i) => (
-            <li key={`${sn.language}:${sn.prefix}:${i}`} className="flex items-center gap-3 px-3 py-2 text-[13px]">
+            <li key={`${sn.language}:${sn.prefix}:${i}`} className="flex items-center gap-2 px-2.5 py-1 text-xs">
               <span className="w-20 shrink-0 truncate font-mono text-accent">{sn.prefix}</span>
               <div className="min-w-0 flex-1">
                 <p className="truncate text-foreground">{sn.name.length > 0 ? sn.name : snippetPreview(sn.body)}</p>
@@ -111,7 +111,7 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
       <h3 className="text-[11px] font-semibold tracking-wider text-muted uppercase">Built-in</h3>
       <ul className="divide-y divide-separator rounded-md border border-border bg-surface">
         {BUILTIN_SNIPPETS.map((sn) => (
-          <li key={`${sn.language}:${sn.prefix}`} className="flex items-center gap-3 px-3 py-1.5 text-[12.5px]">
+          <li key={`${sn.language}:${sn.prefix}`} className="flex items-center gap-2 px-2.5 py-1 text-xs">
             <span className="w-20 shrink-0 truncate font-mono text-accent">{sn.prefix}</span>
             <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-muted">{snippetPreview(sn.body)}</span>
             <Badge size="sm" variant="soft" className="shrink-0 text-[9.5px]">

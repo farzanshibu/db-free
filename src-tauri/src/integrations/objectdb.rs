@@ -133,6 +133,10 @@ fn where_clause(filters: &[FilterRule], params: &mut Map<String, Json>) -> AppRe
                 params.insert(p.clone(), Json::String(format!("%{}%", v.to_lowercase())));
                 format!("LOWER({col}) LIKE :{p}")
             }
+            FilterOp::NotContains => {
+                params.insert(p.clone(), Json::String(format!("%{}%", v.to_lowercase())));
+                format!("LOWER({col}) NOT LIKE :{p}")
+            }
             FilterOp::StartsWith => {
                 params.insert(p.clone(), Json::String(format!("{}%", v.to_lowercase())));
                 format!("LOWER({col}) LIKE :{p}")

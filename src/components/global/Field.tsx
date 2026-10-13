@@ -1,6 +1,7 @@
 // SOT: form-fields, text-field, select-field, toggle-field, segmented-control, checkbox-field, datetime-field, number-input
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
+import { useDatePickerEnabled } from "@/lib/uiPrefs";
 import { Icon, type IconName } from "@/lib/icons";
 import { formatDbTemporal, parseDbTemporal, type DbTemporal, type TemporalKind } from "@/lib/datetime";
 import { Button } from "@/components/ui/button";
@@ -48,7 +49,7 @@ interface FieldProps {
 export function Field({ label, value, onChange, placeholder, type = "text", description, optional = false, disabled = false, autoFocus = false, className, suffix, mono = false, compact = false }: FieldProps) {
   const id = useId();
   return (
-    <div className={cn("group/field flex w-full flex-col", compact ? "gap-0" : "gap-1.5", className)} data-disabled={disabled}>
+    <div className={cn("group/field flex w-full flex-col", compact ? "gap-0" : "gap-1", className)} data-disabled={disabled}>
       <Label htmlFor={id}>
         {label}
         {optional ? <span className="text-muted/70">(optional)</span> : null}
@@ -63,12 +64,12 @@ export function Field({ label, value, onChange, placeholder, type = "text", desc
           onChange={(event) => { onChange(event.target.value); }}
           disabled={disabled}
           autoFocus={autoFocus}
-          className={cn(mono ? "font-mono" : "", compact ? "h-7 px-2 text-xs" : "", suffix ? "pr-8" : "")}
+          className={cn(mono ? "font-mono" : "", compact ? "h-6 px-1.5 text-xs" : "", suffix ? "pr-7" : "")}
           {...(placeholder !== undefined ? { placeholder } : {})}
         />
         {suffix ? <span className="absolute right-1 flex items-center">{suffix}</span> : null}
       </div>
-      {description !== undefined && description !== "" ? <p className="text-xs text-muted">{description}</p> : null}
+      {description !== undefined && description !== "" ? <p className="text-[11px] text-muted">{description}</p> : null}
     </div>
   );
 }
@@ -99,7 +100,7 @@ export function AppSelect<T extends string>({ value, options, onChange, label, a
   const current = options.find((o) => o.value === value);
   const leading = icon ?? current?.icon;
   return (
-    <div className={cn("flex flex-col gap-1.5", plain ? "w-auto" : widthClass(className), "min-w-0", className)}>
+    <div className={cn("flex flex-col gap-1", plain ? "w-auto" : widthClass(className), "min-w-0", className)}>
       {label !== undefined && label !== "" ? <Label>{label}</Label> : null}
       <Select
         value={value}
@@ -116,15 +117,15 @@ export function AppSelect<T extends string>({ value, options, onChange, label, a
           aria-label={label ?? ariaLabel ?? "Select"}
           className={cn(
             plain
-              ? "h-6 w-auto gap-1 rounded-md border-0 bg-transparent px-1.5 text-xs text-foreground shadow-none hover:bg-surface-secondary"
+              ? "h-5.5 w-auto gap-1 rounded-sm border-0 bg-transparent px-1.5 text-xs text-foreground shadow-none hover:bg-surface-secondary"
               : "",
           )}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-1.5">
+          <span className="flex min-w-0 flex-1 items-center gap-1">
             {icon === undefined && current?.leading ? (
               <span className="flex shrink-0 items-center">{current.leading}</span>
             ) : leading !== undefined ? (
-              <Icon name={leading} size={plain ? 12 : 14} className="shrink-0 text-accent" />
+              <Icon name={leading} size={plain ? 12 : 13} className="shrink-0 text-accent" />
             ) : null}
             {/* The trigger shows the label alone: `SelectValue` would re-render
                 the whole item, drawing a second copy of an option's logo. */}
@@ -136,7 +137,7 @@ export function AppSelect<T extends string>({ value, options, onChange, label, a
         <SelectContent>
           {options.map((o) => (
             <SelectItem key={o.value} value={o.value}>
-              {o.leading ? <span className="flex shrink-0 items-center">{o.leading}</span> : o.icon !== undefined ? <Icon name={o.icon} size={14} className="text-muted" /> : null}
+              {o.leading ? <span className="flex shrink-0 items-center">{o.leading}</span> : o.icon !== undefined ? <Icon name={o.icon} size={13} className="text-muted" /> : null}
               {o.label}
             </SelectItem>
           ))}
@@ -156,16 +157,16 @@ interface ToggleProps {
 export function Toggle({ checked, onChange, label, description }: ToggleProps) {
   const id = useId();
   return (
-    <div className="flex w-full flex-col gap-1">
-      <div className="flex items-center gap-3">
+    <div className="flex w-full flex-col gap-0.5">
+      <div className="flex items-center gap-2">
         <Switch id={id} checked={checked} onCheckedChange={onChange} aria-label={label.length > 0 ? label : "toggle"} />
         {label.length > 0 ? (
-          <Label htmlFor={id} className="text-[13px] font-normal text-foreground">
+          <Label htmlFor={id} className="text-xs font-normal text-foreground">
             {label}
           </Label>
         ) : null}
       </div>
-      {description !== undefined && description !== "" ? <p className="text-xs text-muted">{description}</p> : null}
+      {description !== undefined && description !== "" ? <p className="text-[11px] text-muted">{description}</p> : null}
     </div>
   );
 }
@@ -249,6 +250,8 @@ interface DateTimeFieldProps {
 //        pickers write into it, never the other way round.
 // WHERE: https://ui.shadcn.com/docs/components/date-picker
 export function DateTimeField({ kind, value, onChange, label, ariaLabel, compact = false, autoFocus = false, autoOpen = false, onDone, disabled = false, className }: DateTimeFieldProps) {
+  // Settings → Data Grid → "Date picker" off: the field is plain text, no button, no popover.
+  const pickerEnabled = useDatePickerEnabled();
   const [open, setOpen] = useState(autoOpen);
   const id = useId();
   const parts = parseDbTemporal(value);
@@ -257,7 +260,7 @@ export function DateTimeField({ kind, value, onChange, label, ariaLabel, compact
   const write = (next: DbTemporal) => { onChange(formatDbTemporal(kind, next)); };
 
   return (
-    <div className={cn("flex flex-col", compact ? "h-full gap-0" : "w-full gap-1.5", className)}>
+    <div className={cn("flex flex-col", compact ? "h-full gap-0" : "w-full gap-1", className)}>
       {label !== undefined && label !== "" ? <Label htmlFor={id}>{label}</Label> : null}
       <div className="relative flex h-full items-center">
         <Input
@@ -268,58 +271,60 @@ export function DateTimeField({ kind, value, onChange, label, ariaLabel, compact
           autoFocus={autoFocus}
           aria-label={a11y}
           placeholder={kind === "time" ? "HH:MM:SS" : kind === "date" ? "YYYY-MM-DD" : "YYYY-MM-DD HH:MM:SS"}
-          className={cn("pr-7 font-mono", compact ? "h-full min-h-0 rounded-sm border-accent bg-background px-1 text-[12px] shadow-none" : "")}
+          className={cn(pickerEnabled ? "pr-7" : "", "font-mono", compact ? "h-full min-h-0 rounded-sm border-accent bg-background px-1 text-[12px] shadow-none" : "")}
         />
-        <Popover
-          open={open}
-          onOpenChange={(next) => {
-            setOpen(next);
-            if (!next) onDone?.();
-          }}
-        >
-          <PopoverTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              disabled={disabled}
-              aria-label={`Pick ${a11y}`}
-              className={cn("absolute right-0.5", compact ? "size-5 min-w-5" : "size-6 min-w-6")}
-            >
-              {kind === "time" ? <Icon name="clock" className={compact ? "size-3" : "size-3.5"} /> : <Icon name="calendar" className={compact ? "size-3" : "size-3.5"} />}
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-2" align="end">
-            {kind === "time" ? null : (
-              <Calendar
-                mode="single"
-                autoFocus
-                {...(parts.date !== null ? { selected: parts.date, defaultMonth: parts.date } : {})}
-                onSelect={(date) => {
-                  if (date) write({ ...parts, date });
-                }}
-              />
-            )}
-            {kind === "date" ? null : (
-              <div className={cn("flex items-center justify-between gap-3", kind === "datetime" ? "mt-2 border-t border-border/40 pt-2" : "")}>
-                <span className="flex items-center gap-1.5 text-xs text-muted">
-                  <Icon name="clock" className="size-3" />
-                  Time
-                </span>
-                <Input
-                  type="time"
-                  step={1}
-                  aria-label={`${a11y} time`}
-                  value={parts.time === "" ? "" : parts.time}
-                  onChange={(event) => {
-                    const time = event.target.value === "" ? "" : `${event.target.value}:00`.slice(0, 8);
-                    write({ ...parts, time, date: parts.date ?? new Date() });
+        {pickerEnabled ? (
+          <Popover
+            open={open}
+            onOpenChange={(next) => {
+              setOpen(next);
+              if (!next) onDone?.();
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={disabled}
+                aria-label={`Pick ${a11y}`}
+                className={cn("absolute right-0.5", compact ? "size-4.5 min-w-4.5" : "size-5 min-w-5")}
+              >
+                {kind === "time" ? <Icon name="clock" className={compact ? "size-3" : "size-3.5"} /> : <Icon name="calendar" className={compact ? "size-3" : "size-3.5"} />}
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-1.5" align="end">
+              {kind === "time" ? null : (
+                <Calendar
+                  mode="single"
+                  autoFocus
+                  {...(parts.date !== null ? { selected: parts.date, defaultMonth: parts.date } : {})}
+                  onSelect={(date) => {
+                    if (date) write({ ...parts, date });
                   }}
-                  className="h-7 w-full min-w-[7.5rem] font-mono text-xs"
                 />
-              </div>
-            )}
-          </PopoverContent>
-        </Popover>
+              )}
+              {kind === "date" ? null : (
+                <div className={cn("flex items-center justify-between gap-3", kind === "datetime" ? "mt-2 border-t border-border/40 pt-2" : "")}>
+                  <span className="flex items-center gap-1 text-xs text-muted">
+                    <Icon name="clock" className="size-3" />
+                    Time
+                  </span>
+                  <Input
+                    type="time"
+                    step={1}
+                    aria-label={`${a11y} time`}
+                    value={parts.time === "" ? "" : parts.time}
+                    onChange={(event) => {
+                      const time = event.target.value === "" ? "" : `${event.target.value}:00`.slice(0, 8);
+                      write({ ...parts, time, date: parts.date ?? new Date() });
+                    }}
+                    className="h-6 w-full min-w-[7.5rem] font-mono text-xs"
+                  />
+                </div>
+              )}
+            </PopoverContent>
+          </Popover>
+        ) : null}
       </div>
     </div>
   );
@@ -348,9 +353,9 @@ export function NumberInput({ value, onChange, integer = false, label, ariaLabel
   const id = useId();
   const step = (delta: number) => { onChange(Number(((value ?? 0) + delta).toFixed(integer ? 0 : 10))); };
   return (
-    <div className={cn("flex flex-col", compact ? "h-full gap-0" : "w-full gap-1.5", className)}>
+    <div className={cn("flex flex-col", compact ? "h-full gap-0" : "w-full gap-1", className)}>
       {label !== undefined && label !== "" ? <Label htmlFor={id}>{label}</Label> : null}
-      <div className={cn("flex h-full items-center", compact ? "" : "gap-1")}>
+      <div className={cn("flex h-full items-center", compact ? "" : "gap-0.5")}>
         {compact ? null : (
           <Button variant="secondary" size="icon-sm" aria-label="Decrement" disabled={disabled} onClick={() => { step(-1); }}>
             <Icon name="minus" />

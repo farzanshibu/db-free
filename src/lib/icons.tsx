@@ -48,6 +48,11 @@ import {
   SourceCodeIcon,
   SquareLock02Icon,
   StarIcon,
+  PinIcon,
+  AppWindowIcon,
+  LayoutRightIcon,
+  PaletteIcon,
+  PanelLeftIcon,
   Table02Icon,
   TableIcon,
   TextFontIcon,
@@ -58,6 +63,7 @@ import {
   Activity01Icon,
   AiBrain01Icon,
   Alert01Icon,
+  BookmarkAdd01Icon,
   Archive01Icon,
   ArrowDataTransferHorizontalIcon,
   Book02Icon,
@@ -74,6 +80,7 @@ import {
   Exchange01Icon,
   FlashIcon,
   FlowConnectionIcon,
+  FocusPointIcon,
   FunctionIcon,
   GaugeIcon,
   GitBranchIcon,
@@ -96,6 +103,7 @@ import {
   ServerIcon,
   Shield01Icon,
   SparklesIcon,
+  StickyNote01Icon,
   SwatchIcon,
   Tag01Icon,
   Target01Icon,
@@ -205,7 +213,15 @@ export type IconName =
   | "transfer"
   | "rss"
   | "stop"
-  | "star";
+  | "star"
+  | "bookmark"
+  | "focus"
+  | "note"
+  | "pin"
+  | "sidebar"
+  | "inspector"
+  | "window"
+  | "palette";
 
 // WHAT:  App icon vocabulary → Hugeicons (stroke-rounded, free set). Call sites
 //        stay `<Icon name="table" />`; swap a glyph here, not in features.
@@ -309,6 +325,14 @@ const GLYPHS: Record<IconName, IconSvgElement> = {
   rss: RssIcon,
   stop: StopIcon,
   star: StarIcon,
+  bookmark: BookmarkAdd01Icon,
+  focus: FocusPointIcon,
+  note: StickyNote01Icon,
+  pin: PinIcon,
+  sidebar: PanelLeftIcon,
+  inspector: LayoutRightIcon,
+  window: AppWindowIcon,
+  palette: PaletteIcon,
 };
 
 interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name" | "strokeWidth"> {
@@ -316,7 +340,7 @@ interface IconProps extends Omit<SVGProps<SVGSVGElement>, "name" | "strokeWidth"
   size?: number;
 }
 
-export function Icon({ name, size = 15, className, ...rest }: IconProps) {
+export function Icon({ name, size = 14, className, ...rest }: IconProps) {
   return (
     <HugeiconsIcon
       icon={GLYPHS[name]}

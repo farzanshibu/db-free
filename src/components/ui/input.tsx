@@ -11,13 +11,13 @@ export function Input({ className, type = "text", ...props }: React.ComponentPro
       data-slot="input"
       type={type}
       className={cn(
-        "flex h-8 w-full min-w-0 rounded-[var(--field-radius)] border border-input bg-field px-2.5 py-1 text-[13px] text-field-foreground",
+        "flex h-6.5 w-full min-w-0 rounded-[var(--field-radius)] border border-input bg-field px-2 py-0.5 text-xs text-field-foreground",
         "shadow-[var(--field-shadow)] outline-none transition-[color,box-shadow,border-color]",
         "placeholder:text-field-placeholder",
         "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/40",
         "disabled:cursor-not-allowed disabled:opacity-50",
         "aria-invalid:border-danger aria-invalid:ring-danger/30",
-        "file:h-7 file:border-0 file:bg-transparent file:text-xs file:font-medium",
+        "file:h-5 file:border-0 file:bg-transparent file:text-xs file:font-medium",
         className,
       )}
       {...props}
@@ -39,13 +39,13 @@ export interface SearchInputProps extends Omit<React.ComponentProps<"input">, "v
 export function SearchInput({ className, value, onChange, placeholder = "Searchâ€¦", ...props }: SearchInputProps) {
   return (
     <div data-slot="search-input" className="relative flex w-full items-center">
-      <Icon name="search" aria-hidden className="pointer-events-none absolute left-2 size-3.5 text-muted" />
+      <Icon name="search" aria-hidden className="pointer-events-none absolute left-1.5 size-3.5 text-muted" />
       <Input
         type="search"
         value={value}
         onChange={(event) => { onChange(event.target.value); }}
         placeholder={placeholder}
-        className={cn("px-7 [&::-webkit-search-cancel-button]:appearance-none", className)}
+        className={cn("pl-6 pr-6 [&::-webkit-search-cancel-button]:appearance-none", className)}
         {...props}
       />
       {value.length > 0 ? (
@@ -53,7 +53,7 @@ export function SearchInput({ className, value, onChange, placeholder = "Searchâ
           type="button"
           aria-label="Clear search"
           onClick={() => { onChange(""); }}
-          className="absolute right-1.5 grid size-5 place-items-center rounded text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
+          className="absolute right-1 grid size-5 place-items-center rounded text-muted transition-colors hover:bg-surface-secondary hover:text-foreground"
         >
           <Icon name="x" className="size-3" />
         </button>

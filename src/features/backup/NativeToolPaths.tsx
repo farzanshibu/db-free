@@ -51,7 +51,7 @@ export function NativeToolPaths({ value, onChange }: { value: ToolPaths; onChang
     );
   }
   return (
-    <div className="flex flex-col gap-2.5">
+    <div className="flex flex-col gap-2">
       {tools.map((t) => (
         <div key={t.tool} className="flex items-end gap-2">
           <Field
@@ -62,7 +62,7 @@ export function NativeToolPaths({ value, onChange }: { value: ToolPaths; onChang
             mono
             description={t.overridden ? (t.path !== null ? `Using ${t.path}${t.version !== null ? ` (${t.version})` : ""}` : "The saved path has no such program.") : undefined}
           />
-          <Icon name={t.path !== null ? "check" : "alert"} size={14} className={cn("mb-2.5 shrink-0", t.path !== null ? "text-success" : "text-warning")} />
+          <Icon name={t.path !== null ? "check" : "alert"} size={14} className={cn("mb-1.5 shrink-0", t.path !== null ? "text-success" : "text-warning")} />
           <IconButton
             icon="folder"
             label={`Choose the folder holding ${t.tool}`}

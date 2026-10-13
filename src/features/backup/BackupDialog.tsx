@@ -15,6 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 type Mode = "backup" | "restore";
 type Content = "all" | "schema" | "data";
@@ -97,7 +98,7 @@ export function BackupDialog() {
     // A run in flight must be stopped with Cancel, not abandoned by Escape:
     // the tool would keep writing with nobody watching.
     <Dialog open onOpenChange={(open) => { if (!open && !running) close(); }}>
-      <DialogContent className="sm:max-w-[760px]" showCloseButton={!running}>
+      <DialogContent className="sm:max-w-[700px]" showCloseButton={!running}>
         <BackupBody key={connection.id} connection={connection} running={running} setRunning={setRunning} />
       </DialogContent>
     </Dialog>
@@ -229,14 +230,14 @@ function BackupBody({ connection, running, setRunning }: { connection: Connectio
     <>
       <DialogHeader>
         <DialogTitle className="flex items-center gap-2">
-          <EngineIcon engine={connection.engine} size={18} />
+          <EngineIcon engine={connection.engine} size={16} />
           Backup / Restore — {connection.name}
         </DialogTitle>
         <DialogDescription>
           {engineMeta(connection.engine).label} · {method !== null ? METHOD_LABEL[method] : "no native backup"}
         </DialogDescription>
       </DialogHeader>
-      <DialogBody className="flex flex-col gap-3.5">
+      <DialogBody className="flex flex-col gap-2.5">
         {loadError !== null ? (
           <Alert variant="danger">
             <AlertIndicator />
@@ -363,7 +364,7 @@ function BackupBody({ connection, running, setRunning }: { connection: Connectio
 function ToolList({ tools, onSettings }: { tools: NativeToolStatus[]; onSettings: () => void }) {
   const anyMissing = tools.some((t) => t.path === null);
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-surface/60 px-3 py-2.5">
+    <div className="flex flex-col gap-1.5 rounded-lg border border-border/60 bg-surface/60 px-2.5 py-1.5">
       {tools.map((t) => (
         <div key={t.tool} className="flex min-w-0 items-center gap-2 text-xs">
           <Icon name={t.path !== null ? "check" : "alert"} size={13} className={cn("shrink-0", t.path !== null ? "text-success" : "text-warning")} />
@@ -436,7 +437,7 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
 
   if (method === "pg_dump") {
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         {mode === "backup" ? (
           <AppSelect<BackupFormat>
             label="Format"
@@ -453,7 +454,7 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
         )}
         {mode === "backup" ? <p className="-mt-1.5 text-xs text-muted">{FORMAT_META[options.format].hint}</p> : null}
         {contentPicker}
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <Field label="Schemas" optional value={schemasText} onChange={setSchemasText} placeholder="public, sales" mono disabled={disabled} />
           <Field label="Tables" optional value={tablesText} onChange={setTablesText} placeholder="public.orders, public.items" mono disabled={disabled} />
         </div>
@@ -473,7 +474,7 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
       return <p className="text-xs text-muted">The SQL file is streamed into the mysql client against this connection&apos;s database.</p>;
     }
     return (
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-2">
         {contentPicker}
         <Field label="Tables" optional value={tablesText} onChange={setTablesText} placeholder="orders, items" mono disabled={disabled} description="Needs a database on the connection; empty dumps every table." />
         <div className="grid grid-cols-2 gap-2">
@@ -487,7 +488,7 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
 
   // mongodump
   return mode === "backup" ? (
-    <div className="flex flex-col gap-3">
+    <div className="flex flex-col gap-2">
       <Field label="Collection" optional value={tablesText} onChange={setTablesText} placeholder="users" mono disabled={disabled} description="One collection, or empty for the whole database." />
       <Toggle checked={options.gzip} onChange={(gzip) => patch({ gzip })} label="Gzip the archive" />
     </div>
@@ -544,13 +545,15 @@ function RunPane({
           </AlertContent>
         </Alert>
       ) : null}
-      <div className="h-48 overflow-auto rounded-lg border border-border/60 bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-relaxed text-muted" aria-label="Backup log" role="log">
-        {log.map((line, i) => (
-          <div key={i} className={cn("whitespace-pre-wrap break-all", line.startsWith("$ ") ? "text-foreground" : "")}>
-            {line}
-          </div>
-        ))}
-        <div ref={logEnd} />
+      <div className="overflow-hidden rounded-lg border border-border/60 bg-background/70">
+        <ScrollArea className="h-40 px-2 py-1.5 font-mono text-[11px] leading-relaxed text-muted" aria-label="Backup log" role="log">
+          {log.map((line, i) => (
+            <div key={i} className={cn("whitespace-pre-wrap break-all", line.startsWith("$ ") ? "text-foreground" : "")}>
+              {line}
+            </div>
+          ))}
+          <div ref={logEnd} />
+        </ScrollArea>
       </div>
       {report !== null && !report.cancelled ? <p className="truncate font-mono text-[11px] text-muted" title={report.path}>{report.path}</p> : null}
     </div>

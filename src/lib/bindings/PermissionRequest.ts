@@ -16,4 +16,9 @@ statement: string | null,
 /**
  * Per-statement previews from the classifier, already annotated with why they are destructive.
  */
-statements: Array<string>, intent: StatementIntent, reason: string, };
+statements: Array<string>, intent: StatementIntent, reason: string, 
+/**
+ * Label for the approve button when "Run once" would be wrong ("Create
+ * dashboard"). None keeps the statement wording.
+ */
+actionLabel: string | null, };

@@ -2,10 +2,10 @@
 
 use crate::error::{AppError, AppResult};
 use crate::guard;
-use crate::model::{UpdateProgress, UpdateStatus};
+use crate::model::{AppInfo, UpdateProgress, UpdateStatus};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_updater::UpdaterExt;
 
 /// Event the UI listens on while an update downloads.
@@ -124,6 +124,28 @@ pub async fn install_update(app: AppHandle, staged: State<'_, StagedUpdate>) -> 
         // Restarting is what makes the installed binary the running one, so it
         // belongs here rather than in something the UI must remember to call.
         app.restart();
+    })
+    .await
+}
+
+// WHAT:  The build's identity and where this install keeps its files.
+// WHY:   The About dialog and bug reports need the version, platform and log
+//        location without anyone opening a terminal.
+// WHERE: src/features/shell/AboutDialog.tsx
+#[tauri::command]
+pub async fn app_info(app: AppHandle) -> AppResult<AppInfo> {
+    guard::local("app_info", async move {
+        let package = app.package_info();
+        let path_text = |dir: tauri::Result<std::path::PathBuf>| dir.ok().map(|p| p.to_string_lossy().into_owned());
+        Ok(AppInfo {
+            name: package.name.clone(),
+            version: package.version.to_string(),
+            identifier: app.config().identifier.clone(),
+            os: std::env::consts::OS.to_string(),
+            arch: std::env::consts::ARCH.to_string(),
+            log_dir: path_text(app.path().app_log_dir()),
+            data_dir: path_text(app.path().app_data_dir()),
+        })
     })
     .await
 }

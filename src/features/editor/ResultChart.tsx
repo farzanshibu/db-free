@@ -5,6 +5,7 @@ import { normalizeError } from "@/lib/ipc";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { BarChart, LineChart, PieChart, SERIES_COLORS, isNumericColumn, mapChartData, type ChartMapping } from "@/features/dashboards/charts";
+import { LAYOUT_VERSION, loadLayout, slotForNew } from "@/features/dashboards/layout";
 import { newWidget, widgetSql } from "@/features/dashboards/widgetSql";
 import { AppSelect, Check, Field, Toggle } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
@@ -27,6 +28,9 @@ const NEW_DASHBOARD = "new";
 /// Past these a bar chart drops its axis labels and a pie turns to slivers.
 const BAR_LABEL_LIMIT = 60;
 const PIE_SLICE_LIMIT = 8;
+/// A chart tile's size on the dashboard grid: half the width, five 60 px rows.
+const CHART_W = 6;
+const CHART_H = 5;
 
 // WHAT:  The results pane's chart view: pick a chart type, the X column, one
 //        or more numeric Y columns and an optional series column, then keep
@@ -83,7 +87,7 @@ export function ResultChart({ connectionId, sql, result }: { connectionId: strin
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-9 shrink-0 items-center gap-1.5 border-b border-border/40 px-2 text-xs">
+      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/40 px-2 text-xs">
         <AppSelect ariaLabel="Chart type" value={kind} options={KINDS} onChange={setKind} size="sm" className="w-24 shrink-0" />
         <span className="text-muted">X</span>
         <AppSelect ariaLabel="X column" value={String(mapping.x)} options={names.map((name, i) => ({ value: String(i), label: name }))} onChange={setX} size="sm" className="w-36 shrink-0" />
@@ -105,7 +109,7 @@ export function ResultChart({ connectionId, sql, result }: { connectionId: strin
                 ))}
               </ul>
             </ScrollArea>
-            <p className="mt-2 border-t border-border/40 pt-2 text-[11px] text-muted">Numeric columns only, up to {SERIES_COLORS.length}.</p>
+            <p className="mt-2 border-t border-border/40 pt-1.5 text-[11px] text-muted">Numeric columns only, up to {SERIES_COLORS.length}.</p>
           </PopoverContent>
         </Popover>
         {kind !== "pie" && groupOptions.length > 1 ? (
@@ -119,8 +123,8 @@ export function ResultChart({ connectionId, sql, result }: { connectionId: strin
           <AddToDashboard connectionId={connectionId} sql={sql} result={result} mapping={kind === "pie" ? { ...mapping, group: null } : mapping} kind={kind} horizontal={horizontal} xLabel={xName} yLabel={yName} disabled={mapping.ys.length === 0} />
         </span>
       </ScrollArea>
-      {hint !== null ? <p className="shrink-0 px-3 pt-1.5 text-[11px] text-muted">{hint}</p> : null}
-      <div className="min-h-0 flex-1 p-3">
+      {hint !== null ? <p className="shrink-0 px-2.5 pt-1 text-[11px] text-muted">{hint}</p> : null}
+      <div className="min-h-0 flex-1 p-2.5">
         {mapping.ys.length === 0 ? (
           <EmptyState icon="chart" title="Pick a Y column" body="Choose one or more numeric columns to plot." />
         ) : kind === "pie" ? (
@@ -187,12 +191,19 @@ function AddToDashboard({ connectionId, sql, result, mapping, kind, horizontal, 
   const connectionName = (id: string | null) => connections.find((c) => c.id === id)?.name ?? "another connection";
 
   const save = async () => {
+    // A dashboard saved before the 12-column grid is converted first (as opening it
+    // would), so the new tile is placed in the same grid as the ones it joins.
+    const existing = chosen?.body.kind === "dashboard" ? chosen.body.data : null;
+    const placed = existing === null ? [] : loadLayout(existing.widgets, existing.layoutVersion);
+    const spot = slotForNew(placed, CHART_W, CHART_H);
     const widget = newWidget({
       title: title.trim(),
       kind,
       sql: widgetSql(engine, sql, result.columns.map((c) => c.name), result.rows, mapping),
-      w: 6,
-      h: 3,
+      x: spot.x,
+      y: spot.y,
+      w: CHART_W,
+      h: CHART_H,
       horizontal: kind === "bar" && horizontal,
       xLabel,
       yLabel,
@@ -201,9 +212,9 @@ function AddToDashboard({ connectionId, sql, result, mapping, kind, horizontal, 
       ? {
           ...chosen,
           connectionId: chosen.connectionId ?? connectionId,
-          body: { kind: "dashboard", data: chosen.body.kind === "dashboard" ? { ...chosen.body.data, widgets: [...chosen.body.data.widgets, widget] } : { widgets: [widget], variables: [], refreshSeconds: 0 } },
+          body: { kind: "dashboard", data: existing === null ? { widgets: [widget], variables: [], refreshSeconds: 0, layoutVersion: LAYOUT_VERSION } : { ...existing, widgets: [...placed, widget], layoutVersion: LAYOUT_VERSION } },
         }
-      : { id: "", kind: "dashboard", connectionId, name: dashboardName.trim().length > 0 ? dashboardName.trim() : "Dashboard", body: { kind: "dashboard", data: { widgets: [widget], variables: [], refreshSeconds: 0 } }, tags: [], createdAt: "", updatedAt: "" };
+      : { id: "", kind: "dashboard", connectionId, name: dashboardName.trim().length > 0 ? dashboardName.trim() : "Dashboard", body: { kind: "dashboard", data: { widgets: [widget], variables: [], refreshSeconds: 0, layoutVersion: LAYOUT_VERSION } }, tags: [], createdAt: "", updatedAt: "" };
     setSaving(true);
     try {
       const saved = await saveDocument(doc);
@@ -233,7 +244,7 @@ function AddToDashboard({ connectionId, sql, result, mapping, kind, horizontal, 
         <DialogHeader>
           <DialogTitle>Add chart to a dashboard</DialogTitle>
         </DialogHeader>
-        <DialogBody className="flex flex-col gap-3">
+        <DialogBody className="flex flex-col gap-2">
           <AppSelect label="Dashboard" value={target} options={[{ value: NEW_DASHBOARD, label: "New dashboard" }, ...dashboards.map((d) => ({ value: d.id, label: d.name }))]} onChange={setTarget} />
           {chosen ? null : <Field label="Dashboard name" value={dashboardName} onChange={setDashboardName} />}
           <Field label="Widget title" value={title} onChange={setTitle} placeholder="e.g. Revenue by month" optional />

@@ -156,6 +156,7 @@ fn where_clause(filters: &[FilterRule]) -> String {
                 FilterOp::Lt => format!("{col} < {}", literal(&f.column, v)),
                 FilterOp::Lte => format!("{col} <= {}", literal(&f.column, v)),
                 FilterOp::Contains => format!("string::contains(<string> {col}, {})", quote_str(v)),
+                FilterOp::NotContains => format!("!string::contains(<string> {col}, {})", quote_str(v)),
                 FilterOp::StartsWith => format!("string::starts_with(<string> {col}, {})", quote_str(v)),
                 FilterOp::EndsWith => format!("string::ends_with(<string> {col}, {})", quote_str(v)),
                 FilterOp::In => {
@@ -1253,8 +1254,11 @@ mod tests {
                 folder: None,
                 color: None,
                 favorite: false,
+                auth: Default::default(),
+                has_auth_secrets: Default::default(),
                 created_at: String::new(),
                 updated_at: String::new(),
+                extra: Default::default(),
             },
             secret: std::env::var("DBFREE_TEST_SURREALDB_PASSWORD").ok(),
         };

@@ -142,8 +142,8 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
       }
     >
       <div className="flex h-full min-h-0">
-        <aside className="flex w-[380px] shrink-0 flex-col border-r border-border/40">
-          <div className="flex items-end gap-2 p-3">
+        <aside className="flex w-[340px] shrink-0 flex-col border-r border-border/40">
+          <div className="flex items-end gap-2 p-2.5">
             <div className="min-w-0 flex-1">
               <AppSelect label="Collection" value={current} options={options} onChange={setCollection} />
             </div>
@@ -151,10 +151,10 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
               <NumberInput label="Batch" integer value={batch} onChange={setBatch} />
             </div>
           </div>
-          <ScrollArea className="min-h-0 flex-1 px-3">
-            <ol className="flex flex-col gap-2 pb-2">
+          <ScrollArea className="min-h-0 flex-1 px-2.5">
+            <ol className="flex flex-col gap-2 pb-1.5">
               {stages.map((stage, i) => (
-                <li key={stage.id} className={cn("rounded-xl glass-card border-border/40 p-2", stage.enabled ? "" : "opacity-50")}>
+                <li key={stage.id} className={cn("rounded-lg glass-card border-border/40 p-2", stage.enabled ? "" : "opacity-50")}>
                   <div className="mb-1.5 flex items-center gap-1">
                     <Badge size="sm" variant="soft" className="h-5 min-w-5 px-1 font-mono text-[10px]">
                       {i + 1}
@@ -169,12 +169,12 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
                       <IconButton icon="trash" label="Remove stage" onClick={() => setStages((s) => s.filter((st) => st.id !== stage.id))} size={12} className="size-6 min-w-6" />
                     </span>
                   </div>
-                  <Textarea aria-label={`${stage.op} body`} value={stage.body} onChange={(e) => update(stage.id, { body: e.target.value })} spellCheck={false} className={cn("min-h-16 font-mono text-[12px]", parseJson(stage.body) === undefined ? "border-danger" : "")} />
+                  <Textarea aria-label={`${stage.op} body`} value={stage.body} onChange={(e) => update(stage.id, { body: e.target.value })} spellCheck={false} className={cn("min-h-14 font-mono text-xs", parseJson(stage.body) === undefined ? "border-danger" : "")} />
                 </li>
               ))}
             </ol>
           </ScrollArea>
-          <div className="flex items-center gap-2 border-t border-border/40 p-3">
+          <div className="flex items-center gap-2 border-t border-border/40 p-2.5">
             <div className="w-40">
               <AppSelect ariaLabel="Add stage" size="sm" value="$match" options={OPERATORS.map((o) => ({ value: o.value, label: `+ ${o.label}` }))} onChange={(op) => setStages((s) => [...s, newStage(op)])} />
             </div>
@@ -183,7 +183,7 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
               Run
             </Button>
           </div>
-          {error !== null ? <p className="px-3 pb-2 text-xs text-danger">{error}</p> : null}
+          {error !== null ? <p className="px-2.5 pb-1.5 text-xs text-danger">{error}</p> : null}
         </aside>
         <div className="min-h-0 min-w-0 flex-1">
           {result === null ? (
