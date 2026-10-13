@@ -40,6 +40,20 @@ export function ScrollArea({ className, orientation = "vertical", hideScrollBar 
   const viewport = useRef<HTMLDivElement | null>(null);
   const [edges, setEdges] = useState<{ y: Axis; x: Axis }>({ y: NONE, x: NONE });
 
+  // WHAT:  One element, two owners: this component measures it and a caller
+  //        (the data grid's virtualizer, the tab strip) may hold it too.
+  // WHY:   React 19 passes `ref` as a prop, so spreading the caller's props
+  //        after `ref={viewport}` silently replaced the internal ref, and the
+  //        edge fade never measured on any ScrollArea that was given one.
+  const setRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      viewport.current = node;
+      if (typeof ref === "function") ref(node);
+      else if (ref) ref.current = node;
+    },
+    [ref],
+  );
+
   const measure = useCallback(() => {
     const node = viewport.current;
     if (!node) return;
@@ -56,15 +70,6 @@ export function ScrollArea({ className, orientation = "vertical", hideScrollBar 
     );
   }, [orientation]);
 
-  const attach = useCallback(
-    (node: HTMLDivElement | null) => {
-      viewport.current = node;
-      if (typeof ref === "function") ref(node);
-      else if (ref) ref.current = node;
-    },
-    [ref],
-  );
-
   useEffect(() => {
     const node = viewport.current;
     if (!node) return;
@@ -76,6 +81,28 @@ export function ScrollArea({ className, orientation = "vertical", hideScrollBar 
     for (const child of node.children) observer.observe(child);
     return () => { observer.disconnect(); };
   }, [measure, children]);
+
+  // WHAT:  A plain mouse wheel scrolls a horizontal strip sideways.
+  // WHY:   Wheels report deltaY. Without this a tab strip or toolbar that has
+  //        overflowed can only be scrolled with a trackpad or shift+wheel, and
+  //        the wheel either does nothing or scrolls the page behind it.
+  // HOW:   Only when the strip itself has no vertical travel (the data grid is
+  //        horizontal *and* vertical and keeps its native wheel), and only for
+  //        a wheel with no sideways component of its own. Non-passive so the
+  //        page behind does not scroll as well.
+  useEffect(() => {
+    const node = viewport.current;
+    if (!node || orientation !== "horizontal") return;
+    const onWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0 || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      if (node.scrollHeight > node.clientHeight + EPSILON) return;
+      if (node.scrollWidth <= node.clientWidth + EPSILON) return;
+      event.preventDefault();
+      node.scrollLeft += event.deltaMode === 1 ? event.deltaY * 16 : event.deltaY;
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    return () => { node.removeEventListener("wheel", onWheel); };
+  }, [orientation]);
 
   const masks = [
     orientation === "horizontal" ? null : maskImage("to bottom", edges.y),
@@ -95,18 +122,22 @@ export function ScrollArea({ className, orientation = "vertical", hideScrollBar 
 
   return (
     <div
-      ref={attach}
+      {...props}
+      ref={setRef}
       onScroll={(event) => { measure(); onScroll?.(event); }}
       data-slot="scroll-area"
       data-orientation={orientation}
       className={cn(
         "min-h-0 [scrollbar-color:var(--scrollbar-thumb)_var(--scrollbar-track)] [scrollbar-width:thin]",
-        orientation === "vertical" ? "overflow-y-auto overflow-x-hidden" : orientation === "horizontal" ? "overflow-x-auto overflow-y-hidden" : "overflow-auto",
+        // `overflow-x: auto` alone computes `overflow-y` to auto as well, so a
+        // horizontal strip whose children overhang by a pixel (a tab's
+        // underline, a focus ring) grew a vertical scroll. Pin the cross axis;
+        // a caller that scrolls both ways (the data grid) overrides it.
+        orientation === "vertical" ? "overflow-x-hidden overflow-y-auto" : orientation === "horizontal" ? "overflow-x-auto overflow-y-hidden" : "overflow-auto",
         hideScrollBar ? "[-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" : "",
         className,
       )}
       style={merged}
-      {...props}
     >
       {children}
     </div>

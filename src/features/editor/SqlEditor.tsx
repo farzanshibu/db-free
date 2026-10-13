@@ -11,17 +11,19 @@ import {
   gutter,
   GutterMarker,
   Decoration,
+  placeholder as placeholderExt,
   type DecorationSet,
   type KeyBinding as CmKeyBinding,
 } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { closeBrackets, closeBracketsKeymap, snippet } from "@codemirror/autocomplete";
 import type { Completion } from "@codemirror/autocomplete";
-import { HighlightStyle, syntaxHighlighting, bracketMatching } from "@codemirror/language";
+import { HighlightStyle, StreamLanguage, syntaxHighlighting, bracketMatching, type StreamParser } from "@codemirror/language";
 import { sql, MSSQL, MySQL, MariaSQL, PostgreSQL, SQLite, StandardSQL, type SQLDialect, type SQLNamespace } from "@codemirror/lang-sql";
 import { tags } from "@lezer/highlight";
 import type { Engine, RunScope, Snippet, StatementSpan } from "@/lib/bindings";
 import { ENGINE_FACTS } from "@/lib/bindings/EngineFacts.gen";
+import { queryLanguageOf, type QueryLanguage } from "@/lib/queryLanguage";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Icon } from "@/lib/icons";
 import type { IconName } from "@/lib/icons";
@@ -225,6 +227,7 @@ const THEME_SPEC: Parameters<typeof EditorView.theme>[0] = {
   },
   ".cm-panels": { backgroundColor: "var(--color-surface-elevated)", color: "var(--foreground)" },
   ".cm-tooltip": { backgroundColor: "var(--color-surface-elevated)", border: "1px solid var(--border)", color: "var(--foreground)", borderRadius: "4px" },
+  ".cm-placeholder": { color: "var(--color-muted)", opacity: "0.55", fontStyle: "normal" },
   ".cm-run-gutter": { minWidth: "16px", cursor: "pointer" },
   ".cm-run-marker": { display: "block", lineHeight: "inherit", textAlign: "center", fontSize: "9px", color: "var(--color-muted)", opacity: "0.35" },
   ".cm-run-gutter:hover .cm-run-marker": { opacity: "0.85" },
@@ -257,14 +260,78 @@ function editorTheme(theme: ResolvedTheme): Extension {
 const highlight = HighlightStyle.define([
   { tag: tags.keyword, color: "var(--color-syntax-keyword)", fontWeight: "600" },
   { tag: [tags.string, tags.special(tags.string)], color: "var(--color-syntax-string)" },
-  { tag: [tags.number, tags.bool, tags.null], color: "var(--color-syntax-number)" },
+  { tag: [tags.number, tags.bool, tags.null, tags.atom], color: "var(--color-syntax-number)" },
   { tag: [tags.comment, tags.lineComment, tags.blockComment], color: "var(--color-syntax-comment)", fontStyle: "italic" },
   { tag: [tags.operator, tags.punctuation], color: "var(--color-syntax-operator)" },
-  { tag: [tags.typeName, tags.className, tags.standard(tags.name)], color: "var(--color-syntax-type)" },
+  { tag: [tags.typeName, tags.className, tags.standard(tags.name), tags.variableName], color: "var(--color-syntax-type)" },
 ]);
 
-function sqlConfig(engine: Engine, schema: SQLNamespace, defaultSchema: string | undefined) {
-  return sql(defaultSchema === undefined ? { dialect: dialectFor(engine), schema } : { dialect: dialectFor(engine), schema, defaultSchema });
+// WHAT:  The highlighter for the connection's own language. SQL engines get
+//        lang-sql with their dialect; everything else gets a small stream
+//        tokenizer that knows its comment marker, strings, numbers and the
+//        console's own verbs, so `HGETALL`, `$match` or `MATCH (n)` read as
+//        keywords instead of plain text.
+// WHERE: src/lib/queryLanguage.ts (per-family vocabulary)
+function languageConfig(engine: Engine, schema: SQLNamespace, defaultSchema: string | undefined): Extension {
+  const language = queryLanguageOf(engine);
+  if (language.syntax === "sql") {
+    return sql(defaultSchema === undefined ? { dialect: dialectFor(engine), schema } : { dialect: dialectFor(engine), schema, defaultSchema });
+  }
+  return StreamLanguage.define(nativeTokenizer(language));
+}
+
+interface NativeState {
+  /// Inside an XQuery `(: … :)` comment that spans lines.
+  comment: boolean;
+}
+
+function nativeTokenizer(language: QueryLanguage): StreamParser<NativeState> {
+  const words = new Set(language.keywords.map((k) => k.toLowerCase()));
+  const xquery = language.comment === "(:";
+  return {
+    name: language.name,
+    startState: () => ({ comment: false }),
+    token(stream, state) {
+      if (state.comment) {
+        if (stream.skipTo(":)")) {
+          stream.match(":)");
+          state.comment = false;
+        } else stream.skipToEnd();
+        return "comment";
+      }
+      if (stream.eatSpace()) return null;
+      if (xquery && stream.match("(:")) {
+        state.comment = true;
+        return "comment";
+      }
+      // Comments start a line (after indentation): `#` mid-line is part of a
+      // key (`user#1`) and `//` part of a path or URL.
+      if (!xquery && stream.column() === stream.indentation() && stream.match(language.comment)) {
+        stream.skipToEnd();
+        return "comment";
+      }
+      const ch = stream.peek() ?? "";
+      if (ch === '"' || ch === "'" || ch === "`") {
+        stream.next();
+        let escaped = false;
+        for (let next = stream.next(); next !== undefined; next = stream.next()) {
+          if (next === ch && !escaped) break;
+          escaped = !escaped && next === "\\";
+        }
+        return "string";
+      }
+      if (stream.match(/^-?\d+(\.\d+)?([eE][+-]?\d+)?/)) return "number";
+      if (stream.match(/^[$?]?[A-Za-z_][\w.:$-]*/)) {
+        const word = stream.current().toLowerCase();
+        if (word === "true" || word === "false" || word === "null") return "atom";
+        if (words.has(word)) return "keyword";
+        return word.startsWith("$") || word.startsWith("?") ? "variableName" : null;
+      }
+      if (stream.match(/^[{}[\](),:;|=<>!+*/%.-]/)) return "operator";
+      stream.next();
+      return null;
+    },
+  };
 }
 
 function dialectFor(engine: Engine): SQLDialect {
@@ -589,6 +656,10 @@ export function SqlEditor({
   const snippets = useMemo(() => snippetsFor(snippetLanguageOf(engine), userSnippets), [engine, userSnippets]);
   const snippetsRef = useRef(snippets);
   const defaultSchemaRef = useRef(defaultSchema);
+  // The connection's own language: the highlighter's vocabulary and the example an
+  // empty tab shows. Follows the engine if the tab is pointed at another connection.
+  const nativeLanguage = queryLanguageOf(engine);
+  const placeholderCompartment = useRef(new Compartment());
   const suppressCompletionRef = useRef(false);
   const mentionTimer = useRef<number | null>(null);
   const lastMentioned = useRef("");
@@ -882,7 +953,8 @@ export function SqlEditor({
           ...historyKeymap,
           indentWithTab,
         ]),
-        langCompartment.current.of(sqlConfig(engine, schema, defaultSchema)),
+        langCompartment.current.of(languageConfig(engine, schema, defaultSchema)),
+        placeholderCompartment.current.of(placeholderExt(nativeLanguage.example)),
         syntaxHighlighting(highlight),
         themeCompartment.current.of(editorTheme(appThemeRef.current)),
         EditorView.updateListener.of((update) => {
@@ -920,7 +992,12 @@ export function SqlEditor({
   useEffect(() => {
     const view = viewRef.current;
     if (!view) return;
-    view.dispatch({ effects: langCompartment.current.reconfigure(sqlConfig(engine, schema, defaultSchema)) });
+    view.dispatch({
+      effects: [
+        langCompartment.current.reconfigure(languageConfig(engine, schema, defaultSchema)),
+        placeholderCompartment.current.reconfigure(placeholderExt(queryLanguageOf(engine).example)),
+      ],
+    });
   }, [engine, schema, defaultSchema]);
 
   // Settings → Themes (or the OS, on "system") reaches an open editor too.

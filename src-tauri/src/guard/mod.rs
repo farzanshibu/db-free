@@ -9,6 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 pub mod destructive;
+pub mod dialect;
 pub mod language;
 pub mod statement_info;
 

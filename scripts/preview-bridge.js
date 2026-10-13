@@ -39,6 +39,8 @@
     conn("c1", "Local Postgres", "postgres", "local", "localhost", 5432, "app_dev"),
     conn("c2", "Staging MySQL", "mysql", "staging", "db.staging.internal", 3306, "shop"),
     conn("c3", "Prod Postgres", "postgres", "production", "db.prod.internal", 5432, "shop"),
+    conn("c4", "Cache Redis", "redis", "local", "localhost", 6379, "0"),
+    conn("c5", "Events MongoDB", "mongodb", "staging", "mongo.staging.internal", 27017, "events"),
   ];
 
   function tbl(name, rows, kind) {

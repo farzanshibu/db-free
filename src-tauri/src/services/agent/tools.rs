@@ -1,7 +1,8 @@
 // SOT: agent-tools, tool-registry, progressive-schema-disclosure, agent-artifact-tools, tool-permission-gate
 
 use crate::error::{AppError, AppResult};
-use crate::guard::destructive::{StatementKind, classify};
+use crate::guard::destructive::StatementKind;
+use crate::guard::dialect;
 use crate::guard::{self, SessionCtx};
 use crate::integrations;
 use crate::model::{
@@ -841,7 +842,7 @@ async fn explain_query(ctx: &ToolCtx<'_>, args: &Json) -> AppResult<ToolRun> {
     let statement = arg_str(args, "statement")?;
     // EXPLAIN is wrapped around the text and sent as-is, so it must be one plain
     // read: a second statement after a `;` would run, not be explained.
-    let parts = classify(statement);
+    let parts = dialect::classify(ctx.session.connection.engine, statement);
     if parts.len() != 1 || parts.iter().any(|part| part.kind != StatementKind::Read) {
         return Err(AppError::invalid_input(
             "explain_query takes exactly one read statement (SELECT, WITH…). Use run_query for anything else."
@@ -1202,7 +1203,7 @@ async fn authorize_and_execute(
     gate: &mut dyn PermissionGate,
     max_rows: usize,
 ) -> AppResult<QueryOutcome> {
-    let classified = classify(statement);
+    let classified = dialect::classify(ctx.session.connection.engine, statement);
     let worst = classified
         .iter()
         .map(|s| s.kind)

@@ -1,6 +1,7 @@
 // SOT: statement-language, language-aware-classification, redis-statement-classes, mongo-statement-classes
 
-use super::destructive::{classify, ClassifiedStatement, StatementKind};
+use super::destructive::{ClassifiedStatement, StatementKind};
+use super::dialect;
 use crate::integrations::mongo_shell::{self, Shell};
 use crate::integrations::redis as redis_adapter;
 use crate::integrations::shell_meta::{self, Segment};
@@ -27,8 +28,8 @@ use serde_json::Value as Json;
 //        would not parse. The adapters still refuse writes on a read-only
 //        connection themselves; this step makes the block's answer correct, it
 //        does not replace theirs.
-//        Other command languages (Cypher, AQL, Query DSL…) keep the SQL
-//        classifier until they get a classifier of their own here.
+//        Every other command language (Cypher, AQL, Query DSL, REST console…)
+//        is classified by `guard::dialect`, which owns its splitter and verbs.
 //        The structure commands of an engine's own shell (`\dt`, `.tables`,
 //        `DESC emp`, `:schema`, `help`) are reads in every language: they are
 //        turned into catalog queries by `integrations::shell_meta`, which never
@@ -70,13 +71,13 @@ pub fn classify_for(engine: Engine, script: &str) -> Vec<ClassifiedStatement> {
 fn classify_sql(engine: Engine, script: &str) -> Vec<ClassifiedStatement> {
     let segments = shell_meta::segments(engine, script);
     if !segments.iter().any(|segment| matches!(segment, Segment::Meta(_))) {
-        return classify(script);
+        return dialect::classify(engine, script);
     }
     segments
         .iter()
         .flat_map(|segment| match segment {
             Segment::Meta(text) => vec![statement(text, StatementKind::Read, None)],
-            Segment::Native(text) => classify(text),
+            Segment::Native(text) => dialect::classify(engine, text),
         })
         .collect()
 }
@@ -222,6 +223,7 @@ fn is_empty_filter(filter: Option<&Json>) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use super::super::destructive::classify;
     use super::*;
 
     fn kinds(engine: Engine, script: &str) -> Vec<StatementKind> {
@@ -366,7 +368,7 @@ mod tests {
         assert_eq!(kinds(Engine::Oracle, "SHOW USER\nDROP TABLE t"), vec![Read, Destructive]);
         assert_eq!(kinds(Engine::Oracle, "DESC emp;"), vec![Read]);
         assert_eq!(kinds(Engine::Cassandra, "DESCRIBE KEYSPACES\nTRUNCATE t"), vec![Read, Destructive]);
-        assert_eq!(kinds(Engine::Neo4j, ":schema\nMATCH (n) DETACH DELETE n"), vec![Read, Write]);
+        assert_eq!(kinds(Engine::Neo4j, ":schema\nMATCH (n) DETACH DELETE n"), vec![Read, Destructive]);
         assert_eq!(redis("help\nGET a\nSET a 1"), vec![Read, Read, Write]);
         assert_eq!(redis("help INFO"), vec![Read]);
         assert_eq!(mongo("help"), vec![Read]);

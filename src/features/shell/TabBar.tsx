@@ -1,5 +1,5 @@
 // SOT: tab-bar, workspace-tabs, window-drag-region, tab-drag-reorder, tab-context-menu, preview-tab-style, pane-tab-strip
-import { useMemo, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { usePendingCount, useWorkspace, type Tab } from "@/stores/workspace";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
 import { Icon, type IconName } from "@/lib/icons";
@@ -44,10 +44,20 @@ export function TabBar({ paneId }: { paneId: string }) {
   const canReopen = useWorkspace((s) => s.closedTabs.length > 0);
   const dropBefore = usePaneDrag((s) => (s.target?.type === "strip" && s.target.paneId === paneId ? s.target.beforeId : undefined));
   const menu = useContextMenu();
+  const stripRef = useRef<HTMLDivElement | null>(null);
 
   const mine = useMemo(() => tabsInPane(panes, tabs, paneId), [panes, tabs, paneId]);
   const activeId = panes.active[paneId] ?? null;
   const activeTab = mine.find((t) => t.id === activeId) ?? null;
+
+  // WHAT:  Keeps the active tab on screen. A tab opened (or switched to with
+  //        Ctrl+Tab) past the strip's right edge is otherwise invisible.
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (strip === null || activeId === null) return;
+    const el = strip.querySelector(`[data-tab-id="${CSS.escape(activeId)}"]`);
+    el?.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }, [activeId, mine.length]);
   // The "+" belongs to the pane: it opens a query on the connection of the pane's
   // own tab, which is not always the window's active connection.
   const connectionId = activeTab?.connectionId ?? activeConnectionId;
@@ -99,7 +109,7 @@ export function TabBar({ paneId }: { paneId: string }) {
       role="tablist"
       aria-label="Open tabs"
     >
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-full items-end gap-0.5 pt-1">
+      <ScrollArea ref={stripRef} orientation="horizontal" hideScrollBar className="flex h-full min-w-0 shrink items-end gap-0.5 pt-1">
         {mine.map((tab, index) => (
           <TabItem
             key={tab.id}
