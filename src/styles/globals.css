@@ -1003,8 +1003,23 @@
   }
 }
 
+/* WHAT:  A strip that moves the window, with its controls carved out.
+   WHY:   wry turns on WebView2's non-client region support, so on Windows
+          `-webkit-app-region: drag` is a real caption area: right-click opens the
+          system menu (Restore / Move / Size / Close) instead of the page's own
+          context menu, and the mouse wheel never reaches the page — a tab strip
+          could neither show its tab menu nor scroll sideways. A drag region also
+          covers every descendant, so each control has to opt out.
+   HOW:   Interactive descendants (and the scroll container that holds the tabs)
+          are `no-drag`; what is left — padding and the spacer — still drags.
+          Mirrors what Tauri's own drag.js treats as clickable.
+   WHERE: tab bar, sidebar headers, page headers */
 @utility drag-region {
   -webkit-app-region: drag;
+
+  & :is(button, a, input, select, textarea, label, [role="tab"], [role="button"], [data-slot="scroll-area"]) {
+    -webkit-app-region: no-drag;
+  }
 }
 
 @utility glass-dock {
