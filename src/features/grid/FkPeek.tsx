@@ -140,7 +140,7 @@ export function FkPeekCard({ connectionId, target, onClose, onOpenTable, onRemap
   const left = Math.max(8, Math.min(target.x, window.innerWidth - CARD_WIDTH - 8));
   const top = Math.max(8, Math.min(target.y, window.innerHeight - 340));
   return (
-    <div ref={box} role="dialog" aria-label={`${tableLabel(target.link.table)} record`} className="fixed z-40 rounded-xl border border-border/60 bg-surface shadow-xl" style={{ left, top, width: CARD_WIDTH }}>
+    <div ref={box} role="dialog" aria-label={`${tableLabel(target.link.table)} record`} className="fixed z-40 rounded-xl glass-modal" style={{ left, top, width: CARD_WIDTH }}>
       <div className="flex items-center gap-2 border-b border-border/40 px-2.5 py-1.5 text-xs">
         <Icon name="link" size={12} className="shrink-0 text-accent" />
         <span className="truncate font-semibold text-foreground">{tableLabel(target.link.table)}</span>
@@ -195,7 +195,7 @@ export function FkPinnedPanel({ connectionId, target, onClose, onOpenTable, offs
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   };
   return (
-    <div role="dialog" aria-label={`Pinned ${tableLabel(target.link.table)} record`} className={cn("fixed z-30 rounded-xl border border-border/60 bg-surface shadow-xl")} style={{ left: pos.x, top: pos.y, width: CARD_WIDTH }}>
+    <div role="dialog" aria-label={`Pinned ${tableLabel(target.link.table)} record`} className={cn("fixed z-30 rounded-xl glass-modal")} style={{ left: pos.x, top: pos.y, width: CARD_WIDTH }}>
       <div onPointerDown={onDown} onPointerMove={onMove} onPointerUp={onUp} className="flex cursor-grab items-center gap-2 border-b border-border/40 px-2.5 py-1.5 text-xs active:cursor-grabbing">
         <Icon name="link" size={12} className="shrink-0 text-accent" />
         <span className="truncate font-semibold text-foreground">{tableLabel(target.link.table)}</span>
