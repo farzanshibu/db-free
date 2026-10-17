@@ -19,11 +19,13 @@ const SIDEBARS: readonly { mode: SidebarMode; icon: IconName; label: string }[] 
 ];
 
 // On macOS the traffic lights sit inside this rail, so the two share a centre
-// line: the cluster is 52px wide (three 12px buttons 20px apart), and
-// tauri.conf.json insets it by 14px — (80 - 52) / 2 — so it is centred on the
-// 80px rail exactly like the icon column below it. y=16 centres the 12px
-// buttons in the 32px drag strip (--titlebar-h), which matches the header height
-// (tauri.conf.json: trafficLightPosition.y = (32 - 12) / 2 = 10).
+// line. wry only moves the buttons horizontally (origin.x = x + i * spacing);
+// vertically it re-fits the titlebar container to (button height + y) with the
+// top flush to the window, so a button's top offset is `y - 9` — the 9 being
+// the buttons' default bottom padding inside the container. Measured on macOS
+// 27: buttons are 14x14 with 23px origin spacing, so the cluster spans
+// [x, x + 60] and y = (32 - 14) / 2 + 9 = 18 to centre it in the 32px drag
+// strip (--titlebar-h), x = (80 - 60) / 2 = 10 to centre it on the 80px rail.
 const RAIL_WIDTH_MAC = "w-[80px]";
 
 // WHAT:  Left rail: connections home, one entry per sidebar, history/transfer
