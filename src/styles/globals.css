@@ -853,7 +853,8 @@
      `data-density` attribute lands; "cozy" and "comfortable" each step up one
      notch from it. The window drag strip (--titlebar-h) is the same at every
      density because the macOS traffic lights are positioned against it in
-     tauri.conf.json (trafficLightPosition.y = (--titlebar-h - 12px) / 2). */
+     tauri.conf.json (see IconRail.tsx: wry puts a button's top at
+     `trafficLightPosition.y - 9`, so y = (--titlebar-h - 14px) / 2 + 9). */
   :root {
     --titlebar-h: 2rem;
     --toolbar-h: 2rem;
