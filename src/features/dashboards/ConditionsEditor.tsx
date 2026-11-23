@@ -3,6 +3,7 @@ import type { QueryOutcome, Widget, WidgetCondition } from "@/lib/bindings";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { AppSelect, Field } from "@/components/global/Field";
+import { WithTip } from "@/components/global/InfoTip";
 import { Button } from "@/components/ui/button";
 import { CONDITION_OPS, matchedIndex, newCondition, opNeedsValue } from "./conditions";
 import { TileColorPicker } from "./TileColorPicker";
@@ -26,8 +27,12 @@ export function ConditionsEditor({ widget, outcome, onChange }: { widget: Widget
   const contentLabel = isText ? "Content to display" : "URL to display";
   return (
     <div className="flex flex-col gap-2 border-b border-border px-2.5 py-1.5 text-xs">
-      <span className="font-medium text-foreground">Conditions</span>
-      <p className="text-muted">Evaluates the first column of the first row. Last match wins.</p>
+      <WithTip
+        tipLabel="About conditions"
+        tip={isMetric ? "Tests the first column of the first row. The last rule that matches wins." : "Tests the first column of the first row; the last rule that matches wins. Use {{column_name}} or {{a / b * 100}} to insert query values."}
+      >
+        <span className="font-medium text-foreground">Conditions</span>
+      </WithTip>
       {widget.conditions.map((c, i) => {
         const isMatch = i === matched;
         return (
@@ -54,7 +59,6 @@ export function ConditionsEditor({ widget, outcome, onChange }: { widget: Widget
                 value={c.content}
                 onChange={(content) => { patch(i, { content }); }}
                 placeholder={contentLabel}
-                description="Use {{column_name}} or {{a / b * 100}} to insert query values"
                 className="[&_label]:hidden"
                 mono={!isText}
               />

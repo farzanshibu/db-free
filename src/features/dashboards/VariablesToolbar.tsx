@@ -22,16 +22,17 @@ export function VariablesToolbar({ variables, onChange, onEdit }: { variables: r
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button size="sm" variant="ghost" className="text-muted">
+        <Button size="sm" variant="ghost" className="shrink-0 text-muted" aria-label={`Variables${variables.length > 0 ? ` (${variables.length})` : ""}`}>
           <Icon name="braces" size={13} />
-          Variables{variables.length > 0 ? ` (${variables.length})` : ""}
+          <span className="hidden @xl:inline">Variables</span>
+          {variables.length > 0 ? <span className="tabular-nums">{variables.length}</span> : null}
           <Icon name="chevron-down" size={12} className="opacity-60" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="end">
         <ScrollArea className="max-h-80 py-1">
           {variables.length === 0 ? (
-            <p className="px-2.5 py-2.5 text-center text-xs text-muted">No variables yet. Add one to filter tiles with <code className="font-mono">{"{{name}}"}</code>.</p>
+            <p className="px-2.5 py-2.5 text-center text-xs text-muted">No variables yet.</p>
           ) : (
             variables.map((v) => (
               <div key={v.name} className="grid grid-cols-[minmax(0,6.5rem)_1fr] items-center gap-2 px-2.5 py-1">

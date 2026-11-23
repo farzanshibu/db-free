@@ -7,12 +7,13 @@ import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/stores/workspace";
 import { AppSelect } from "@/components/global/Field";
-import { IconButton } from "@/components/global/Button";
-import { Resizer } from "@/components/global/Resizer";
 import { EmptyState } from "@/components/global/EmptyState";
+import { Shortcut } from "@/components/global/Kbd";
+import { SplitLayout } from "@/components/global/Layout";
+import { ToolbarActions } from "@/components/global/Toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { DashboardGrid } from "./DashboardGrid";
 import { DashboardSettings } from "./DashboardSettings";
 import { useDashboardResults } from "./dashboardResults";
@@ -52,15 +53,6 @@ const PANEL_MAX = 750;
 const PANEL_DEFAULT = 360;
 const PANEL_KEY = "db-free:dashboard-panel-width";
 
-function readPanelWidth(): number {
-  try {
-    const saved = localStorage.getItem(PANEL_KEY);
-    return saved ? Math.max(PANEL_MIN, Math.min(PANEL_MAX, Number(saved))) : PANEL_DEFAULT;
-  } catch {
-    return PANEL_DEFAULT;
-  }
-}
-
 /// The body as the editor holds it: positions made valid, in the current grid.
 function bodyOf(doc: Document): DashboardBody {
   if (doc.body.kind !== "dashboard") return { widgets: [], variables: [], refreshSeconds: 0, layoutVersion: LAYOUT_VERSION };
@@ -97,7 +89,6 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [fresh, setFresh] = useState<ReadonlySet<string>>(new Set());
   const [fullscreen, setFullscreen] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(readPanelWidth);
   const setActive = useDashboardResults((s) => s.setActive);
   const clearDrafts = useDashboardResults((s) => s.clearDrafts);
   const setWorking = useDashboardResults((s) => s.setWorking);
@@ -128,18 +119,6 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
   useEffect(() => {
     markActive();
   }, [markActive]);
-
-  const handlePanelResize = useCallback((delta: number) => {
-    setPanelWidth((prev) => {
-      const next = Math.max(PANEL_MIN, Math.min(PANEL_MAX, prev - delta));
-      try {
-        localStorage.setItem(PANEL_KEY, String(next));
-      } catch {
-        // storage unavailable: the width resets next launch
-      }
-      return next;
-    });
-  }, []);
 
   // ---------------------------------------------------------- tiles
   const selected = useMemo(() => body.widgets.find((w) => w.id === selectedId) ?? null, [body.widgets, selectedId]);
@@ -252,56 +231,74 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
   const variables = body.variables;
   const setVariables = (next: DashboardVariable[]) => { patchBody({ variables: next }); };
 
-  return (
-    <div
-      data-dashboard={doc.id}
-      className={cn("flex h-full min-h-0", fullscreen ? "fixed inset-0 z-40 bg-background" : "")}
-      onPointerDownCapture={markActive}
-      onFocusCapture={markActive}
-    >
-      <div className="flex min-w-0 flex-1 flex-col">
-        <ScrollArea orientation="horizontal" hideScrollBar className={cn("flex app-toolbar shrink-0 items-center gap-1 border-b border-border bg-surface whitespace-nowrap", fullscreen ? "pl-24" : "")}>
+  const pickConnection = (
+    <AppSelect
+      ariaLabel="Connection"
+      value={connectionId ?? ""}
+      options={[{ value: "", label: "— connection —" }, ...connections.map((c) => ({ value: c.id, label: c.name }))]}
+      onChange={(v) => {
+        setChosenConnectionId(v.length > 0 ? v : null);
+        setDirty(true);
+      }}
+      size="sm"
+      className="w-32 min-w-0 shrink @2xl:w-44"
+      icon="database"
+    />
+  );
+
+  const surface = (
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <div className={cn("@container flex app-toolbar shrink-0 items-center gap-1 border-b border-border bg-surface whitespace-nowrap", fullscreen ? "pl-24" : "")}>
           <Input
             value={name}
             onChange={(e) => {
               setName(e.target.value);
               setDirty(true);
             }}
-            className="h-6 w-40 shrink-0 rounded-md bg-transparent text-xs text-foreground"
+            className="h-6 w-28 min-w-0 shrink rounded-md bg-transparent text-xs text-foreground @2xl:w-40"
             aria-label="Dashboard name"
           />
-          <AppSelect
-            ariaLabel="Connection"
-            value={connectionId ?? ""}
-            options={[{ value: "", label: "— connection —" }, ...connections.map((c) => ({ value: c.id, label: c.name }))]}
-            onChange={(v) => {
-              setChosenConnectionId(v.length > 0 ? v : null);
-              setDirty(true);
-            }}
-            size="sm"
-            className="w-44 shrink-0"
-            icon="database"
-          />
-          <Button size="sm" variant="ghost" className="text-muted" onClick={refresh} disabled={connectionId === null} title="Refresh (R)">
-            <Icon name="refresh" size={13} className={anyRunning ? "animate-spin" : ""} />
-            Refresh
-          </Button>
-          <AppSelect ariaLabel="Auto refresh" value={String(body.refreshSeconds)} options={REFRESH_CHOICES} onChange={(v) => { patchBody({ refreshSeconds: Number(v) }); }} size="sm" className="w-32 shrink-0" />
+          {pickConnection}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button size="sm" variant="ghost" className="shrink-0 text-muted" onClick={refresh} disabled={connectionId === null} aria-label="Refresh">
+                <Icon name="refresh" size={13} className={anyRunning ? "animate-spin" : ""} />
+                <span className="hidden @3xl:inline">Refresh</span>
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="flex items-center gap-1.5">
+              Refresh
+              <Shortcut action="dashboard-refresh" />
+            </TooltipContent>
+          </Tooltip>
+          <AppSelect ariaLabel="Auto refresh" value={String(body.refreshSeconds)} options={REFRESH_CHOICES} onChange={(v) => { patchBody({ refreshSeconds: Number(v) }); }} size="sm" icon="clock" className="w-28 min-w-0 shrink @2xl:w-32" />
           <VariablesToolbar variables={variables} onChange={setVariables} onEdit={openSettings} />
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
-            <IconButton icon="settings" label="Dashboard settings" active={settingsOpen} onClick={openSettings} />
-            <Button size="sm" variant="ghost" className="text-muted" onClick={() => { addTile(null); }}>
-              <Icon name="plus" size={13} />
-              Tile
-            </Button>
-            <IconButton icon={fullscreen ? "collapse" : "expand"} label={fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen"} onClick={() => { setFullscreen((f) => !f); }} />
-            <Button size="sm" onClick={() => void save()} disabled={!dirty} title="Save (Ctrl or ⌘ + S)">
-              Save{dirty ? " *" : ""}
-            </Button>
+            <ToolbarActions
+              foldBelow="xl"
+              labelsFrom="3xl"
+              menuLabel="More dashboard actions"
+              actions={[
+                { id: "tile", label: "Add tile", icon: "plus", onSelect: () => { addTile(null); } },
+                { id: "settings", label: "Dashboard settings", icon: "settings", active: settingsOpen, priority: "wide", onSelect: openSettings },
+                { id: "fullscreen", label: fullscreen ? "Exit fullscreen (Esc)" : "Fullscreen", icon: fullscreen ? "collapse" : "expand", priority: "wide", onSelect: () => { setFullscreen((f) => !f); } },
+              ]}
+            />
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" onClick={() => void save()} disabled={!dirty}>
+                  Save{dirty ? " *" : ""}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent className="flex items-center gap-1.5">
+                Save
+                <Shortcut action="dashboard-save" />
+              </TooltipContent>
+            </Tooltip>
           </div>
-        </ScrollArea>
+        </div>
         {connectionId === null ? (
-          <EmptyState icon="columns" title="Pick a connection" body="Choose the connection tiles should query in the toolbar above." />
+          <EmptyState icon="columns" title="Pick a connection" tip="Every tile runs its query on this connection." action={pickConnection} />
         ) : (
           <>
             {body.title !== undefined && body.title.trim().length > 0 ? <h2 className="shrink-0 px-3 pt-1.5 pb-1 text-center text-[13px] font-semibold text-foreground">{body.title}</h2> : null}
@@ -323,9 +320,25 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
         )}
       </div>
 
-      {panel !== null ? (
-        <aside className="relative flex shrink-0 flex-col border-l border-border/40 glass-sidebar select-none" style={{ width: panelWidth }} aria-label={panel === "settings" ? "Dashboard settings" : "Tile settings"}>
-          <Resizer direction="horizontal" onResize={handlePanelResize} className="absolute -left-1 top-0 bottom-0" />
+  );
+
+  return (
+    <div
+      data-dashboard={doc.id}
+      className={cn("flex h-full min-h-0", fullscreen ? "fixed inset-0 z-40 bg-background" : "")}
+      onPointerDownCapture={markActive}
+      onFocusCapture={markActive}
+    >
+      <SplitLayout
+        side="right"
+        defaultSize={PANEL_DEFAULT}
+        min={PANEL_MIN}
+        max={PANEL_MAX}
+        storageKey={PANEL_KEY}
+        collapsed={panel === null}
+        resizeLabel="Resize dashboard panel"
+        panel={
+        <aside className="flex h-full min-h-0 flex-col border-l border-border/40 glass-sidebar select-none" aria-label={panel === "settings" ? "Dashboard settings" : "Tile settings"}>
           {panel === "settings" ? (
             <DashboardSettings
               title={body.title ?? ""}
@@ -354,7 +367,10 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
             />
           ) : null}
         </aside>
-      ) : null}
+        }
+      >
+        {surface}
+      </SplitLayout>
     </div>
   );
 }
