@@ -28,6 +28,8 @@ import { FkPeekCard, FkPinnedPanel, type PeekTarget } from "./FkPeek";
 import { FkRemapDialog } from "./FkRemapDialog";
 import { RecordInspector, cellText, useInspectorCollapsed } from "./RecordInspector";
 import { InsertRowModal } from "./InsertRowModal";
+import { ExportMenuItems, TableToolbarMenu, type ExportMenuGroup } from "./TableToolbarMenu";
+import { TriggerTip, WIDE_LABEL } from "./toolLabel";
 import { CardView } from "./CardView";
 import { activeRules, type FilterEntry } from "./filterOps";
 import { cachedColumns, remapsFor, useFkRemaps } from "./fkStore";
@@ -40,25 +42,11 @@ import { hiddenColumnsKey, readHiddenColumns, readPageSize, readTableState, tabl
 import { nextSort } from "./clientRows";
 import { IconButton } from "@/components/global/Button";
 import { EmptyState } from "@/components/global/EmptyState";
-import { Segmented } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuPortal,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Separator } from "@/components/ui/separator";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Loaded {
   key: string;
@@ -1017,23 +1005,43 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
     };
   })();
 
+  const exportGroups: ExportMenuGroup[] = [
+    { id: "copy", label: `Copy ${selectedRows.size > 0 ? "selection" : "page"} as`, formats: COPY_FORMATS, run: (format) => void copyAs(format) },
+    { id: "download-page", label: `Download ${selectedRows.size > 0 ? "selection" : "page"} as`, formats: COPY_FORMATS, run: (format) => void downloadPage(format) },
+    { id: "download-all", label: `Download all${total !== null ? ` ${formatCount(total)}` : ""} rows as`, formats: DOWNLOAD_ALL_FORMATS, run: (format) => void downloadAll(format) },
+  ];
+  const toolbarMenu = {
+    view,
+    onView: setView,
+    autoRefresh,
+    intervals: REFRESH_INTERVALS,
+    intervalLabel: (seconds: number) => REFRESH_LABEL[seconds] ?? "",
+    onAutoRefresh: setAutoRefresh,
+    exportGroups,
+    exportDisabled: rows.length === 0 || exporting,
+    onExportOptions: () => { setExportOpen(true); },
+    download: isObjectStore ? { disabled: rows.length === 0 || downloading || downloadKey() === null, onSelect: () => void downloadSelected() } : undefined,
+    deleteCount: editable ? selectedRows.size : 0,
+    onDelete: editable ? deleteSelected : undefined,
+  };
+
   return (
     <div ref={root} className="relative flex h-full min-h-0 flex-col">
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex app-toolbar shrink-0 items-center gap-0.5 border-b border-border/40 glass-header">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button size="xs" variant="soft" disabled={!editable || columns.length === 0} onClick={() => setInsertOpen(true)}>
-              <Icon name="plus" size={12} />
-              Insert
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{readOnly ? "Connection is read-only." : editableEngine ? "Insert a row" : `Rows of ${engineMeta(engine).label} cannot be edited from the grid.`}</TooltipContent>
-        </Tooltip>
-        <Button size="xs" variant="toolbar" onClick={() => setRefresh((r) => r + 1)}>
-          <Icon name="refresh" size={12} />
-          Refresh
-        </Button>
+      <div className="@container flex app-toolbar min-w-0 shrink-0 items-center gap-0.5 border-b border-border/40 glass-header">
+        <TriggerTip tip={readOnly ? "Connection is read-only." : editableEngine ? "Insert a row" : `Rows of ${engineMeta(engine).label} cannot be edited from the grid.`}>
+          <Button size="xs" variant="soft" aria-label="Insert row" disabled={!editable || columns.length === 0} onClick={() => setInsertOpen(true)}>
+            <Icon name="plus" size={12} />
+            <span className={WIDE_LABEL}>Insert</span>
+          </Button>
+        </TriggerTip>
+        <TriggerTip tip="Refresh" shortcut="refresh-table">
+          <Button size="xs" variant="toolbar" aria-label="Refresh" onClick={() => setRefresh((r) => r + 1)}>
+            <Icon name="refresh" size={12} />
+            <span className={WIDE_LABEL}>Refresh</span>
+          </Button>
+        </TriggerTip>
         <FilterPopover
+          compact
           columns={columns.map((c) => ({ name: c.name, typeName: c.dataType }))}
           filters={filters}
           onApply={(next) => {
@@ -1050,6 +1058,7 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
           }}
         />
         <SortPopover
+          compact
           columns={columns.map((c) => ({ name: c.name, typeName: c.dataType }))}
           entries={sortEntries}
           onChange={(entries) => {
@@ -1058,96 +1067,49 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
             setSortEntries(entries);
           }}
         />
-        <ColumnsPopover columns={columns} hidden={hiddenColumns} onChange={setHiddenColumns} />
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="xs" variant={autoRefresh > 0 ? "soft" : "toolbar"}>
-              <Icon name="clock" size={12} />
-              {autoRefresh > 0 ? REFRESH_LABEL[autoRefresh] : "Auto"}
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="min-w-44 glass-modal rounded-xl">
-            <DropdownMenuGroup>
-              {REFRESH_INTERVALS.map((seconds) => (
-                <DropdownMenuItem key={seconds} textValue={REFRESH_LABEL[seconds] ?? ""} onSelect={() => { setAutoRefresh(seconds); }}>
-                  <span className="flex-1">{REFRESH_LABEL[seconds]}</span>
-                  {autoRefresh === seconds ? <Icon name="check" size={13} className="ml-2 text-accent" /> : null}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button size="xs" variant="toolbar" disabled={rows.length === 0 || exporting}>
-              <Icon name="download" size={12} />
-              {exporting ? "Exporting…" : "Export"}
-              <Icon name="chevron-down" size={10} />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent className="glass-modal rounded-xl">
-            <DropdownMenuGroup>
-              {(
-                [
-                  { id: "copy", label: `Copy ${selectedRows.size > 0 ? "selection" : "page"} as`, formats: COPY_FORMATS, run: copyAs },
-                  { id: "download-page", label: `Download ${selectedRows.size > 0 ? "selection" : "page"} as`, formats: COPY_FORMATS, run: downloadPage },
-                  { id: "download-all", label: `Download all${total !== null ? ` ${formatCount(total)}` : ""} rows as`, formats: DOWNLOAD_ALL_FORMATS, run: downloadAll },
-                ] as const
-              ).map((group) => (
-                <DropdownMenuSub key={group.id}>
-                  <DropdownMenuSubTrigger>{group.label}</DropdownMenuSubTrigger>
-                  <DropdownMenuPortal>
-                    <DropdownMenuSubContent className="min-w-40">
-                      {group.formats.map((format) => (
-                        <DropdownMenuItem key={format} textValue={`${group.label} ${copyLabel(format)}`} onSelect={() => void group.run(format)}>
-                          <span>{copyLabel(format)}</span>
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuSubContent>
-                  </DropdownMenuPortal>
-                </DropdownMenuSub>
-              ))}
-              <DropdownMenuSeparator />
-              <DropdownMenuItem textValue="Export with options" onSelect={() => { setExportOpen(true); }}><span>Export with options…</span></DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
-        <ExportDialog open={exportOpen} onOpenChange={setExportOpen} connectionId={connectionId} title={tableKey(table)} baseName={tableKey(table)} table={table} columns={columns} scopes={exportScopes()} />
-        {isObjectStore ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button size="xs" variant="toolbar" disabled={rows.length === 0 || downloading || downloadKey() === null} onClick={() => void downloadSelected()}>
+        <ColumnsPopover compact columns={columns} hidden={hiddenColumns} onChange={setHiddenColumns} />
+        <span className="hidden items-center gap-0.5 @2xl:flex">
+          <DropdownMenu>
+            <TriggerTip tip="Export">
+              <DropdownMenuTrigger asChild>
+                <Button size="xs" variant="toolbar" aria-label="Export" disabled={rows.length === 0 || exporting}>
+                  <Icon name="download" size={12} />
+                  <span className={WIDE_LABEL}>{exporting ? "Exporting…" : "Export"}</span>
+                  <Icon name="chevron-down" size={10} />
+                </Button>
+              </DropdownMenuTrigger>
+            </TriggerTip>
+            <DropdownMenuContent className="glass-modal rounded-xl">
+              <ExportMenuItems groups={exportGroups} onOptions={() => { setExportOpen(true); }} />
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {isObjectStore ? (
+            <TriggerTip tip="Download the selected file to disk (byte-exact).">
+              <Button size="xs" variant="toolbar" aria-label="Download file" disabled={rows.length === 0 || downloading || downloadKey() === null} onClick={() => void downloadSelected()}>
                 <Icon name="download" size={12} />
-                {downloading ? "Downloading…" : "Download"}
+                <span className={WIDE_LABEL}>{downloading ? "Downloading…" : "Download"}</span>
               </Button>
-            </TooltipTrigger>
-            <TooltipContent>Download the selected file to disk (byte-exact).</TooltipContent>
-          </Tooltip>
-        ) : null}
-        {selectedRows.size > 0 && editable ? (
-          <Button size="xs" variant="danger-soft" className="liquid-hover" onClick={deleteSelected}>
-            <Icon name="trash" size={13} />
-            Delete {selectedRows.size}
-          </Button>
+            </TriggerTip>
+          ) : null}
+        </span>
+        <ExportDialog open={exportOpen} onOpenChange={setExportOpen} connectionId={connectionId} title={tableKey(table)} baseName={tableKey(table)} table={table} columns={columns} scopes={exportScopes()} />
+        {autoRefresh > 0 ? (
+          <TriggerTip tip={`Refreshing every ${REFRESH_LABEL[autoRefresh] ?? ""}. Turn off in ⋯ › Auto-refresh.`}>
+            <Button size="xs" variant="soft" aria-label={`Auto-refresh every ${REFRESH_LABEL[autoRefresh] ?? ""}: turn off`} onClick={() => setAutoRefresh(0)}>
+              <Icon name="clock" size={12} />
+              <span className="hidden @3xl:inline">{REFRESH_LABEL[autoRefresh]}</span>
+            </Button>
+          </TriggerTip>
         ) : null}
 
-        <div className="ml-auto flex shrink-0 items-center gap-2 text-xs whitespace-nowrap text-muted">
+        <div className="ml-auto flex min-w-0 shrink-0 items-center gap-1.5 text-xs whitespace-nowrap text-muted">
           {loading ? <span className="text-accent font-medium">loading…</span> : null}
           {selectedRows.size > 0 ? (
             <Badge size="sm" variant="soft" color="accent" className="font-medium">
               {selectedRows.size} selected
             </Badge>
           ) : null}
-          <Segmented
-            label="View"
-            value={view}
-            onChange={setView}
-            options={[
-              { value: "grid", label: "Grid" },
-              { value: "cards", label: "Cards" },
-            ]}
-          />
-          <IconButton icon="columns" label={cell === null ? "Inspect selected cell" : inspectorCollapsed ? "Show inspector" : "Hide inspector"} active={cell !== null && !inspectorCollapsed} disabled={cell === null} onClick={toggleInspector} />
+          <IconButton icon="inspector" label={cell === null ? "Inspect selected cell" : inspectorCollapsed ? "Show inspector" : "Hide inspector"} shortcut="toggle-inspector" active={cell !== null && !inspectorCollapsed} disabled={cell === null} onClick={toggleInspector} />
           <Separator orientation="vertical" className="mx-0.5 h-4 opacity-50" />
           <Pager
             pageIndex={pageIndex}
@@ -1167,8 +1129,14 @@ export function TableTab({ connectionId, table, initialFilters }: { connectionId
             totalExact={totalExact}
             loadedRows={rows.length}
           />
+          <span className="flex @2xl:hidden">
+            <TableToolbarMenu narrow {...toolbarMenu} />
+          </span>
+          <span className="hidden @2xl:flex">
+            <TableToolbarMenu narrow={false} {...toolbarMenu} />
+          </span>
         </div>
-      </ScrollArea>
+      </div>
 
       <FilterBar
         columns={columns.map((c) => ({ name: c.name, typeName: c.dataType }))}

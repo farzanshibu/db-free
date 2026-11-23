@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Toggle } from "@/components/ui/toggle";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   emptyFor,
   enumTraitsOf,
@@ -181,9 +182,14 @@ export function InspectorFields({ columns, rows, focus, edit, partial }: FieldsP
                   <div className="flex items-end gap-1.5">
                     <div className="min-w-0 flex-1">
                       {base === "mixed" && cell === undefined ? (
-                        <Button variant="tertiary" className="w-full justify-start italic text-muted" onClick={() => put(c.name, emptyFor(c))} title={distinctSummary(rows, index)}>
-                          Multiple values · set for all {rows.length}
-                        </Button>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Button variant="tertiary" className="w-full justify-start italic text-muted" onClick={() => put(c.name, emptyFor(c))}>
+                              Multiple values · set for all {rows.length}
+                            </Button>
+                          </TooltipTrigger>
+                          <TooltipContent className="max-w-72 font-mono whitespace-pre-wrap">{distinctSummary(rows, index)}</TooltipContent>
+                        </Tooltip>
                       ) : (
                         <ValueControl
                           kind={kind}

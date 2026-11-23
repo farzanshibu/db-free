@@ -18,7 +18,10 @@ import { Badge } from "@/components/ui/badge";
 import { EnvDot } from "@/components/global/Badge";
 import { IconButton } from "@/components/global/Button";
 import { Resizer } from "@/components/global/Resizer";
-import { RunShortcut } from "@/components/global/Kbd";
+import { RunShortcut, Shortcut } from "@/components/global/Kbd";
+import { ToolbarActions, type ToolbarAction } from "@/components/global/Toolbar";
+import { WithTip } from "@/components/global/InfoTip";
+import { SplitLayout } from "@/components/global/Layout";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { SqlEditor, type EditorDiagnostic, type RunTarget, type SqlEditorHandle } from "./SqlEditor";
@@ -35,14 +38,13 @@ import { openSqlFileInNewTab } from "./openSqlFile";
 import { askAboutPrompt, fixErrorPrompt } from "./inlineAi";
 import { lineColumnOf } from "./QueryErrorPanel";
 import { joinScript, runLabel, scriptOffsetToDoc } from "./runTargets";
-import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { Toggle } from "@/components/ui/toggle";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /// Per-tab row cap. The default comes from Settings -> Max query rows, so the
@@ -59,7 +61,6 @@ const ROW_CAPS = [
   { value: "none", label: "No limit" },
 ] satisfies readonly { value: string; label: string }[];
 
-type TxMode = "auto" | "manual";
 type PlanView = "tree" | "text";
 
 /// 0 is how Settings stores "Unlimited".
@@ -193,27 +194,6 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
       const next = Math.max(100, Math.min(800, prev + delta));
       try {
         localStorage.setItem("db-free:query-editor-height", String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
-
-  const [historyWidth, setHistoryWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem("db-free:query-history-width");
-      return saved ? Math.max(220, Math.min(600, Number(saved))) : 256;
-    } catch {
-      return 256;
-    }
-  });
-
-  const handleHistoryResize = useCallback((delta: number) => {
-    setHistoryWidth((prev) => {
-      const next = Math.max(220, Math.min(600, prev - delta));
-      try {
-        localStorage.setItem("db-free:query-history-width", String(next));
       } catch {
         // ignore
       }
@@ -641,13 +621,42 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
   const schemaOptions = [{ value: "*", label: "All schemas" }, ...schemas.map((x) => ({ value: x.name, label: x.name }))];
   const showSchemas = (info?.capabilities.namespaces ?? false) && (schemas.length > 1 || (schemas[0] !== undefined && schemas[0].name !== "main"));
 
+  // WHAT:  The editor's secondary commands, folded by toolbar width: Format,
+  //        Explain and Save sit in the bar while there is room; files, versions,
+  //        stop-on-error and the transaction mode live in "⋯".
+  const toggleStopOnError = () => {
+    const next = !stopOnError;
+    setStopOnError(next);
+    try {
+      localStorage.setItem(STOP_ON_ERROR_KEY, next ? "1" : "0");
+    } catch {
+      // the choice just does not survive a restart
+    }
+  };
+  const editorActions: ToolbarAction[] = [
+    ...(isSql
+      ? [
+          { id: "format", label: "Format", icon: "code", shortcut: "format", onSelect: doFormat, disabled: empty, priority: "wide", group: "edit" } satisfies ToolbarAction,
+          { id: "explain", label: planBusy ? "Explaining…" : "Explain", icon: "hierarchy", onSelect: () => void explain(), disabled: empty || planBusy, priority: "wide", group: "edit" } satisfies ToolbarAction,
+        ]
+      : []),
+    { id: "save", label: linked !== null ? "Update" : "Save", icon: "bookmark", shortcut: "save-query", onSelect: startSave, disabled: empty, priority: "wide", group: "edit" },
+    ...(linked !== null ? [{ id: "versions", label: `Versions of "${linked.name}"`, icon: "history", onSelect: () => { setVersionsOpen(true); }, priority: "menu", group: "saved" } satisfies ToolbarAction] : []),
+    { id: "open-file", label: openingFile ? "Opening…" : "Open .sql file…", icon: "file", shortcut: "open-sql-file", onSelect: () => void openFile(), disabled: openingFile, priority: "menu", group: "file" },
+    { id: "save-file", label: savingFile ? "Saving…" : "Save as .sql file…", icon: "download", onSelect: () => void saveToFile(), disabled: empty || savingFile, priority: "menu", group: "file" },
+    ...(multi ? [{ id: "stop-on-error", label: "Stop at the first error", icon: "alert", active: stopOnError, onSelect: toggleStopOnError, priority: "menu", group: "run" } satisfies ToolbarAction] : []),
+    ...(txCapable
+      ? [{ id: "manual-tx", label: "Manual transactions", icon: "lock", active: manual, disabled: manual && txOpen, onSelect: () => setManual(tabId, !manual), priority: "menu", group: "run" } satisfies ToolbarAction]
+      : []),
+  ];
+
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
+      <div className="@container flex app-toolbar min-w-0 shrink-0 items-center gap-1.5 border-b border-border/40 glass-header">
         {running ? (
           // While a run is in flight, Run becomes Stop in the same spot, so the
           // hand that started it finds the way out without looking.
-          <Button size="sm" variant="danger" pending={stopping} onClick={stop} className="gap-2 rounded-md font-semibold liquid-hover">
+          <Button size="sm" variant="danger" pending={stopping} onClick={stop} className="shrink-0 gap-2 rounded-md font-semibold liquid-hover">
             <Icon name="stop" size={12} />
             Stop
           </Button>
@@ -656,7 +665,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
             size="sm"
             onClick={runCurrent}
             disabled={!loaded || empty}
-            className="gap-2 rounded-md pr-1.5 font-semibold liquid-hover"
+            className="shrink-0 gap-2 rounded-md pr-1.5 font-semibold liquid-hover"
           >
             <Icon name="play" size={12} />
             {label}
@@ -666,33 +675,23 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
           </Button>
         )}
         {multi && target?.kind !== "all" ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-            onClick={runAll}
-            disabled={!loaded || running || empty}
-          >
-            Run all {spans.length}
-          </Button>
-        ) : null}
-        {multi ? (
-          <Toggle
-            pressed={stopOnError}
-            onPressedChange={(next) => {
-              setStopOnError(next);
-              try {
-                localStorage.setItem(STOP_ON_ERROR_KEY, next ? "1" : "0");
-              } catch {
-                // the choice just does not survive a restart
-              }
-            }}
-            aria-label="Stop at the first error"
-            title="Stop running a script at the first statement that fails"
-            className="h-6 gap-1 rounded-md px-2 text-xs"
-          >
-            Stop on error
-          </Toggle>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="shrink-0 rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
+                onClick={runAll}
+                disabled={!loaded || running || empty}
+              >
+                Run all {spans.length}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent className="flex items-center gap-1.5">
+              Run the whole script{stopOnError ? ", stopping at the first error" : ""}
+              <Shortcut action="run-all" />
+            </TooltipContent>
+          </Tooltip>
         ) : null}
         {/* The language this tab speaks, so a Redis or Mongo tab says so instead
             of looking like a SQL editor. The tooltip says how a script is cut. */}
@@ -704,59 +703,20 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
           </TooltipTrigger>
           <TooltipContent>{nativeLanguage.separator}</TooltipContent>
         </Tooltip>
-        {isSql ? (
-          <Button size="sm" variant="ghost" className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onClick={doFormat} disabled={empty}>
-            Format
-          </Button>
-        ) : null}
-        {isSql ? (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-            pending={planBusy}
-            onClick={() => void explain()}
-            disabled={empty}
-          >
-            Explain
-          </Button>
-        ) : null}
-        <Button size="sm" variant="ghost" className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover" onClick={startSave} disabled={empty}>
-          {linked !== null ? "Update" : "Save"}
-        </Button>
-        {linked !== null ? (
-          <IconButton icon="history" label={`Versions of "${linked.name}"`} onClick={() => { setVersionsOpen(true); }} />
-        ) : null}
-        <Button
-          size="sm"
-          variant="ghost"
-          className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-          pending={openingFile}
-          onClick={() => void openFile()}
-          title="Open a .sql file in a new tab"
-        >
-          <Icon name="file" size={12} />
-          Open
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-          pending={savingFile}
-          onClick={() => void saveToFile()}
-          disabled={empty}
-        >
-          <Icon name="download" size={12} />
-          .sql
-        </Button>
+        <ToolbarActions actions={editorActions} foldBelow="2xl" labelsFrom="3xl" menuLabel="More query actions" />
         <Popover open={aiOpen} onOpenChange={setAiOpen}>
-          <PopoverTrigger asChild>
-            <Button size="sm" variant={aiEnabled ? "secondary" : "ghost"} className={cn("rounded-md liquid-hover", aiEnabled ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
-              <Icon name="braces" size={12} />
-              AI
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-[460px] rounded-lg glass-modal">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <PopoverTrigger asChild>
+                <Button size="sm" aria-label="AI assistant" variant={aiEnabled ? "secondary" : "ghost"} className={cn("shrink-0 gap-1 rounded-md px-1.5 liquid-hover", aiEnabled ? "glass-pill text-accent" : "text-muted hover:bg-surface-secondary/70 hover:text-foreground")}>
+                  <Icon name="sparkles" size={12} />
+                  <span className="hidden @3xl:inline">AI</span>
+                </Button>
+              </PopoverTrigger>
+            </TooltipTrigger>
+            <TooltipContent>AI assistant</TooltipContent>
+          </Tooltip>
+          <PopoverContent className="w-[min(460px,92vw)] rounded-lg glass-modal">
               <div className="flex items-center justify-between">
                 <PopoverHeading className="text-[13px] font-semibold text-foreground">AI Database Assistant</PopoverHeading>
                 <div className="flex items-center gap-1.5">
@@ -924,26 +884,19 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
               )}
           </PopoverContent>
         </Popover>
-        {txCapable ? (
-          // WHAT:  Auto-commit / Manual. In Manual the first Run opens a
-          //        transaction that stays open until Commit or Rollback.
+        {txCapable && (manual || txOpen) ? (
+          // WHAT:  Manual-transaction state. The mode itself is switched in "⋯";
+          //        while it is on, the bar says so, and an open transaction keeps
+          //        Commit / Rollback in view.
           // WHY:   Auto cannot be picked back while one is open: leaving it
           //        open behind an Auto label is how work gets lost.
-          <div className="flex items-center gap-1.5">
-            <Segmented<TxMode>
-              label="Transaction mode"
-              value={manual ? "manual" : "auto"}
-              options={[
-                { value: "auto", label: "Auto-commit", disabled: txOpen },
-                { value: "manual", label: "Manual" },
-              ]}
-              onChange={(mode) => setManual(tabId, mode === "manual")}
-            />
+          <div className="flex shrink-0 items-center gap-1.5">
             {txOpen ? (
               <>
                 <Badge variant="warning" className="gap-1">
                   <Icon name="lock" size={10} />
-                  Transaction open
+                  <span className="hidden @3xl:inline">Transaction open</span>
+                  <span className="@3xl:hidden">Tx open</span>
                 </Badge>
                 <Button size="sm" variant="soft" className="rounded-md liquid-hover" pending={txBusy} disabled={running} onClick={() => void endTransaction(true)}>
                   <Icon name="check" size={12} />
@@ -954,15 +907,25 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
                   Rollback
                 </Button>
               </>
-            ) : null}
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Badge variant="secondary" className="gap-1" tabIndex={0}>
+                    <Icon name="lock" size={10} />
+                    Manual
+                  </Badge>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-64">Manual transactions: the next Run opens a transaction that stays open until Commit or Rollback. Switch back in ⋯.</TooltipContent>
+              </Tooltip>
+            )}
           </div>
         ) : null}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex min-w-0 items-center gap-2">
           {/* WHAT:  Live-connection dot beside the database picker, so a connected
               tab shows green at full opacity and a stale one dims to 35%. */}
           <EnvDot environment={connection.environment} live={live} />
           {dbOptions.length > 0 || showSchemas ? (
-            <div className="flex items-center gap-1 text-xs text-muted">
+            <div className="flex min-w-0 items-center gap-1 text-xs text-muted">
               {dbOptions.length > 0 ? (
                 <AppSelect
                   ariaLabel="Database"
@@ -991,12 +954,33 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
               ) : null}
             </div>
           ) : null}
-          <AppSelect ariaLabel="Row cap" value={rowCap} options={ROW_CAPS} onChange={setRowCap} size="sm" className="w-32" />
+          <AppSelect ariaLabel="Row cap" value={rowCap} options={ROW_CAPS} onChange={setRowCap} size="sm" className="w-28 shrink-0" />
           <IconButton icon="history" label="Query history" active={showHistory} onClick={() => setShowHistory((v) => !v)} />
         </div>
       </div>
-      <div className="flex min-h-0 flex-1">
-        <div className="flex min-w-0 flex-1 flex-col">
+      <SplitLayout
+        side="right"
+        collapsed={!showHistory}
+        defaultSize={256}
+        min={220}
+        max={600}
+        storageKey="db-free:query-history-width"
+        resizeLabel="Resize query history"
+        className="min-h-0 flex-1"
+        panelClassName="border-l border-border/40 glass-sidebar select-none"
+        panel={
+          <HistoryPanel
+            connectionId={connection.id}
+            refreshKey={(run?.seq ?? 0) * 4 + (running ? 1 : 0) + txKey * 8}
+            onPick={(picked) => {
+              const handle = editorRef.current;
+              if (handle === null) onChange(picked);
+              else handle.replace(0, sql.length, picked, false);
+            }}
+          />
+        }
+      >
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <div className={cn("relative flex flex-col", collapsed && !plan ? "min-h-0 flex-1" : "shrink-0")} style={collapsed && !plan ? undefined : { height: editorHeight }}>
             {loaded ? (
               <SqlEditor
@@ -1076,21 +1060,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
             )}
           </div>
         </div>
-        {showHistory ? (
-          <div className="relative shrink-0 flex flex-col border-l border-border/40 glass-sidebar select-none" style={{ width: historyWidth }}>
-            <Resizer direction="horizontal" onResize={handleHistoryResize} className="absolute -left-1 top-0 bottom-0" />
-            <HistoryPanel
-              connectionId={connection.id}
-              refreshKey={(run?.seq ?? 0) * 4 + (running ? 1 : 0) + txKey * 8}
-              onPick={(picked) => {
-                const handle = editorRef.current;
-                if (handle === null) onChange(picked);
-                else handle.replace(0, sql.length, picked, false);
-              }}
-            />
-          </div>
-        ) : null}
-      </div>
+      </SplitLayout>
 
       {saveOpen ? (
         <SaveQueryDialog
@@ -1133,10 +1103,7 @@ export function QueryPane({ connection, tabId, title, seedSql }: QueryPaneProps)
             <Alert variant="danger" className="rounded-lg">
               <AlertIndicator />
               <AlertContent>
-                <AlertTitle className="font-semibold text-xs">Destructive Operations</AlertTitle>
-                <AlertDescription className="text-xs">
-                  These statements change or remove data without a safety net. Review before continuing.
-                </AlertDescription>
+                <AlertDescription className="text-xs">These statements change or remove data, with no undo.</AlertDescription>
               </AlertContent>
             </Alert>
             <ul className="flex flex-col gap-1.5">
@@ -1211,12 +1178,15 @@ function ParamsDialog({ names, initial, onCancel, onRun }: { names: readonly str
   const set = (name: string, next: Partial<ParamValue>) => setValues((prev) => ({ ...prev, [name]: { value: prev[name]?.value ?? "", mode: prev[name]?.mode ?? "auto", ...next } }));
   return (
     <Dialog open onOpenChange={(open) => !open && onCancel()}>
-      <DialogContent className="sm:max-w-[560px]">
+      <DialogContent className="sm:max-w-[min(92vw,640px)]">
         <DialogHeader>
-          <DialogTitle>Query parameters</DialogTitle>
+          <DialogTitle>
+            <WithTip tip="Auto leaves numbers, TRUE/FALSE and NULL bare and quotes everything else. Raw SQL is inserted as typed." tipLabel="About parameter types">
+              Query parameters
+            </WithTip>
+          </DialogTitle>
         </DialogHeader>
         <DialogBody className="flex max-h-[60vh] flex-col gap-2">
-          <p className="text-xs text-muted">Auto leaves numbers, TRUE/FALSE and NULL bare and quotes everything else. Raw SQL is inserted as typed.</p>
           <form
             id="query-params"
             className="flex flex-col gap-2"

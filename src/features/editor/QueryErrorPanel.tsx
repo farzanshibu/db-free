@@ -2,6 +2,8 @@
 import type { AppError } from "@/lib/bindings";
 import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { WithTip } from "@/components/global/InfoTip";
+import { Disclosure } from "@/components/global/Disclosure";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface QueryErrorPanelProps {
@@ -69,19 +71,26 @@ export function QueryErrorPanel({ error, sql, onGoToError, onAskAi, onCopy }: Qu
 
   return (
     <ScrollArea className="h-full">
-      <div className="flex max-w-3xl flex-col gap-2 p-3" role="alert">
+      <div className="flex w-full flex-col gap-2 p-3" role="alert">
         <div className="flex items-start gap-2">
           <span className="mt-0.5 grid size-6 shrink-0 place-items-center rounded-md bg-danger-soft text-danger">
             <Icon name="alert" size={14} />
           </span>
-          <div className="min-w-0">
-            <h3 className="text-xs font-semibold text-foreground">{titleOf(error)}</h3>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <h3 className="text-xs font-semibold text-foreground">{titleOf(error)}</h3>
+              {where !== null ? (
+                <span className="font-mono text-[11px] text-muted tabular-nums">
+                  Ln {where.line}, Col {where.column}
+                </span>
+              ) : null}
+              {hint !== null ? (
+                <WithTip tip={<span className="selectable">{hint}</span>} tipLabel="Database hint" className="text-[11px] text-muted">
+                  Hint
+                </WithTip>
+              ) : null}
+            </div>
             <p className="selectable mt-1 whitespace-pre-wrap break-words text-xs text-danger">{error.message}</p>
-            {where !== null ? (
-              <p className="mt-1 text-[11px] text-muted">
-                Line {where.line}, column {where.column}
-              </p>
-            ) : null}
           </div>
         </div>
         {shown !== null ? (
@@ -95,13 +104,11 @@ export function QueryErrorPanel({ error, sql, onGoToError, onAskAi, onCopy }: Qu
             </ScrollArea>
           </div>
         ) : null}
-        {hint !== null ? (
-          <p className="selectable rounded-lg bg-surface-secondary/60 px-2.5 py-1.5 text-xs text-foreground">
-            <span className="font-semibold">Hint </span>
-            {hint}
-          </p>
+        {detail !== null ? (
+          <Disclosure variant="inline" label="Details">
+            <p className="selectable whitespace-pre-wrap text-xs text-muted">{detail}</p>
+          </Disclosure>
         ) : null}
-        {detail !== null ? <p className="selectable whitespace-pre-wrap text-xs text-muted">{detail}</p> : null}
         <div className="flex flex-wrap items-center gap-1.5">
           {position !== null && onGoToError !== undefined ? (
             <Button size="xs" variant="tertiary" onClick={onGoToError}>

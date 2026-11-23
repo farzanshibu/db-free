@@ -88,9 +88,18 @@ export function FindBar({ initialSearch, replaceOpen, status, onQuery, onNext, o
             else onNext();
           }}
         />
-        <span className="w-16 shrink-0 text-center text-[11px] tabular-nums text-muted" title={status.error ?? (status.capped ? limit : "")}>
-          {summary}
-        </span>
+        {status.error !== null || status.capped ? (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="w-16 shrink-0 cursor-help text-center text-[11px] tabular-nums text-muted">
+                {summary}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{status.error ?? limit}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <span className="w-16 shrink-0 text-center text-[11px] tabular-nums text-muted">{summary}</span>
+        )}
         <OptionToggle label="Match case" pressed={caseSensitive} onChange={setCaseSensitive}>
           Aa
         </OptionToggle>

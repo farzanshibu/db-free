@@ -16,7 +16,6 @@ import { IconButton } from "@/components/global/Button";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
@@ -325,28 +324,34 @@ export function ResultGrid({ connectionId, sql, result: initial, single, onSelec
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-7 shrink-0 items-center gap-0.5 border-b border-border/40 px-1.5">
-        <SearchInput value={search} onChange={setSearch} aria-label="Search the result" placeholder="Search result…" className="glass-input h-6 w-48 rounded-md text-xs" />
-        <FilterPopover columns={columns} filters={filters} onApply={setFilters} />
-        <ColumnsPopover columns={columns} hidden={hidden} onChange={setHidden} />
-        <Button size="xs" variant={sort.length > 0 ? "soft" : "toolbar"} onClick={() => setSort([])} disabled={sort.length === 0}>
-          <Icon name="sort" size={12} />
-          {sort.length > 0 ? `Sorted by ${sort.map((s) => s.column).join(", ")}` : "Sort"}
-        </Button>
+      <div className="@container flex h-7 min-w-0 shrink-0 items-center gap-0.5 border-b border-border/40 px-1.5">
+        <SearchInput value={search} onChange={setSearch} aria-label="Search the result" placeholder="Search…" className="glass-input h-6 w-28 rounded-md text-xs @2xl:w-48" />
+        <FilterPopover compact columns={columns} filters={filters} onApply={setFilters} />
+        <ColumnsPopover compact columns={columns} hidden={hidden} onChange={setHidden} />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button size="xs" variant={sort.length > 0 ? "soft" : "toolbar"} aria-label={sort.length > 0 ? "Clear sort" : "Sort"} onClick={() => setSort([])} disabled={sort.length === 0}>
+              <Icon name="sort" size={12} />
+              <span className="hidden max-w-60 truncate @4xl:inline">{sort.length > 0 ? `Sorted by ${sort.map((s) => s.column).join(", ")}` : "Sort"}</span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{sort.length > 0 ? `Sorted by ${sort.map((s) => s.column).join(", ")}. Click to clear.` : "Click a column header to sort"}</TooltipContent>
+        </Tooltip>
         {selected.size > 0 && editable ? (
           <Button size="xs" variant="danger-soft" onClick={() => deleteSources([...selected])}>
             <Icon name="trash" size={12} />
             Delete {selected.size}
           </Button>
         ) : null}
-        <div className="ml-auto flex shrink-0 items-center gap-2 pl-2 text-xs whitespace-nowrap text-muted">
+        <div className="ml-auto flex min-w-0 shrink-0 items-center gap-2 pl-2 text-xs whitespace-nowrap text-muted">
           {narrowed ? <span className="tabular-nums font-mono text-[11px]">{formatCount(order.length)} of {formatCount(rows.length)} rows</span> : null}
           {edit.status === "editable" ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <Badge size="sm" variant="soft" color="accent" className="gap-1 font-medium">
                   <Icon name="pencil" size={11} />
-                  Editable · {tableKey(edit.table)}
+                  <span className="hidden @3xl:inline">Editable · {tableKey(edit.table)}</span>
+                  <span className="@3xl:hidden">Editable</span>
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>Double-click a cell to edit. {settings?.executionMode === "direct" ? "Changes apply immediately." : "Changes are staged in Pending Changes."}</TooltipContent>
@@ -356,16 +361,17 @@ export function ResultGrid({ connectionId, sql, result: initial, single, onSelec
               <TooltipTrigger asChild>
                 <Badge size="sm" variant="soft" className="gap-1">
                   <Icon name="lock" size={11} />
-                  Read-only result
+                  <span className="hidden @3xl:inline">Read-only result</span>
+                  <span className="@3xl:hidden">Read-only</span>
                 </Badge>
               </TooltipTrigger>
               <TooltipContent>Not editable: {edit.reason}.</TooltipContent>
             </Tooltip>
           ) : null}
           <Separator orientation="vertical" className="mx-0.5 h-4 opacity-50" />
-          <IconButton icon="columns" label={cell === null ? "Inspect selected cell" : inspectorCollapsed ? "Show inspector" : "Hide inspector"} active={cell !== null && !inspectorCollapsed} disabled={cell === null} onClick={toggleInspector} />
+          <IconButton icon="inspector" label={cell === null ? "Inspect selected cell" : inspectorCollapsed ? "Show inspector" : "Hide inspector"} shortcut="toggle-inspector" active={cell !== null && !inspectorCollapsed} disabled={cell === null} onClick={toggleInspector} />
         </div>
-      </ScrollArea>
+      </div>
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1">
           <DataGrid

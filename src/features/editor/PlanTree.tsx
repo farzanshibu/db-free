@@ -114,8 +114,8 @@ export function PlanTree({ root }: { root: PlanNode }) {
               </div>
               <div className="flex w-52 shrink-0 flex-col items-end gap-1 pt-0.5">
                 <div className="flex gap-2 font-mono text-[10.5px] text-muted">
-                  {r.node.rows !== null ? <span title="Rows">{fmt(r.node.rows)} rows</span> : null}
-                  {r.total !== null ? <span title={unit}>{fmt(r.total)} {unit}</span> : null}
+                  {r.node.rows !== null ? <span>{fmt(r.node.rows)} rows</span> : null}
+                  {r.total !== null ? <span>{fmt(r.total)} {unit}</span> : null}
                 </div>
                 {share !== null ? (
                   <div className="h-1.5 w-full overflow-hidden rounded-full bg-surface-secondary">
