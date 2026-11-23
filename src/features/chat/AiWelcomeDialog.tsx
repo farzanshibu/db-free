@@ -77,7 +77,19 @@ export function AiWelcomeDialog({ settings, onClose }: { settings: AppSettings; 
 
   return (
     <Dialog open onOpenChange={(open) => { if (!open) finish(); }}>
-      <DialogContent className="sm:max-w-[480px]">
+      <DialogContent
+        className="sm:max-w-[480px]"
+        // Focus the chosen access option, not the first focusable element: that
+        // is now the description's info icon, and focusing it pops its tooltip.
+        onOpenAutoFocus={(event) => {
+          const target = event.currentTarget;
+          if (!(target instanceof HTMLElement)) return;
+          const chosen = target.querySelector('[role="radio"][aria-checked="true"]');
+          if (!(chosen instanceof HTMLElement)) return;
+          event.preventDefault();
+          chosen.focus();
+        }}
+      >
         <DialogHeader>
           <div className="mb-1 flex size-8 items-center justify-center rounded-lg bg-accent/15 text-accent">
             <Icon name="sparkles" size={16} />

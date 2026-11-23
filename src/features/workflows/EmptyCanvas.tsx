@@ -59,7 +59,7 @@ export function EmptyCanvas({ onPick, onAskAi }: EmptyCanvasProps) {
           />
           <div className="flex flex-wrap items-center gap-1.5">
             {EXAMPLES.map((example) => (
-              <Button key={example} size="xs" variant="tertiary" disabled={onAskAi === null} onClick={() => { setPrompt(example); }}>
+              <Button key={example} size="xs" variant="tertiary" className="h-auto max-w-full py-1 text-left whitespace-normal" disabled={onAskAi === null} onClick={() => { setPrompt(example); }}>
                 {example}
               </Button>
             ))}
