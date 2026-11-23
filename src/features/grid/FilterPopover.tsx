@@ -7,6 +7,7 @@ import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/components/ui/popover";
 import { ALL_OPS, FILTER_OPS, opsForType, type FilterEntry } from "./filterOps";
+import { TriggerTip, WIDE_LABEL } from "./toolLabel";
 
 // The operator registry moved to filterOps.ts; re-exported for callers that import it from here.
 export { FILTER_OPS } from "./filterOps";
@@ -29,6 +30,9 @@ interface FilterPopoverProps {
   entries?: readonly FilterEntry[] | undefined;
   mode?: FilterMode | undefined;
   onApplyEntries?: ((entries: FilterEntry[], mode: FilterMode) => void) | undefined;
+  /// The trigger's text folds away on a narrow toolbar (the row carries `@container`);
+  /// its name moves to a tooltip and the rule count stays beside the icon.
+  compact?: boolean | undefined;
 }
 
 const OP_LABELS = (ops: readonly FilterOp[]) => ops.map((op) => ({ value: op, label: FILTER_OPS[op].label }));
@@ -39,7 +43,7 @@ const OP_LABELS = (ops: readonly FilterOp[]) => ops.map((op) => ({ value: op, la
 // WHY:   Switching a rule off to compare with and without it is what the on/off box
 //        is for; without it you delete the rule and retype it.
 // HOW:   Edits a draft and applies on Apply, so the grid does not refetch per keystroke.
-export function FilterPopover({ columns, filters, onApply, entries, mode, onApplyEntries }: FilterPopoverProps) {
+export function FilterPopover({ columns, filters, onApply, entries, mode, onApplyEntries, compact = false }: FilterPopoverProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<FilterEntry[]>([]);
   const [draftMode, setDraftMode] = useState<FilterMode>("all");
@@ -48,6 +52,7 @@ export function FilterPopover({ columns, filters, onApply, entries, mode, onAppl
   const typeOf = (name: string) => columns.find((c) => c.name === name)?.typeName;
   const blank = (): FilterEntry => ({ rule: { column: firstColumn, op: defaultOp(typeOf(firstColumn)), value: "" }, enabled: true });
   const activeCount = current.filter((e) => e.enabled).length;
+  const triggerText = activeCount > 0 ? `Filter (${activeCount})` : "Filter";
 
   const openWith = (next: boolean) => {
     if (next) {
@@ -84,13 +89,16 @@ export function FilterPopover({ columns, filters, onApply, entries, mode, onAppl
 
   return (
     <Popover open={open} onOpenChange={openWith}>
-      <PopoverTrigger asChild>
-        <Button size="xs" variant={activeCount > 0 ? "soft" : "toolbar"}>
-          <Icon name="filter" size={12} />
-          {activeCount > 0 ? `Filter (${activeCount})` : "Filter"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[480px] max-w-[94vw] p-2.5">
+      <TriggerTip tip={triggerText} when={compact}>
+        <PopoverTrigger asChild>
+          <Button size="xs" variant={activeCount > 0 ? "soft" : "toolbar"} aria-label={triggerText}>
+            <Icon name="filter" size={12} />
+            <span className={compact ? WIDE_LABEL : undefined}>{triggerText}</span>
+            {compact && activeCount > 0 ? <span className="tabular-nums @4xl:hidden">{activeCount}</span> : null}
+          </Button>
+        </PopoverTrigger>
+      </TriggerTip>
+      <PopoverContent className="w-[min(480px,90vw)] p-2.5">
         <div className="flex items-center gap-2">
           <PopoverHeading className="text-[11px] font-semibold uppercase tracking-wider text-muted">Filters</PopoverHeading>
           {onApplyEntries ? (

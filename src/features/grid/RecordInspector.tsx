@@ -141,6 +141,7 @@ export function RecordInspector({ columns, row, column, value, table, tabs, acti
     <aside className="relative flex shrink-0 flex-col border-l border-border/40 glass-sidebar select-none" style={{ width }}>
       <Resizer
         direction="horizontal"
+        label="Resize inspector"
         onResize={handleResize}
         onDragEnd={() => {
           dragWidth.current = null;

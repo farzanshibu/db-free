@@ -13,6 +13,7 @@ import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu"
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { bounds, cellCount, clipboardText, formatStat, inBounds, parseTsv, rangeStats, STATS_CELL_LIMIT, toTsv, type CellPos, type CellRange, type RangeBounds } from "./cellRange";
 import { IS_MAC } from "@/lib/keymap";
 import { COPY_FORMATS, copyLabel } from "./copyFormats";
@@ -807,22 +808,26 @@ export function DataGrid({
               const column = columns[vc.index];
               if (!column) return null;
               return (
-                <div
-                  key={`${vc.key}-resize`}
-                  className="absolute top-0 z-30 h-full cursor-col-resize"
-                  style={{ left: vc.end - HANDLE_WIDTH / 2, width: HANDLE_WIDTH }}
-                  title="Drag to resize · double-click to fit the content"
-                  onDoubleClick={() => fitColumn(column, vc.index)}
-                >
-                  <Resizer
-                    direction="horizontal"
-                    onResize={(delta) => resizeColumn(column, vc.index, vc.size, delta)}
-                    onDragEnd={() => {
-                      dragWidth.current = null;
-                    }}
-                    className="absolute inset-0 h-full w-full rounded-none"
-                  />
-                </div>
+                <Tooltip key={`${vc.key}-resize`} delayDuration={700}>
+                  <TooltipTrigger asChild>
+                    <div
+                      className="absolute top-0 z-30 h-full cursor-col-resize"
+                      style={{ left: vc.end - HANDLE_WIDTH / 2, width: HANDLE_WIDTH }}
+                      onDoubleClick={() => fitColumn(column, vc.index)}
+                    >
+                      <Resizer
+                        direction="horizontal"
+                        label={`Resize ${column.name}`}
+                        onResize={(delta) => resizeColumn(column, vc.index, vc.size, delta)}
+                        onDragEnd={() => {
+                          dragWidth.current = null;
+                        }}
+                        className="absolute inset-0 h-full w-full rounded-none"
+                      />
+                    </div>
+                  </TooltipTrigger>
+                  <TooltipContent side="bottom">Drag to resize · double-click to fit</TooltipContent>
+                </Tooltip>
               );
             })}
           </div>
@@ -994,9 +999,14 @@ export function DataGrid({
 
 function StatButton({ label, value, onCopy }: { label: string; value: number; onCopy: (text: string, what: string) => void }) {
   return (
-    <Button variant="ghost" size="xs" className="h-5 gap-1 rounded px-1 font-mono text-[11px] font-normal text-muted hover:text-foreground" title={`Copy ${label.toLowerCase()}`} onClick={() => onCopy(String(value), label)}>
-      {label} <span className="text-foreground">{formatStat(value)}</span>
-    </Button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button variant="ghost" size="xs" className="h-5 gap-1 rounded px-1 font-mono text-[11px] font-normal text-muted hover:text-foreground" aria-label={`Copy ${label.toLowerCase()}`} onClick={() => onCopy(String(value), label)}>
+          {label} <span className="text-foreground">{formatStat(value)}</span>
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent>Copy {label.toLowerCase()}</TooltipContent>
+    </Tooltip>
   );
 }
 

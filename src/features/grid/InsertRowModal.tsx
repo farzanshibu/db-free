@@ -6,6 +6,8 @@ import { FormValueField, type FormCell } from "@/components/global/ValueEditor";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 
 interface InsertRowModalProps {
   open: boolean;
@@ -48,17 +50,21 @@ export function InsertRowModal({ open, onClose, columns, traits, onSubmit }: Ins
   };
   return (
     <Dialog open={open} onOpenChange={(o) => !o && close()}>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className={columns.length > 6 ? "sm:max-w-[min(92vw,960px)]" : "sm:max-w-[min(92vw,560px)]"}>
         <DialogHeader>
-          <DialogTitle>Insert row</DialogTitle>
+          <DialogTitle>
+            <WithTip tip="Leave a field blank to let the database fill it in (default, auto-increment). NULL sends an explicit NULL." tipLabel="About inserting rows">
+              Insert row
+            </WithTip>
+          </DialogTitle>
         </DialogHeader>
         <DialogBody className="max-h-[60vh] p-0">
           <ScrollArea className="max-h-[60vh] px-3 py-2">
-            <div className="grid grid-cols-2 gap-2">
+            <AutoGrid min="sm" className="gap-x-3 gap-y-2">
               {columns.map((c) => (
                 <FormValueField key={c.name} column={c} traits={traitsOf(traits, c.name)} cell={values[c.name]} onChange={(next) => setValues((s) => ({ ...s, [c.name]: next }))} />
               ))}
-            </div>
+            </AutoGrid>
           </ScrollArea>
         </DialogBody>
         <DialogFooter>
