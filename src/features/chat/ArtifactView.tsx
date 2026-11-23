@@ -1,4 +1,5 @@
 // SOT: agent-artifact-view, agent-generated-ui, agent-ui-blocks, chat-chart, chat-graph, chat-result-grid, live-chart-switch
+import { AutoGrid } from "@/components/global/Layout";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
 import type { AgentArtifact, DocumentKind, Engine, QueryOutcome, UiBlock, UiStat, UiTone, WidgetKind } from "@/lib/bindings";
 import { BarChart, LineChart, PieChart, SERIES_COLORS, chartData } from "@/features/dashboards/charts";
@@ -9,6 +10,7 @@ import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/stores/workspace";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ResultTable, ResultToolbar } from "./InlineResult";
 import { Markdown } from "./Markdown";
 import { ipcMessage } from "./ipcMessage";
@@ -169,7 +171,7 @@ function MiniGraph({ graph }: { graph: Graph }) {
 
 function StatsRow({ stats }: { stats: UiStat[] }) {
   return (
-    <div className="grid grid-cols-2 gap-2 p-2 sm:grid-cols-3 lg:grid-cols-4">
+    <AutoGrid min="xs" className="p-2">
       {stats.map((stat) => (
         <div key={stat.label} className="rounded-lg border border-border/40 bg-surface-secondary/40 p-2">
           <p className="truncate text-[10px] text-muted">{stat.label}</p>
@@ -186,7 +188,7 @@ function StatsRow({ stats }: { stats: UiStat[] }) {
           </div>
         </div>
       ))}
-    </div>
+    </AutoGrid>
   );
 }
 
@@ -210,19 +212,23 @@ function ChartSwitch({ form, onChange }: { form: WidgetKind; onChange: (next: Wi
   return (
     <div className="flex shrink-0 items-center gap-0.5 rounded-lg bg-surface-secondary/70 p-0.5">
       {CHART_FORMS.map((option) => (
-        <button
-          key={option.value}
-          type="button"
-          aria-label={option.label}
-          title={option.label}
-          onClick={() => onChange(option.value)}
-          className={cn(
-            "flex size-5 items-center justify-center rounded transition-colors",
-            form === option.value ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground",
-          )}
-        >
-          <Icon name={option.icon} size={10} />
-        </button>
+        <Tooltip key={option.value}>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={option.label}
+              aria-pressed={form === option.value}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "flex size-5 items-center justify-center rounded transition-colors",
+                form === option.value ? "bg-accent/15 text-accent" : "text-muted hover:text-foreground",
+              )}
+            >
+              <Icon name={option.icon} size={10} />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>{option.label}</TooltipContent>
+        </Tooltip>
       ))}
     </div>
   );

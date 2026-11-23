@@ -6,6 +6,7 @@ import { readStored, writeStored } from "@/lib/storage";
 import { useWorkspace } from "@/stores/workspace";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { InfoTip, WithTip } from "@/components/global/InfoTip";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { DATA_ACCESS_OPTIONS } from "./access";
@@ -82,13 +83,21 @@ export function AiWelcomeDialog({ settings, onClose }: { settings: AppSettings; 
             <Icon name="sparkles" size={16} />
           </div>
           <DialogTitle>Meet your database assistant</DialogTitle>
-          <DialogDescription>
-            Ask questions in plain language. It reads your schema, writes and runs queries, draws charts, and builds
-            dashboards, workflows and diagrams you can keep. It asks before it changes anything.
+          <DialogDescription className="flex items-center gap-1">
+            Ask in plain language; it asks before it changes anything.
+            <InfoTip label="What the assistant does">
+              It reads your schema, writes and runs queries, draws charts, and builds dashboards, workflows and diagrams you can keep.
+            </InfoTip>
           </DialogDescription>
         </DialogHeader>
         <DialogBody className="space-y-2">
-          <p className="text-xs font-medium text-foreground">What may it see?</p>
+          <WithTip
+            className="text-xs font-medium text-foreground"
+            tipLabel="About data access"
+            tip="You bring your own provider and key; nothing goes through DB Free. You can change this any time in Settings → AI."
+          >
+            What may it see?
+          </WithTip>
           <div className="space-y-2" role="radiogroup" aria-label="Data access">
             {DATA_ACCESS_OPTIONS.filter((option) => option.value !== "off").map((option) => (
               <button
@@ -117,9 +126,6 @@ export function AiWelcomeDialog({ settings, onClose }: { settings: AppSettings; 
               </button>
             ))}
           </div>
-          <p className="text-[11px] text-muted">
-            You bring your own provider and key; nothing goes through DB Free. You can change this any time in Settings → AI.
-          </p>
         </DialogBody>
         <DialogFooter>
           <Button variant="tertiary" disabled={saving} onClick={keepOff}>
