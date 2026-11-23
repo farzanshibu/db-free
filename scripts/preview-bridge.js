@@ -18,9 +18,11 @@
     commandMenuSections: ["create", "navigation", "connections", "tables", "saved_queries", "settings"],
     inspectorTabs: ["columns", "indexes", "keys"],
     confirmDestructive: true, crashReportsOptIn: false,
-    ai: { provider: "openai", model: "gpt-4o-mini", baseUrl: null, hasApiKey: false, autonomy: "ask" },
+    ai: { provider: "openai", model: "gpt-4o-mini", baseUrl: null, hasApiKey: false, autonomy: "ask", dataAccess: "schema", defaultProfile: null, profiles: [], maxSteps: 12 },
     keybindings: [],
     openConnectionsInNewWindow: false, uiZoom: 1, reuseTablePreviewTab: false, gridScrollbarSize: "standard", datePickerEnabled: true,
+    nativeToolPaths: {}, showPinned: true, showRecents: true, defaultPageSize: 100,
+    logRetentionDays: 30, inlineAiPromptAsComment: false,
     commandMenuHiddenSections: [], customThemes: [], checkUpdatesOnLaunch: true,
     snippets: [{ prefix: "audit", name: "Audit columns", body: "created_at, updated_at, created_by", language: "sql" }],
   };
@@ -32,6 +34,9 @@
       database: database, username: "app", filePath: null, sslMode: "prefer",
       ssh: { enabled: false, host: null, port: 22, user: null, auth: "password", keyPath: null, hostKey: null }, hasSshSecret: false, folder: null, color: null, favorite: false,
       hasSecret: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z",
+      extra: { uriParams: null, srv: false, tls: { ca: null, cert: null, key: null }, tagIds: [], folderIds: [], transient: false, tunnelOriginHost: null },
+      auth: { method: "password" },
+      hasAuthSecrets: { awsSecretAccessKey: false, awsSessionToken: false, azureClientSecret: false, azurePassword: false, azureAccessToken: false, gcpServiceAccountJson: false },
     };
   }
 
@@ -110,6 +115,12 @@
       tools: ["stats", "erd"], serverVersion: "PostgreSQL 16.2",
       database: "app_dev", databases: ["app_dev", "app_test", "postgres"],
     },
+    credential_status: { storage: "keychain", keyPath: null, lost: false, lostSecrets: 0 },
+    list_connection_org: { tags: [], folders: [] },
+    list_table_tags: { tags: [], links: [], untaggedCollapsed: [] },
+    ping_session: 4,
+    list_pins: [],
+    list_recents: [],
     load_catalog: catalog,
     load_columns: columns,
     load_ddl: "create table public.orders (\n  id int4 primary key,\n  customer_id int4 not null,\n  total numeric(10,2)\n);",
@@ -142,6 +153,9 @@
         var opened = connections.find(function (c) { return c.id === (req && req.id); }) || connections[0];
         return Promise.resolve(clone(opened));
       }
+      // Tauri plugins (event listeners, window, menu, dialog…) have no backend
+      // here: answer with nothing so listeners register as no-ops.
+      if (cmd.indexOf("plugin:") === 0) return Promise.resolve(null);
       if (Object.prototype.hasOwnProperty.call(responses, cmd)) {
         return Promise.resolve(clone(responses[cmd]));
       }
@@ -153,6 +167,8 @@
     transformCallback: function (cb) { var id = Math.random(); window["_cb" + id] = cb; return id; },
     unregisterCallback: function () {},
     convertFileSrc: function (p) { return p; },
+    // `getCurrentWindow()` / `getCurrentWebview()` read their labels from here.
+    metadata: { currentWindow: { label: "main" }, currentWebview: { windowLabel: "main", label: "main" } },
   };
 
   console.info("[db-free] UI preview: the Rust core is stubbed. Data here is fixtures.");
