@@ -2,6 +2,8 @@
 import { useMemo, useState } from "react";
 import type { DdlOperation, DdlProfile, TableRef } from "@/lib/bindings";
 import { AppSelect, Toggle, type Option } from "@/components/global/Field";
+import { Disclosure } from "@/components/global/Disclosure";
+import { AutoGrid } from "@/components/global/Layout";
 import { blankDraft, hasColumns, nounOf, qualifiedLabel, toTableSpec, withColumns, type TableDraft } from "../ddlForm";
 import { validateDraft } from "../ddlRules";
 import { ColumnGrid } from "./ColumnGrid";
@@ -50,12 +52,17 @@ function CreateForm({ profile, connectionId, schema, onClose }: CreateTableDialo
 
   const columnNames = draft.columns.filter((c) => !c.removed).map((c) => c.name);
   const engineOptions: Option<string>[] = profile.engines.map((e) => ({ value: e, label: e }));
+  // Storage (engine, ORDER BY) and IF NOT EXISTS are rarely changed: they sit
+  // under Advanced, opened when one differs from what `blankDraft` set.
+  const tableEngine = hasColumns(profile) && profile.support.tableEngine;
+  const advancedCount = tableEngine ? 3 : 1;
+  const advancedChanged = draft.ifNotExists || draft.orderBy.length > 0 || (tableEngine && draft.engine !== (profile.engines[0] ?? null));
 
   return (
     <DdlDialog
       connectionId={connectionId}
       title={`New ${noun}`}
-      description={`Describe the ${noun}; the statement is written for ${profile.dialect} and shown below before it runs.`}
+      description={`Written for ${profile.dialect}, previewed before it runs.`}
       wide={hasColumns(profile)}
       runner={runner}
       ready={ready}
@@ -89,20 +96,24 @@ function CreateForm({ profile, connectionId, schema, onClose }: CreateTableDialo
               lock={null}
             />
           ) : null}
-          {profile.support.tableEngine ? (
-            <section className="grid grid-cols-1 gap-2 sm:grid-cols-2" aria-label="Table engine">
+        </>
+      ) : (
+        <p className="text-xs text-muted">No fixed columns: it fills as documents are inserted.</p>
+      )}
+      <Disclosure label="Advanced" count={advancedCount} defaultOpen={advancedChanged}>
+        {tableEngine ? (
+          <section aria-label="Table engine">
+            <AutoGrid min="sm">
               <AppSelect label="Engine" value={draft.engine ?? ""} options={engineOptions} onChange={(engine) => { setDraft((d) => ({ ...d, engine })); }} />
               <div className="flex flex-col gap-1.5">
                 <span className="text-xs font-medium text-muted">Order by</span>
                 <MultiPick options={columnNames} value={draft.orderBy} onChange={(orderBy) => { setDraft((d) => ({ ...d, orderBy })); }} ariaLabel="Order by columns" placeholder="Primary key columns" />
               </div>
-            </section>
-          ) : null}
-        </>
-      ) : (
-        <p className="text-xs text-muted">A {noun} has no fixed columns; it is created empty and fills as documents are inserted.</p>
-      )}
-      <Toggle checked={draft.ifNotExists} onChange={(ifNotExists) => { setDraft((d) => ({ ...d, ifNotExists })); }} label={`Skip if the ${noun} already exists (IF NOT EXISTS)`} />
+            </AutoGrid>
+          </section>
+        ) : null}
+        <Toggle checked={draft.ifNotExists} onChange={(ifNotExists) => { setDraft((d) => ({ ...d, ifNotExists })); }} label={`Skip if the ${noun} already exists (IF NOT EXISTS)`} />
+      </Disclosure>
       {issues.general.map((message) => (
         <p key={message} className="text-[11px] text-danger">
           {message}

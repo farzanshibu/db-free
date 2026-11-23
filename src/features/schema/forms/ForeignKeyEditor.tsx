@@ -9,6 +9,7 @@ import { Icon } from "@/lib/icons";
 import { tableKey, useWorkspace } from "@/stores/workspace";
 import { FK_ACTIONS, blankForeignKey, qualifiedLabel, type ForeignKeyDraft } from "../ddlForm";
 import { describeForeignKey } from "../ddlRules";
+import { LockTip } from "./LockTip";
 import { MultiPick } from "./MultiPick";
 
 // WHAT:  The foreign-key list of a table form: one card per constraint with its
@@ -67,12 +68,12 @@ export function ForeignKeyEditor({ connectionId, own, columnNames, foreignKeys, 
     <section className="flex flex-col gap-2" aria-label="Foreign keys">
       <div className="flex items-center justify-between">
         <h3 className="text-xs font-semibold tracking-wider text-muted uppercase">Foreign keys</h3>
-        <span title={lock ?? undefined}>
+        <LockTip reason={lock}>
           <Button size="sm" variant="ghost" className="text-muted" disabled={lock !== null || columnNames.length === 0} onClick={() => { onChange([...foreignKeys, blankForeignKey(columnNames)]); }}>
             <Icon name="plus" size={12} />
             Add foreign key
           </Button>
-        </span>
+        </LockTip>
       </div>
       {foreignKeys.length === 0 ? <p className="text-xs text-muted">{lock ?? "No foreign keys."}</p> : null}
       {foreignKeys.map((fk) =>
@@ -88,9 +89,9 @@ export function ForeignKeyEditor({ connectionId, own, columnNames, foreignKeys, 
                 Undo
               </Button>
             ) : (
-              <span title={lock ?? undefined}>
+              <LockTip reason={lock}>
                 <IconButton icon="trash" label="Drop foreign key" disabled={lock !== null} onClick={() => { patch(fk.key, { removed: true }); }} />
-              </span>
+              </LockTip>
             )}
           </div>
         ) : (

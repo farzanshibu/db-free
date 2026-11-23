@@ -31,7 +31,7 @@ export function TableNameFields({ connectionId, noun, name, onName, nameIssue, n
   const choosable = onSchema !== undefined && schemas.length > 1;
   return (
     <div className="grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,14rem)]">
-      <div title={nameLock ?? undefined}>
+      <div>
         <Field
           label={`${noun} name`}
           value={name}
