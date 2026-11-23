@@ -18,10 +18,10 @@ export function HomeSection({ showPinned, showRecents, onChange }: HomeSectionPr
   return (
     <>
       <h2 className="text-[13px] font-semibold text-foreground">Home</h2>
-      <Row title="Show Pinned on Home" body="The board of pinned connections, tables, saved queries, dashboards, workflows and diagrams.">
+      <Row title="Show pinned on Home" body="The board of pinned connections, tables, saved queries, dashboards, workflows and diagrams.">
         <Toggle checked={showPinned} onChange={(value) => onChange({ showPinned: value })} label="" />
       </Row>
-      <Row title="Show Recents on Home" body="What you opened lately, as shortcuts. Clear removes them; turning this off only hides them.">
+      <Row title="Show recents on Home" body="What you opened lately, as shortcuts. Clear removes them; turning this off only hides them.">
         <Toggle checked={showRecents} onChange={(value) => onChange({ showRecents: value })} label="" />
       </Row>
     </>

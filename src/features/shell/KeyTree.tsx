@@ -124,7 +124,7 @@ function RedisKeyTree({ connectionId }: { connectionId: string }) {
   return (
     <div className="flex min-h-0 flex-col">
       <div className="sticky top-0 z-10 flex items-center gap-1 bg-surface-secondary/60 px-1.5 pb-1 backdrop-blur">
-        <SearchInput value={query} onChange={setQuery} aria-label="Search keys" placeholder="Search keys on the server…" className="glass-input h-6 min-w-0 flex-1 rounded-md text-xs" />
+        <SearchInput value={query} onChange={setQuery} aria-label="Search keys" placeholder="Search keys…" className="glass-input h-6 min-w-0 flex-1 rounded-md text-xs" />
         <IconButton
           icon={previews ? "eye-off" : "eye"}
           label={previews ? "Hide values" : "Show values"}

@@ -213,7 +213,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             ) : null}
             {section === "editor" ? (
               <>
-                <h2 className="text-[13px] font-semibold text-foreground">Query Behaviour</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Query behaviour</h2>
                 <Row title="Max query rows" body="Caps how many rows a query in the editor returns. Larger results are trimmed to this limit to keep the app fast; the results banner says when that happened.">
                   <AppSelect
                     ariaLabel="Max query rows"
@@ -230,16 +230,16 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     className="w-40"
                   />
                 </Row>
-                <Row title="Show Results Pane When Running a Query" body="Automatically expand the SQL results pane when you run a query.">
+                <Row title="Show results when a query runs" body="Automatically expand the SQL results pane when you run a query.">
                   <Toggle checked={draft.showResultsPane} onChange={(v) => patch({ showResultsPane: v })} label="" />
                 </Row>
-                <Row title="Condense SQL When Formatting" body="Keep lists and expressions on a single line when you use Format.">
+                <Row title="Condense SQL when formatting" body="Keep lists and expressions on a single line when you use Format.">
                   <Toggle checked={draft.condenseSqlWhenFormatting} onChange={(v) => patch({ condenseSqlWhenFormatting: v })} label="" />
                 </Row>
-                <Row title="Run Without a Selection" body="Run every statement in the editor, or just the statement your cursor is in.">
+                <Row title="Run without a selection" body="Run every statement in the editor, or just the statement your cursor is in.">
                   <AppSelect<RunScope> ariaLabel="Run scope" value={draft.runScope} options={[{ value: "all", label: "All statements" }, { value: "current", label: "Current statement" }]} onChange={(v) => patch({ runScope: v })} className="w-48" />
                 </Row>
-                <Row title="Keep Query Log For" body="Statements the app logs are deleted after this long, when the app starts. The log is what the History tab and the editor's history panel show.">
+                <Row title="Keep query log for" body="Statements the app logs are deleted after this long, when the app starts. The log is what the History tab and the editor's history panel show.">
                   <AppSelect
                     ariaLabel="Query log retention"
                     value={String(draft.logRetentionDays)}
@@ -255,10 +255,10 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     className="w-40"
                   />
                 </Row>
-                <Row title="Keep AI Prompt as a Comment" body="When the editor's inline AI (⌘I) writes code, put your instruction above it as a comment.">
+                <Row title="Keep AI prompt as a comment" body="When the editor's inline AI (⌘I) writes code, put your instruction above it as a comment.">
                   <Toggle checked={draft.inlineAiPromptAsComment} onChange={(v) => patch({ inlineAiPromptAsComment: v })} label="" />
                 </Row>
-                <Row title="Execution Mode" body="Review Mode queues changes for review before applying. Direct Mode applies changes immediately.">
+                <Row title="Execution mode" body="Review Mode queues changes for review before applying. Direct Mode applies changes immediately.">
                   <AppSelect<ExecutionMode> ariaLabel="Execution mode" value={draft.executionMode} options={[{ value: "review", label: "Review Mode" }, { value: "direct", label: "Direct Mode" }]} onChange={(v) => patch({ executionMode: v })} className="w-48" />
                 </Row>
                 <Separator />
