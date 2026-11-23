@@ -84,7 +84,7 @@ function RemoveForm({ profile, connectionId, table, tableKind, action, onClose }
             checked={cascade}
             onChange={setCascade}
             label={action === "truncate" ? "Also empty tables that reference it (CASCADE)" : "Also delete objects that depend on it (CASCADE)"}
-            description="Only where the engine has CASCADE; the statement below shows what will run."
+            tip="Only where the engine has CASCADE; the statement below shows what will run."
           />
 
           {action === "drop" ? <Toggle checked={ifExists} onChange={setIfExists} label="Skip if it does not exist (IF EXISTS)" /> : null}

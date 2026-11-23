@@ -17,9 +17,10 @@ import { Icon } from "@/lib/icons";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ConfirmDialog } from "@/components/global/ConfirmDialog";
+import { Disclosure } from "@/components/global/Disclosure";
+import { Page, PageHeader } from "@/components/global/Layout";
 import { ConnectionOptionsFields } from "./ConnectionOptionsFields";
 import { ConnectionStringBox } from "./ConnectionStringBox";
 import { DatabaseDropZone } from "./DatabaseDropZone";
@@ -75,6 +76,8 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
   const [testing, setTesting] = useState(false);
   const [saving, setSaving] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  // Organisation fields start open when they already hold something.
+  const [organizeOpen, setOrganizeOpen] = useState(() => input.favorite || input.color !== null || input.extra.folderIds.length > 0 || input.extra.tagIds.length > 0);
   const [section, setSection] = useState<Section>("general");
   const [issues, setIssues] = useState<ConnectionFieldIssue[]>([]);
   // Field messages appear after the first Test / Save attempt, then follow the input.
@@ -245,236 +248,226 @@ function ConnectionFormBody({ editing, preset, draft }: { editing: ConnectionSum
   };
 
   return (
-    <div className="grid-bg flex h-full min-h-0 flex-1 flex-col">
-      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onClick={editing ? goConnections : goPicker} className="rounded-md text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
-          <Icon name="chevron-left" size={14} />
-          Back
-        </Button>
-        <span className="text-[13px] font-semibold text-foreground tracking-tight" data-tauri-drag-region>
-          {editing ? "Edit Connection" : preset ? `New ${preset.label} Connection` : "New Connection"}
-        </span>
-        <div className="drag-region h-full flex-1" data-tauri-drag-region />
-      </div>
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <Page header={<PageHeader title={editing ? "Edit Connection" : preset ? `New ${preset.label} Connection` : "New Connection"} onBack={editing ? goConnections : goPicker} />}>
+        {/* WHAT:  Two cards side by side on a wide window, stacked on a narrow
+            one: who the connection is (name, type, environment, organisation)
+            and how to reach it (address, sign-in, TLS, SSH). */}
+        <div className="@container">
+          <div className="grid items-start gap-3 @4xl:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+            <Card className="glass-card rounded-lg p-3 shadow-xs flex flex-col gap-3 border-border/40">
+              <CardContent className="flex flex-col gap-3 p-0">
+                <Field label="Connection Name" value={input.name} onChange={(name) => patch({ name })} placeholder="local-db" autoFocus />
+                <FieldIssue message={issueFor(issues, "name")} />
+                <AppSelect label="Type" value={input.engine} options={ENGINE_ORDER.map((e) => ({ value: e, label: `${engineMeta(e).label} · ${categoryLabel(engineMeta(e).kind)}`, leading: <EngineIcon engine={e} size={14} /> }))} onChange={changeEngine} />
+                <ConnectionStringBox engine={input.engine} onApply={applyParsed} />
+                <AppSelect label="Environment" value={input.environment} options={ENVIRONMENT_ORDER.map((e) => ({ value: e, label: environmentMeta(e).label }))} onChange={changeEnvironment} />
+                <Toggle checked={input.readOnly} onChange={(readOnly) => patch({ readOnly })} label="Read-only lock" tip="Blocks every write and DDL statement on this connection. On by default for Production." />
+                <Disclosure label="Organize" count={4} open={organizeOpen} onOpenChange={setOrganizeOpen} className="gap-3">
+                  <FolderPicker selected={input.extra.folderIds} onChange={(folderIds) => { patch({ extra: { ...input.extra, folderIds } }); }} />
+                  <TagPicker selected={input.extra.tagIds} onChange={(tagIds) => { patch({ extra: { ...input.extra, tagIds } }); }} />
+                  <ColorSwatches value={input.color} onChange={(color) => patch({ color })} />
+                  <Toggle checked={input.favorite} onChange={(favorite) => patch({ favorite })} label="Favourite" tip="Listed first, on the connections page and in the sidebar switcher." />
+                </Disclosure>
+              </CardContent>
+            </Card>
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto flex w-full max-w-[640px] flex-col gap-3 px-4 pt-3 pb-4">
-          <Card className="glass-card rounded-lg p-3 shadow-xs flex flex-col gap-3 border-border/40">
-            <CardContent className="flex flex-col gap-3 p-0">
-              <AppSelect label="Type" value={input.engine} options={ENGINE_ORDER.map((e) => ({ value: e, label: `${engineMeta(e).label} · ${categoryLabel(engineMeta(e).kind)}`, leading: <EngineIcon engine={e} size={14} /> }))} onChange={changeEngine} />
-              {notice !== null ? (
-                <Alert variant={notice.tone === "warning" ? "warning" : "default"} className="rounded-lg">
-                  <AlertIndicator />
-                  <AlertContent>
-                    <AlertDescription>{notice.text}</AlertDescription>
-                  </AlertContent>
-                </Alert>
-              ) : null}
-              <ConnectionStringBox engine={input.engine} onApply={applyParsed} />
-              <Field label="Connection Name" value={input.name} onChange={(name) => patch({ name })} placeholder="local-db" autoFocus />
-              <FieldIssue message={issueFor(issues, "name")} />
-              <AppSelect label="Environment" value={input.environment} options={ENVIRONMENT_ORDER.map((e) => ({ value: e, label: environmentMeta(e).label }))} onChange={changeEnvironment} />
-              <FolderPicker selected={input.extra.folderIds} onChange={(folderIds) => { patch({ extra: { ...input.extra, folderIds } }); }} />
-              <TagPicker selected={input.extra.tagIds} onChange={(tagIds) => { patch({ extra: { ...input.extra, tagIds } }); }} />
-              <ColorSwatches value={input.color} onChange={(color) => patch({ color })} />
-
-              {meta.form === "file" ? (
-                <div className="flex flex-col gap-2">
-                  <Field
-                    label={labels.filePath}
-                    value={input.filePath ?? ""}
-                    onChange={(filePath) => patch({ filePath })}
-                    placeholder={input.engine === "rocksdb" ? "/path/to/rocksdb-dir" : input.engine === "duckdb" ? "/path/to/analytics.duckdb" : "/path/to/database.sqlite"}
-                    suffix={<Button variant="secondary" size="sm" onClick={() => void browse()} className="rounded-md">Browse…</Button>}
-                  />
-                  <FieldIssue message={issueFor(issues, "file_path")} />
-                  <DatabaseDropZone onPath={fillFilePath} noun={input.engine === "rocksdb" ? "RocksDB directory" : "database file"} />
-                </div>
-              ) : meta.form === "http_token" ? (
-                <div className="flex flex-col gap-3">
-                  <Field label={labels.host} value={input.host ?? ""} onChange={(host) => patch({ host })} placeholder={meta.hostPlaceholder ?? (meta.defaultPort !== null ? `http://localhost:${meta.defaultPort}` : "https://…")} mono />
-                  {meta.fields?.database !== undefined || meta.defaultDatabase.length > 0 ? (
-                    <Field label={labels.database} value={input.database ?? ""} onChange={(database) => patch({ database })} placeholder={meta.defaultDatabase.length > 0 ? meta.defaultDatabase : ""} optional={input.engine !== "cloudflare_d1"} />
-                  ) : null}
-                  {meta.fields?.username !== undefined ? (
-                    <Field label={labels.username} value={input.username ?? ""} onChange={(username) => patch({ username })} placeholder={meta.defaultUser} optional />
-                  ) : null}
-                  <Field
-                    label={labels.password}
-                    type={showPassword ? "text" : "password"}
-                    value={input.password ?? ""}
-                    onChange={(password) => patch({ password })}
-                    placeholder={editing && !input.password ? "•••••••• (unchanged)" : ""}
-                    optional
-                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
-                  />
-                  <AppSelect label="TLS" value={input.sslMode} options={SSL_MODES} onChange={(sslMode) => patch({ sslMode })} />
-                  <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
-                    <Icon name="lock" size={12} className="text-accent" />
-                    Keychain enabled — your {meta.label} secret is stored with AES-256-GCM.
-                  </p>
-                </div>
-              ) : meta.form === "aws" ? (
-                <AuthSection input={input} editing={editing} patch={patch} />
-              ) : meta.form === "gcp" ? (
-                <div className="flex flex-col gap-3">
-                  <Field label={labels.database} value={input.database ?? ""} onChange={(database) => patch({ database })} placeholder="my-gcp-project" mono />
-                  <Field label={labels.username} value={input.username ?? ""} onChange={(username) => patch({ username })} placeholder={input.engine === "firestore" ? "(default)" : "dataset_name"} optional />
-                  <Field
-                    label={labels.password}
-                    type={showPassword ? "text" : "password"}
-                    value={input.password ?? ""}
-                    onChange={(password) => patch({ password })}
-                    placeholder={editing && !input.password ? "•••••••• (unchanged)" : "Paste the service-account JSON key, or an OAuth access token"}
-                    mono
-                    suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
-                  />
-                  <Field label="Emulator host" value={input.host ?? ""} onChange={(host) => patch({ host })} placeholder="localhost:8080 (leave empty for Google Cloud)" optional mono />
-                  <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
-                    <Icon name="lock" size={12} className="text-accent" />
-                    A short-lived access token is minted locally from the service-account key (RS256 JWT).
-                  </p>
-                </div>
-              ) : (
-                <Tabs value={section} onValueChange={(next) => { setSection(asSection(next)); }} className="w-full">
-                  <TabsList className="glass-pill border border-border/40 p-0.5">
-                    <TabsTrigger value="general">General</TabsTrigger>
-                    <TabsTrigger value="ssl">SSL / TLS</TabsTrigger>
-                    <TabsTrigger value="ssh">
-                      SSH
-                      {input.ssh.enabled ? <span className="size-1.5 rounded-full bg-accent" aria-label="tunnel on" /> : null}
-                    </TabsTrigger>
-                  </TabsList>
-                  <TabsContent value="general" className="flex flex-col gap-3 pt-2.5">
-                    <div className={input.extra.srv ? "" : "grid grid-cols-[1fr_120px] gap-2"}>
-                      <Field label={input.extra.srv ? "Cluster host (SRV name)" : labels.host} value={input.host ?? ""} onChange={changeHost} placeholder={input.extra.srv ? "cluster0.abc12.mongodb.net" : (meta.hostPlaceholder ?? "localhost")} />
-                      {input.extra.srv ? null : (
-                        <Field label={labels.port} type="number" value={input.port !== null ? String(input.port) : ""} onChange={(port) => patch({ port: port === "" ? null : Number(port) })} placeholder={String(meta.defaultPort ?? "")} />
-                      )}
-                    </div>
-                    <FieldIssue message={issueFor(issues, "host") ?? issueFor(issues, "port")} />
-                    {suggestedEngine !== input.engine ? (
-                      <Alert variant="default" className="rounded-lg">
-                        <AlertIndicator />
-                        <AlertContent className="gap-2">
-                          <AlertDescription>This address belongs to {engineMeta(suggestedEngine).label}. Its preset sets the right TLS mode and shows its connection tips.</AlertDescription>
-                          <div>
-                            <Button variant="secondary" size="sm" onClick={useSuggestedEngine}>
-                              Use the {engineMeta(suggestedEngine).label} preset
-                            </Button>
-                          </div>
-                        </AlertContent>
-                      </Alert>
-                    ) : null}
-                    <Field label={labels.database} value={input.database ?? ""} onChange={(database) => patch({ database })} placeholder={meta.defaultDatabase.length > 0 ? meta.defaultDatabase : "mydb"} optional />
-                    <FieldIssue message={issueFor(issues, "database")} />
-                    <AuthSection input={input} editing={editing} patch={patch} />
-                    {authShowsUser(input) ? <Field label={labels.username} value={input.username ?? ""} onChange={(username) => patch({ username })} placeholder={meta.defaultUser} optional={meta.defaultUser.length === 0} /> : null}
-                    <FieldIssue message={issueFor(issues, "username")} />
-                    {authUsesPassword(input) ? (
-                      <>
-                        <Field
-                          label={labels.password}
-                          type={showPassword ? "text" : "password"}
-                          value={input.password ?? ""}
-                          onChange={(password) => patch({ password })}
-                          placeholder={editing && !input.password ? "•••••••• (unchanged)" : "secret"}
-                          suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((v) => !v)} />}
-                        />
-                        <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
-                          <Icon name="lock" size={12} className="text-accent" />
-                          Keychain enabled — stored with AES-256-GCM; the key never leaves your OS keychain.
-                        </p>
-                      </>
-                    ) : null}
-                    <ConnectionOptionsFields input={input} patch={patch} issues={issues} />
-                  </TabsContent>
-                  <TabsContent value="ssl" className="flex flex-col gap-3 pt-2.5">
-                    <AppSelect label="SSL mode" value={input.sslMode} options={SSL_MODES} onChange={(sslMode) => patch({ sslMode })} />
-                    {input.ssh.enabled ? (
-                      <p className="-mt-2 flex items-start gap-1.5 text-xs text-muted">
-                        <Icon name="info" size={12} className="mt-0.5 shrink-0 text-accent" />
-                        Through the SSH tunnel SQL Server checks the certificate against the real server name. PostgreSQL and MySQL check the certificate chain but cannot check the name, so “Verify full” runs as “Verify CA”.
-                      </p>
-                    ) : null}
-                    <TlsFilesSection input={input} patch={patch} issues={issues} />
-                  </TabsContent>
-                  {/* WHAT:  SSH tunnel through a bastion host. The database host
-                      and port on the General tab are resolved *from the SSH
-                      host*, so a private address like 10.0.0.5 works here. */}
-                  <TabsContent value="ssh" className="flex flex-col gap-3 pt-2.5">
-                    <Toggle
-                      checked={input.ssh.enabled}
-                      onChange={(enabled) => patchSsh({ enabled })}
-                      label="Connect through an SSH tunnel"
-                      description="The database host above is reached from the SSH server, not from this machine."
+            <Card className="glass-card rounded-lg p-3 shadow-xs flex flex-col gap-3 border-border/40">
+              <CardContent className="flex flex-col gap-3 p-0">
+                {notice !== null ? (
+                  <Alert variant={notice.tone === "warning" ? "warning" : "default"} className="rounded-lg">
+                    <AlertIndicator />
+                    <AlertContent>
+                      <AlertDescription>{notice.text}</AlertDescription>
+                    </AlertContent>
+                  </Alert>
+                ) : null}
+                {meta.form === "file" ? (
+                  <div className="flex flex-col gap-2">
+                    <Field
+                      label={labels.filePath}
+                      value={input.filePath ?? ""}
+                      onChange={(filePath) => patch({ filePath })}
+                      placeholder={input.engine === "rocksdb" ? "/path/to/rocksdb-dir" : input.engine === "duckdb" ? "/path/to/analytics.duckdb" : "/path/to/database.sqlite"}
+                      suffix={<Button variant="secondary" size="sm" onClick={() => void browse()} className="rounded-md">Browse…</Button>}
                     />
-                    {input.ssh.enabled ? (
-                      <>
-                        <SshConfigImport onPick={(host) => { setInput((prev) => ({ ...prev, ssh: sshFromConfigHost(prev.ssh, host) })); }} />
-                        <div className="grid grid-cols-[1fr_120px] gap-2">
-                          <Field label="SSH host" value={input.ssh.host ?? ""} onChange={(host) => patchSsh({ host })} placeholder="bastion.example.com" mono />
-                          <Field label="SSH port" type="number" value={String(input.ssh.port)} onChange={(port) => patchSsh({ port: port === "" ? 22 : Number(port) })} placeholder="22" />
-                        </div>
-                        <FieldIssue message={issueFor(issues, "ssh_host") ?? issueFor(issues, "ssh_port")} />
-                        <Field label="SSH user" value={input.ssh.user ?? ""} onChange={(user) => patchSsh({ user })} placeholder="ubuntu" />
-                        <FieldIssue message={issueFor(issues, "ssh_user")} />
-                        <Segmented label="Authentication" value={input.ssh.auth} options={SSH_AUTH} onChange={(auth) => patchSsh({ auth })} />
-                        {input.ssh.auth === "private_key" ? (
-                          <Field
-                            label="Private key file"
-                            value={input.ssh.keyPath ?? ""}
-                            onChange={(keyPath) => patchSsh({ keyPath })}
-                            placeholder="~/.ssh/id_ed25519"
-                            mono
-                            suffix={<Button variant="secondary" size="sm" onClick={() => void browseKey()} className="rounded-md">Browse…</Button>}
-                          />
-                        ) : null}
-                        {input.ssh.auth === "private_key" ? <FieldIssue message={issueFor(issues, "ssh_key_path")} /> : null}
-                        <Field
-                          label={input.ssh.auth === "private_key" ? "Key passphrase" : "SSH password"}
-                          type={showPassword ? "text" : "password"}
-                          value={input.sshSecret ?? ""}
-                          onChange={(sshSecret) => patch({ sshSecret })}
-                          placeholder={savedSshSecret ? "•••••••• (unchanged)" : input.ssh.auth === "private_key" ? "only if the key is encrypted" : "secret"}
-                          optional={input.ssh.auth === "private_key"}
-                          suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
-                        />
-                        <Field
-                          label="Host key fingerprint"
-                          value={input.ssh.hostKey ?? ""}
-                          onChange={(hostKey) => patchSsh({ hostKey: hostKey.trim() === "" ? null : hostKey })}
-                          placeholder="Pinned on first connect (SHA256:…)"
-                          description="The SSH server must present this key. Clear it to trust a server that was re-keyed."
-                          optional
-                          mono
-                        />
-                        <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
-                          <Icon name="lock" size={12} className="text-accent" />
-                          The SSH password or passphrase is sealed with AES-256-GCM, like the database password.
-                        </p>
-                      </>
+                    <FieldIssue message={issueFor(issues, "file_path")} />
+                    <DatabaseDropZone onPath={fillFilePath} noun={input.engine === "rocksdb" ? "RocksDB directory" : "database file"} />
+                  </div>
+                ) : meta.form === "http_token" ? (
+                  <div className="flex flex-col gap-3">
+                    <Field label={labels.host} value={input.host ?? ""} onChange={(host) => patch({ host })} placeholder={meta.hostPlaceholder ?? (meta.defaultPort !== null ? `http://localhost:${meta.defaultPort}` : "https://…")} mono />
+                    {meta.fields?.database !== undefined || meta.defaultDatabase.length > 0 ? (
+                      <Field label={labels.database} value={input.database ?? ""} onChange={(database) => patch({ database })} placeholder={meta.defaultDatabase.length > 0 ? meta.defaultDatabase : ""} optional={input.engine !== "cloudflare_d1"} />
                     ) : null}
-                  </TabsContent>
-                </Tabs>
-              )}
+                    {meta.fields?.username !== undefined ? (
+                      <Field label={labels.username} value={input.username ?? ""} onChange={(username) => patch({ username })} placeholder={meta.defaultUser} optional />
+                    ) : null}
+                    <Field
+                      label={labels.password}
+                      type={showPassword ? "text" : "password"}
+                      value={input.password ?? ""}
+                      onChange={(password) => patch({ password })}
+                      placeholder={editing && !input.password ? "•••••••• (unchanged)" : ""}
+                      optional
+                      tip={`Sealed with AES-256-GCM; the key stays in your OS keychain.`}
+                      suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
+                    />
+                    <AppSelect label="TLS" value={input.sslMode} options={SSL_MODES} onChange={(sslMode) => patch({ sslMode })} />
+                  </div>
+                ) : meta.form === "aws" ? (
+                  <AuthSection input={input} editing={editing} patch={patch} />
+                ) : meta.form === "gcp" ? (
+                  <div className="flex flex-col gap-3">
+                    <Field label={labels.database} value={input.database ?? ""} onChange={(database) => patch({ database })} placeholder="my-gcp-project" mono />
+                    <Field label={labels.username} value={input.username ?? ""} onChange={(username) => patch({ username })} placeholder={input.engine === "firestore" ? "(default)" : "dataset_name"} optional />
+                    <Field
+                      label={labels.password}
+                      type={showPassword ? "text" : "password"}
+                      value={input.password ?? ""}
+                      onChange={(password) => patch({ password })}
+                      placeholder={editing && !input.password ? "•••••••• (unchanged)" : "Paste the service-account JSON key, or an OAuth access token"}
+                      mono
+                      tip="A short-lived access token is minted locally from the service-account key (RS256 JWT). The key is sealed with AES-256-GCM."
+                      suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
+                    />
+                    <Field label="Emulator host" value={input.host ?? ""} onChange={(host) => patch({ host })} placeholder="localhost:8080" tip="Leave empty for Google Cloud." optional mono />
+                  </div>
+                ) : (
+                  <Tabs value={section} onValueChange={(next) => { setSection(asSection(next)); }} className="w-full">
+                    <TabsList className="glass-pill border border-border/40 p-0.5">
+                      <TabsTrigger value="general">General</TabsTrigger>
+                      <TabsTrigger value="ssl">SSL / TLS</TabsTrigger>
+                      <TabsTrigger value="ssh">
+                        SSH
+                        {input.ssh.enabled ? <span className="size-1.5 rounded-full bg-accent" aria-label="tunnel on" /> : null}
+                      </TabsTrigger>
+                    </TabsList>
+                    <TabsContent value="general" className="flex flex-col gap-3 pt-2.5">
+                      <div className={input.extra.srv ? "" : "grid grid-cols-[1fr_120px] gap-2"}>
+                        <Field label={input.extra.srv ? "Cluster host (SRV name)" : labels.host} value={input.host ?? ""} onChange={changeHost} placeholder={input.extra.srv ? "cluster0.abc12.mongodb.net" : (meta.hostPlaceholder ?? "localhost")} />
+                        {input.extra.srv ? null : (
+                          <Field label={labels.port} type="number" value={input.port !== null ? String(input.port) : ""} onChange={(port) => patch({ port: port === "" ? null : Number(port) })} placeholder={String(meta.defaultPort ?? "")} />
+                        )}
+                      </div>
+                      <FieldIssue message={issueFor(issues, "host") ?? issueFor(issues, "port")} />
+                      {suggestedEngine !== input.engine ? (
+                        <Alert variant="default" className="rounded-lg">
+                          <AlertIndicator />
+                          <AlertContent className="gap-2">
+                            <AlertDescription>This address belongs to {engineMeta(suggestedEngine).label}.</AlertDescription>
+                            <div>
+                              <Button variant="secondary" size="sm" onClick={useSuggestedEngine}>
+                                Use the {engineMeta(suggestedEngine).label} preset
+                              </Button>
+                            </div>
+                          </AlertContent>
+                        </Alert>
+                      ) : null}
+                      <Field label={labels.database} value={input.database ?? ""} onChange={(database) => patch({ database })} placeholder={meta.defaultDatabase.length > 0 ? meta.defaultDatabase : "mydb"} optional />
+                      <FieldIssue message={issueFor(issues, "database")} />
+                      <AuthSection input={input} editing={editing} patch={patch} />
+                      {authShowsUser(input) ? <Field label={labels.username} value={input.username ?? ""} onChange={(username) => patch({ username })} placeholder={meta.defaultUser} optional={meta.defaultUser.length === 0} /> : null}
+                      <FieldIssue message={issueFor(issues, "username")} />
+                      {authUsesPassword(input) ? (
+                        <>
+                          <Field
+                            label={labels.password}
+                            type={showPassword ? "text" : "password"}
+                            value={input.password ?? ""}
+                            onChange={(password) => patch({ password })}
+                            placeholder={editing && !input.password ? "•••••••• (unchanged)" : "secret"}
+                            tip="Sealed with AES-256-GCM; the key never leaves your OS keychain."
+                            suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide password" : "Show password"} onClick={() => setShowPassword((v) => !v)} />}
+                          />
+                        </>
+                      ) : null}
+                      <ConnectionOptionsFields input={input} patch={patch} issues={issues} />
+                    </TabsContent>
+                    <TabsContent value="ssl" className="flex flex-col gap-3 pt-2.5">
+                      <AppSelect
+                        label="SSL mode"
+                        value={input.sslMode}
+                        options={SSL_MODES}
+                        onChange={(sslMode) => patch({ sslMode })}
+                        tip={input.ssh.enabled ? "Through the SSH tunnel SQL Server checks the certificate against the real server name. PostgreSQL and MySQL check the certificate chain but cannot check the name, so “Verify full” runs as “Verify CA”." : undefined}
+                      />
+                      <TlsFilesSection input={input} patch={patch} issues={issues} />
+                    </TabsContent>
+                    {/* WHAT:  SSH tunnel through a bastion host. The database host
+                        and port on the General tab are resolved *from the SSH
+                        host*, so a private address like 10.0.0.5 works here. */}
+                    <TabsContent value="ssh" className="flex flex-col gap-3 pt-2.5">
+                      <Toggle
+                        checked={input.ssh.enabled}
+                        onChange={(enabled) => patchSsh({ enabled })}
+                        label="Connect through an SSH tunnel"
+                        tip="The database host is reached from the SSH server, not from this machine."
+                      />
+                      {input.ssh.enabled ? (
+                        <>
+                          <SshConfigImport onPick={(host) => { setInput((prev) => ({ ...prev, ssh: sshFromConfigHost(prev.ssh, host) })); }} />
+                          <div className="grid grid-cols-[1fr_120px] gap-2">
+                            <Field label="SSH host" value={input.ssh.host ?? ""} onChange={(host) => patchSsh({ host })} placeholder="bastion.example.com" mono />
+                            <Field label="SSH port" type="number" value={String(input.ssh.port)} onChange={(port) => patchSsh({ port: port === "" ? 22 : Number(port) })} placeholder="22" />
+                          </div>
+                          <FieldIssue message={issueFor(issues, "ssh_host") ?? issueFor(issues, "ssh_port")} />
+                          <Field label="SSH user" value={input.ssh.user ?? ""} onChange={(user) => patchSsh({ user })} placeholder="ubuntu" />
+                          <FieldIssue message={issueFor(issues, "ssh_user")} />
+                          <Segmented label="Authentication" value={input.ssh.auth} options={SSH_AUTH} onChange={(auth) => patchSsh({ auth })} />
+                          {input.ssh.auth === "private_key" ? (
+                            <Field
+                              label="Private key file"
+                              value={input.ssh.keyPath ?? ""}
+                              onChange={(keyPath) => patchSsh({ keyPath })}
+                              placeholder="~/.ssh/id_ed25519"
+                              mono
+                              suffix={<Button variant="secondary" size="sm" onClick={() => void browseKey()} className="rounded-md">Browse…</Button>}
+                            />
+                          ) : null}
+                          {input.ssh.auth === "private_key" ? <FieldIssue message={issueFor(issues, "ssh_key_path")} /> : null}
+                          <Field
+                            label={input.ssh.auth === "private_key" ? "Key passphrase" : "SSH password"}
+                            type={showPassword ? "text" : "password"}
+                            value={input.sshSecret ?? ""}
+                            onChange={(sshSecret) => patch({ sshSecret })}
+                            placeholder={savedSshSecret ? "•••••••• (unchanged)" : input.ssh.auth === "private_key" ? "only if the key is encrypted" : "secret"}
+                            optional={input.ssh.auth === "private_key"}
+                            tip="Sealed with AES-256-GCM, like the database password."
+                            suffix={<IconButton icon={showPassword ? "eye-off" : "eye"} label={showPassword ? "Hide secret" : "Show secret"} onClick={() => setShowPassword((v) => !v)} />}
+                          />
+                          <Disclosure label="Advanced" count={1}>
+                            <Field
+                              label="Host key fingerprint"
+                              value={input.ssh.hostKey ?? ""}
+                              onChange={(hostKey) => patchSsh({ hostKey: hostKey.trim() === "" ? null : hostKey })}
+                              placeholder="Pinned on first connect (SHA256:…)"
+                              tip="The SSH server must present this key. Clear it to trust a server that was re-keyed."
+                              optional
+                              mono
+                            />
+                          </Disclosure>
+                        </>
+                      ) : null}
+                    </TabsContent>
+                  </Tabs>
+                )}
 
-              <Toggle checked={input.readOnly} onChange={(readOnly) => patch({ readOnly })} label="Read-only lock" description="Blocks every write and DDL statement on this connection. On by default for Production." />
-              <Toggle checked={input.favorite} onChange={(favorite) => patch({ favorite })} label="Favourite" description="Listed first, on the connections page and in the sidebar switcher." />
-
-              {status ? (
-                <Alert variant={status.tone === "ok" ? "success" : "danger"} className="rounded-lg font-mono text-xs">
-                  <AlertIndicator />
-                  <AlertContent>
-                    <AlertTitle className="font-sans font-semibold">{status.tone === "ok" ? "Success" : "Connection Error"}</AlertTitle>
-                    <AlertDescription className="selectable">{status.text}</AlertDescription>
-                  </AlertContent>
-                </Alert>
-              ) : null}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </div>
-      </ScrollArea>
+
+        {status ? (
+          <Alert variant={status.tone === "ok" ? "success" : "danger"} className="rounded-lg font-mono text-xs">
+            <AlertIndicator />
+            <AlertContent>
+              <AlertTitle className="font-sans font-semibold">{status.tone === "ok" ? "Success" : "Connection Error"}</AlertTitle>
+              <AlertDescription className="selectable">{status.text}</AlertDescription>
+            </AlertContent>
+          </Alert>
+        ) : null}
+      </Page>
 
       <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border/40 glass-header px-3 py-1.5">
         {editing ? (

@@ -157,7 +157,8 @@ function NamespaceForm({ profile, caps, title, connectionId, namespace, step, na
             checked={cascade}
             onChange={setCascade}
             label="Also delete everything inside it (CASCADE)"
-            description={cascade ? "Every table, view and object in it is deleted with it." : "Without CASCADE the server refuses while the schema is not empty, where it supports the keyword."}
+            description={cascade ? "Every table, view and object in it is deleted with it." : ""}
+            tip="Without CASCADE the server refuses while the schema is not empty, where it supports the keyword."
           />
           <Toggle checked={ifExists} onChange={setIfExists} label="Skip if it does not exist (IF EXISTS)" />
         </div>

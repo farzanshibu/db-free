@@ -83,10 +83,10 @@ export function SaveQueryDialog({ open, onOpenChange, connectionId, sql, linked,
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={overwrite ? "sm:max-w-[640px]" : "sm:max-w-[440px]"}>
+      <DialogContent className={overwrite ? "sm:max-w-[min(92vw,960px)]" : "sm:max-w-[min(92vw,480px)]"}>
         <DialogHeader>
           <DialogTitle>{target !== null ? `Overwrite "${target.name}"?` : "Save query"}</DialogTitle>
-          {target !== null ? <DialogDescription>The saved version is replaced with this tab's text. The earlier text stays in its version history.</DialogDescription> : null}
+          {target !== null ? <DialogDescription>Replaces the saved text; the old text stays in its version history.</DialogDescription> : null}
         </DialogHeader>
         <DialogBody className="flex flex-col gap-3">
           {overwrite ? (
@@ -112,7 +112,7 @@ export function SaveQueryDialog({ open, onOpenChange, connectionId, sql, linked,
           ) : (
             <>
               <Field label="Name" value={name} onChange={setName} placeholder="Top customers" autoFocus />
-              <Field label="Tags" optional value={tags} onChange={setTags} placeholder="reports, finance" />
+              <Field label="Tags" optional value={tags} onChange={setTags} placeholder="reports, finance" tip="Comma-separated. Tags filter the Saved queries list." />
               {extra}
             </>
           )}

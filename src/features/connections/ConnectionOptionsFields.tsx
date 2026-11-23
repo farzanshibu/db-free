@@ -2,6 +2,8 @@
 import type { ConnectionFieldIssue, ConnectionInput } from "@/lib/bindings";
 import { paramValue, withParam } from "@/lib/connectionUri";
 import { engineMeta, supportsSrv, usesUriParams } from "@/lib/engines";
+import { useState } from "react";
+import { Disclosure } from "@/components/global/Disclosure";
 import { Field, Toggle } from "@/components/global/Field";
 import { issueFor } from "./formHelpers";
 import { FieldIssue } from "./FieldIssue";
@@ -32,16 +34,21 @@ export function ConnectionOptionsFields({ input, patch, issues }: ConnectionOpti
   const setParams = (uriParams: string | null) => { patch({ extra: { ...extra, uriParams } }); };
   const isMongo = input.engine === "mongodb";
   const authSource = paramValue((extra.uriParams ?? "").split("&"), "authSource") ?? "";
+  const optionIssue = issueFor(issues, "uri_params");
+  // Opens itself when it holds a non-default value or an error, so a hidden
+  // field never hides what is in effect or what needs fixing.
+  const [open, setOpen] = useState(extra.srv || (extra.uriParams ?? "") !== "");
   if (!supportsSrv(input.engine) && !usesUriParams(input.engine)) return null;
+  const count = (supportsSrv(input.engine) ? 1 : 0) + (isMongo ? 1 : 0) + (usesUriParams(input.engine) ? 1 : 0);
 
   return (
-    <div className="flex flex-col gap-3">
+    <Disclosure label="Advanced" count={count} open={open || optionIssue !== null} onOpenChange={setOpen} className="gap-3">
       {supportsSrv(input.engine) ? (
         <Toggle
           checked={extra.srv}
           onChange={(srv) => { patch({ extra: { ...extra, srv }, port: srv ? null : meta.defaultPort }); }}
           label="Use SRV record (mongodb+srv://)"
-          description="For Atlas and other clusters addressed by a DNS name: the member list comes from DNS, so the host takes no port and TLS is on."
+          tip="For Atlas and other clusters addressed by a DNS name: the member list comes from DNS, so the host takes no port and TLS is on."
         />
       ) : null}
       {isMongo ? (
@@ -51,7 +58,7 @@ export function ConnectionOptionsFields({ input, patch, issues }: ConnectionOpti
           onChange={(value) => { setParams(withParam(extra.uriParams, "authSource", value.trim())); }}
           placeholder="admin"
           optional
-          description="Where the user was created. Leave empty to use the database above (or admin when that is empty)."
+          tip="Where the user was created. Leave empty to use the database above (or admin when that is empty)."
         />
       ) : null}
       {usesUriParams(input.engine) ? (
@@ -63,11 +70,11 @@ export function ConnectionOptionsFields({ input, patch, issues }: ConnectionOpti
             placeholder={isMongo ? "replicaSet=rs0&readPreference=secondaryPreferred" : "application_name=db-free&options=-c%20search_path%3Dapp"}
             optional
             mono
-            description="Extra driver parameters as key=value pairs joined by &. Stored unencrypted: put passwords in the password field."
+            tip="Extra driver parameters as key=value pairs joined by &. Stored unencrypted: put passwords in the password field."
           />
-          <FieldIssue message={issueFor(issues, "uri_params")} />
+          <FieldIssue message={optionIssue} />
         </div>
       ) : null}
-    </div>
+    </Disclosure>
   );
 }

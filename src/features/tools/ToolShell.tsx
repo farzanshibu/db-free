@@ -4,11 +4,13 @@ import type { Tool } from "@/lib/bindings";
 import { toolMeta } from "@/lib/objects";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
-import { Badge } from "@/components/ui/badge";
+import { InfoTip } from "@/components/global/InfoTip";
+import { SplitLayout } from "@/components/global/Layout";
 import { ScrollArea } from "@/components/ui/scroll-area";
 
-// WHAT:  Common frame for the playground tabs: header (icon, name, hint,
-//        optional right-hand controls) above the tool body.
+// WHAT:  Common frame for the playground tabs: header (icon, name, a tip
+//        with the tool's one-line hint, optional right-hand controls) above
+//        the tool body.
 // WHERE: src/features/tools/ToolTab.tsx
 export function ToolShell({ tool, right, children }: { tool: Tool; right?: ReactNode; children: ReactNode }) {
   const meta = toolMeta(tool);
@@ -17,10 +19,10 @@ export function ToolShell({ tool, right, children }: { tool: Tool; right?: React
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
         <Icon name={meta.icon} size={14} className="text-accent" />
         <span className="text-[13px] font-semibold tracking-tight text-foreground">{meta.label}</span>
-        <Badge size="sm" variant="soft" className="hidden text-[10px] text-muted md:inline-flex">
+        <InfoTip label={`About ${meta.label}`} side="bottom">
           {meta.hint}
-        </Badge>
-        <span className="ml-auto flex items-center gap-1.5">{right}</span>
+        </InfoTip>
+        <span className="ml-auto flex min-w-0 items-center gap-1.5">{right}</span>
       </div>
       <div className="min-h-0 flex-1">{children}</div>
     </div>
@@ -39,13 +41,23 @@ export function useCollectionOptions(connectionId: string): { value: string; lab
 }
 
 // WHAT:  Two-pane playground body: a form column on the left, results filling the rest.
+// WHY:   One resizable, remembered form column for every playground (the
+//        refresh rule for side panels): a long filter or vector wants more
+//        room than a topic picker, and the width carries across tools.
+// WHERE: src/components/global/Layout.tsx (SplitLayout)
 export function ToolBody({ form, children }: { form: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex h-full min-h-0">
-      <aside className="flex w-72 shrink-0 border-r border-border/40">
-        <ScrollArea hideScrollBar className="flex min-w-0 flex-1 flex-col gap-2 p-2.5">{form}</ScrollArea>
-      </aside>
-      <div className="min-h-0 min-w-0 flex-1">{children}</div>
-    </div>
+    <SplitLayout
+      side="left"
+      defaultSize={288}
+      min={220}
+      max={560}
+      storageKey="db-free:tool-panel-width"
+      resizeLabel="Resize form panel"
+      panelClassName="border-r border-border/40"
+      panel={<ScrollArea hideScrollBar className="flex min-h-0 min-w-0 flex-1 flex-col gap-2 p-2.5">{form}</ScrollArea>}
+    >
+      {children}
+    </SplitLayout>
   );
 }

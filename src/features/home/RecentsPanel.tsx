@@ -9,6 +9,7 @@ import { Icon } from "@/lib/icons";
 import { useRecents } from "@/stores/recents";
 import { useWorkspace } from "@/stores/workspace";
 import { EngineIcon } from "@/components/global/EngineIcon";
+import { OverflowMenu } from "@/components/global/Toolbar";
 import { Button } from "@/components/ui/button";
 import { openHomeEntity } from "./openEntity";
 import { useResolveEntity, type ResolvedEntity } from "./useResolvedEntity";
@@ -75,9 +76,7 @@ export function RecentsPanel() {
               {all ? "Show fewer" : `Show all ${rows.length}`}
             </Button>
           ) : null}
-          <Button variant="ghost" size="xs" onClick={() => void doClear()}>
-            Clear
-          </Button>
+          <OverflowMenu label="Recents actions" items={[{ id: "clear", label: "Clear recents", icon: "trash", danger: true, onSelect: () => void doClear() }]} />
         </span>
       </div>
       {all ? (

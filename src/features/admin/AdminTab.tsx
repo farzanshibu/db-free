@@ -7,7 +7,8 @@ import { Icon } from "@/lib/icons";
 import { engineMeta } from "@/lib/engines";
 import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
-import { Segmented } from "@/components/global/Field";
+import { AppSelect, Segmented } from "@/components/global/Field";
+import { AutoGrid } from "@/components/global/Layout";
 import { EmptyState } from "@/components/global/EmptyState";
 import { ObjectRow, useObjects } from "@/features/objects/ObjectList";
 import { cn } from "@/lib/cn";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { SearchInput } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Interval = "off" | "5" | "15" | "60";
 type View = "overview" | ObjectKind;
@@ -54,13 +56,18 @@ export function AdminTab({ connectionId }: { connectionId: string }) {
         {info?.serverVersion ? <span className="truncate font-mono text-[10px] text-muted">{info.serverVersion}</span> : null}
       </div>
       {views.length > 1 ? (
-        <ScrollArea orientation="horizontal" hideScrollBar className="shrink-0 px-2.5 py-1.5">
-          <Segmented label="Admin view" value={current} onChange={setView} options={views} />
-        </ScrollArea>
+        // WHAT:  The view switcher folds instead of scrolling: segments while
+        //        the tab is wide enough to show them all, a menu below that.
+        <div className="@container shrink-0 px-2.5 py-1.5">
+          <div className="hidden @4xl:block">
+            <Segmented label="Admin view" value={current} onChange={setView} options={views} />
+          </div>
+          <AppSelect<View> ariaLabel="Admin view" value={current} options={views} onChange={setView} size="sm" className="w-56 @4xl:hidden" />
+        </div>
       ) : null}
       <div className="min-h-0 flex-1">
         {views.length === 0 ? (
-          <EmptyState icon="server" title="Nothing to administer" body="This engine's adapter exposes no server state." />
+          <EmptyState icon="server" title="Nothing to administer" tip="This engine's adapter exposes no server state." />
         ) : current === "overview" ? (
           <Overview connectionId={connectionId} />
         ) : (
@@ -135,20 +142,21 @@ function Overview({ connectionId }: { connectionId: string }) {
         {error !== null ? (
           <EmptyState icon="alert" title="Could not read server statistics" body={error} action={<Button size="sm" onClick={refresh}>Retry</Button>} />
         ) : stats === null ? null : stats.groups.length === 0 ? (
-          <EmptyState icon="activity" title="No statistics" body="The adapter returned no figures for this server." />
+          <EmptyState icon="activity" title="No statistics" tip="The adapter returned no figures for this server." />
         ) : (
-          <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 2xl:grid-cols-3">
+          <AutoGrid min="md" className="items-start">
             {stats.groups.map((group) => (
               <section key={group.title} className="rounded-lg glass-card border-border/40 p-2">
                 <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted">{group.title}</h3>
-                <ul className="grid grid-cols-2 gap-x-2 gap-y-2">
+                {/* Tiles flow as wide as the card allows (a list, so not AutoGrid's div). */}
+                <ul className="grid grid-cols-[repeat(auto-fill,minmax(9rem,1fr))] gap-x-2 gap-y-2">
                   {group.stats.map((stat) => (
                     <StatTile key={stat.label} stat={stat} series={history.get(`${group.title}/${stat.label}`) ?? []} />
                   ))}
                 </ul>
               </section>
             ))}
-          </div>
+          </AutoGrid>
         )}
       </ScrollArea>
     </div>
@@ -156,9 +164,22 @@ function Overview({ connectionId }: { connectionId: string }) {
 }
 
 function StatTile({ stat, series }: { stat: Stat; series: number[] }) {
-  return (
-    <li className="min-w-0" title={stat.hint ?? undefined}>
+  const label =
+    stat.hint !== null && stat.hint !== "" ? (
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <div className="w-fit max-w-full cursor-help truncate rounded-sm text-[11px] text-muted underline decoration-dotted decoration-muted/50 underline-offset-2 outline-none focus-visible:ring-2 focus-visible:ring-ring/50" tabIndex={0}>
+            {stat.label}
+          </div>
+        </TooltipTrigger>
+        <TooltipContent>{stat.hint}</TooltipContent>
+      </Tooltip>
+    ) : (
       <div className="truncate text-[11px] text-muted">{stat.label}</div>
+    );
+  return (
+    <li className="min-w-0">
+      {label}
       <div className="flex items-end gap-2">
         <span className="truncate font-mono text-[13px] font-semibold tabular-nums text-foreground">
           {stat.value}
@@ -195,8 +216,10 @@ function KindList({ connectionId, kind }: { connectionId: string; kind: ObjectKi
   const visible = objects?.filter((o) => needle.length === 0 || o.reference.name.toLowerCase().includes(needle) || (o.detail ?? "").toLowerCase().includes(needle)) ?? [];
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-2 px-2.5 pb-1.5">
-        <SearchInput value={search} onChange={setSearch} aria-label={`Filter ${meta.plural.toLowerCase()}`} placeholder={`Filter ${meta.plural.toLowerCase()}…`} className="max-w-xs glass-input w-full text-xs" />
+      <div className="@container flex shrink-0 items-center gap-2 px-2.5 pb-1.5">
+        <div className="w-64 min-w-0">
+          <SearchInput value={search} onChange={setSearch} aria-label={`Filter ${meta.plural.toLowerCase()}`} placeholder="Filter…" className="glass-input w-full text-xs" />
+        </div>
         <IconButton
           icon="refresh"
           label="Reload"

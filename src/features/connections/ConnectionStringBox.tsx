@@ -6,7 +6,7 @@ import { Icon } from "@/lib/icons";
 import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+import { FieldLabel } from "@/components/global/Field";
 import { describeParsed } from "./formHelpers";
 
 interface ConnectionStringBoxProps {
@@ -50,14 +50,14 @@ export function ConnectionStringBox({ engine, onApply }: ConnectionStringBoxProp
 
   return (
     <div className="flex flex-col gap-1.5">
-      <Label htmlFor="connection-string">Connection string</Label>
+      <FieldLabel htmlFor="connection-string" label="Connection string" tip="Paste a connection URL to fill the fields." />
       <div className="flex items-center gap-2">
         <Input
           id="connection-string"
           value={text}
           autoComplete="off"
           spellCheck={false}
-          placeholder="Paste postgres://user:password@host:5432/database to fill the fields"
+          placeholder="postgres://user:password@host:5432/database"
           className="font-mono text-xs"
           onChange={(event) => {
             setText(event.target.value);

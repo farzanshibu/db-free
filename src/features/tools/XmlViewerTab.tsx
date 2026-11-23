@@ -6,6 +6,7 @@ import { useWorkspace } from "@/stores/workspace";
 import { AppSelect, Field } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { IconButton } from "@/components/global/Button";
+import { SplitLayout } from "@/components/global/Layout";
 import { ObjectRow, useObjects } from "@/features/objects/ObjectList";
 import { ToolShell, useCollectionOptions } from "./ToolShell";
 import { XmlTree } from "./XmlTree";
@@ -65,44 +66,52 @@ export function XmlViewerTab({ connectionId }: { connectionId: string }) {
         />
       }
     >
-      <div className="flex h-full min-h-0">
-        <aside className="flex w-64 shrink-0 flex-col border-r border-border/40">
-          <div className="flex flex-col gap-2 p-2.5">
-            {options.length > 0 ? <AppSelect label="Collection" value={collection} options={options} onChange={setCollection} /> : null}
-            <Field label="Path" value={customCollection} onChange={setCustomCollection} optional placeholder={parent || "/db/apps"} mono description="Overrides the selection above." />
-          </div>
-          <ScrollArea className="min-h-0 flex-1 px-2 pb-1.5">
-            {loading && objects === null ? (
-              <div className="flex items-center gap-2 p-2 text-[11px] text-muted">
-                <Spinner size="sm" /> loading…
-              </div>
-            ) : error !== null ? (
-              <p className="p-2 text-xs text-danger">{error}</p>
-            ) : objects === null || objects.length === 0 ? (
-              <p className="p-2 text-xs text-muted">No documents here.</p>
-            ) : (
-              objects.map((o) => <ObjectRow key={o.reference.name} connectionId={connectionId} object={o} dense onSelect={select} />)
-            )}
-          </ScrollArea>
-        </aside>
-        <div className="min-h-0 min-w-0 flex-1">
-          {selected === null ? (
-            <EmptyState icon="xml" title="XML viewer" body="Pick a document on the left to read it as a tree." />
-          ) : detailError !== null ? (
-            <EmptyState icon="alert" title="Could not load the document" body={detailError} />
-          ) : detail === null ? (
-            <div className="flex h-full items-center justify-center gap-2 text-xs text-muted">
-              <Spinner size="sm" /> loading…
+      <SplitLayout
+        side="left"
+        defaultSize={256}
+        min={200}
+        max={520}
+        storageKey="db-free:xml-documents-width"
+        resizeLabel="Resize documents panel"
+        panelClassName="border-r border-border/40"
+        panel={
+          <>
+            <div className="flex flex-col gap-2 p-2.5">
+              {options.length > 0 ? <AppSelect label="Collection" value={collection} options={options} onChange={setCollection} /> : null}
+              <Field label="Path" value={customCollection} onChange={setCustomCollection} optional placeholder={parent || "/db/apps"} mono tip="A collection path. Overrides the collection above." />
             </div>
-          ) : detail.definition === null ? (
-            <EmptyState title={selected.name} body="The adapter returned no content for this document." />
-          ) : (
-            <ScrollArea className="h-full p-3">
-              <XmlTree source={detail.definition} />
+            <ScrollArea className="min-h-0 flex-1 px-2 pb-1.5">
+              {loading && objects === null ? (
+                <div className="flex items-center gap-2 p-2 text-[11px] text-muted">
+                  <Spinner size="sm" /> loading…
+                </div>
+              ) : error !== null ? (
+                <p className="p-2 text-xs text-danger">{error}</p>
+              ) : objects === null || objects.length === 0 ? (
+                <p className="p-2 text-xs text-muted">No documents here.</p>
+              ) : (
+                objects.map((o) => <ObjectRow key={o.reference.name} connectionId={connectionId} object={o} dense onSelect={select} />)
+              )}
             </ScrollArea>
-          )}
-        </div>
-      </div>
+          </>
+        }
+      >
+        {selected === null ? (
+          <EmptyState icon="xml" title="Pick a document" tip="Documents of the collection are listed on the left; the selected one opens here as a collapsible tree." />
+        ) : detailError !== null ? (
+          <EmptyState icon="alert" title="Could not load the document" body={detailError} />
+        ) : detail === null ? (
+          <div className="flex h-full items-center justify-center gap-2 text-xs text-muted">
+            <Spinner size="sm" /> loading…
+          </div>
+        ) : detail.definition === null ? (
+          <EmptyState title={selected.name} body="No content returned." />
+        ) : (
+          <ScrollArea className="h-full p-3">
+            <XmlTree source={detail.definition} />
+          </ScrollArea>
+        )}
+      </SplitLayout>
     </ToolShell>
   );
 }

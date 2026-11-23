@@ -228,7 +228,7 @@ export function CollectionEditor({ connectionId, keyName, kind, readOnly, onMuta
         ) : null}
       </div>
       {rows.length === 0 && !loading ? (
-        <EmptyState icon="table" title={applied === "" ? "This key is empty" : "No rows match"} body={applied === "" ? "Redis deletes a collection when its last element goes." : `Nothing contains "${applied}".`} />
+        <EmptyState icon="table" title={applied === "" ? "This key is empty" : "No rows match"} {...(applied === "" ? { tip: "Redis deletes a collection when its last element goes." } : { body: `Nothing contains "${applied}".` })} />
       ) : (
         <ScrollArea className="min-h-0 flex-1">
           <div className={cn("sticky top-0 z-10 grid items-center gap-2 border-b border-border bg-surface px-2.5 py-1 text-[11px] font-medium uppercase tracking-wide text-muted", GRID[kind])}>

@@ -8,17 +8,18 @@ import { useWorkspace } from "@/stores/workspace";
 import { useResolvedTheme } from "@/stores/useTheme";
 import { IconButton } from "@/components/global/Button";
 import { EmptyState } from "@/components/global/EmptyState";
+import { InfoTip } from "@/components/global/InfoTip";
+import { OverflowMenu, type ToolbarAction } from "@/components/global/Toolbar";
 import { Icon, typeIcon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { EdgeActionsContext, RelationEdge, type EdgeActions, type RelationFlowEdge } from "./RelationEdge";
 import { TableNode, type TableFlowNode } from "./TableNode";
 import { NodeMenu } from "./NodeMenu";
-import { ToolbarMenu, type ToolbarMenuItem } from "./ToolbarMenu";
 import { buildErdGraph, cardSize, erdForeignKeys, erdToDiagram, initialPositions, type ErdGraph } from "./erdModel";
 import { exportDiagram, type ExportFormat } from "./exportDiagram";
 import { restrict, type ExportModel } from "./exportSvg";
-import { autoLayout, type LayoutDirection } from "./layout";
+import { LAYOUT_CHOICES, autoLayout, type LayoutDirection } from "./layout";
 import { MAX_ERD_ROWS, resolveSides, type Box } from "./metrics";
 import { DEFAULT_LINE_COLOR } from "./palette";
 import { useDiagramCustomizations, type DiagramCustomizations } from "./useDiagramCustomizations";
@@ -29,15 +30,6 @@ const SNAP_GRID: [number, number] = [16, 16];
 /// The ER diagram draws this many tables at most; more would be unreadable and slow.
 const TABLE_LIMIT = 120;
 
-const LAYOUT_ITEMS: readonly ToolbarMenuItem[] = [
-  { id: "TB", label: "Top to bottom", icon: "rows" },
-  { id: "LR", label: "Left to right", icon: "columns" },
-  { id: "compact", label: "Compact", icon: "grid" },
-];
-
-function isLayoutDirection(id: string): id is LayoutDirection {
-  return id === "TB" || id === "LR" || id === "compact";
-}
 
 // WHAT:  ER diagram derived from the database's foreign keys (PRD §4.4), with the
 //        user's arrangement remembered: card positions, colours, bend points and the
@@ -84,7 +76,7 @@ export function ErdTab({ connectionId, schema }: { connectionId: string; schema:
   }, [connectionId, tables, refresh, showError]);
 
   if (tables.length === 0) {
-    return <EmptyState icon="view" title="No tables to diagram" body="Connect to a database with tables, or pick another schema in the sidebar." />;
+    return <EmptyState icon="view" title="No tables to diagram" tip="Connect to a database with tables, or pick another schema in the sidebar." />;
   }
 
   return (
@@ -345,11 +337,18 @@ function ErdCanvas({ connectionId, schema, graph, truncated, tableCount, loading
     if (event !== null) custom.setViewport(vp);
   };
 
-  const exportItems: ToolbarMenuItem[] = [
-    { id: "png", label: "PNG image", icon: "download", section: "Whole diagram" },
-    { id: "svg", label: "SVG image", icon: "download" },
-    { id: "png-selection", label: "PNG image", icon: "download", section: "Selected tables", disabled: selectedKeys.length === 0 },
-    { id: "svg-selection", label: "SVG image", icon: "download", disabled: selectedKeys.length === 0 },
+  const layoutItems: ToolbarAction[] = LAYOUT_CHOICES.map((choice) => ({
+    ...choice,
+    onSelect: () => {
+      layout(choice.id);
+    },
+  }));
+  const noSelection = selectedKeys.length === 0;
+  const exportItems: ToolbarAction[] = [
+    { id: "png", label: "PNG image", icon: "download", group: "whole", disabled: exporting, onSelect: () => void runExport("png", false) },
+    { id: "svg", label: "SVG image", icon: "download", group: "whole", disabled: exporting, onSelect: () => void runExport("svg", false) },
+    { id: "png-selection", label: "Selected tables as PNG", icon: "download", group: "selection", disabled: exporting || noSelection, onSelect: () => void runExport("png", true) },
+    { id: "svg-selection", label: "Selected tables as SVG", icon: "download", group: "selection", disabled: exporting || noSelection, onSelect: () => void runExport("svg", true) },
   ];
 
   const menuColor = menu ? (menu.keys.length === 1 ? (custom.colors.get(menu.keys[0] ?? "") ?? null) : null) : null;
@@ -396,32 +395,17 @@ function ErdCanvas({ connectionId, schema, graph, truncated, tableCount, loading
         <Controls showInteractive={false} />
         <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="var(--backdrop)" />
         {selectedEdge !== null ? (
-          <Panel position="bottom-center" className="rounded-md border border-border bg-surface/90 px-2 py-1 text-[11px] text-muted backdrop-blur">
-            Double-click the line to add a bend. Drag a bend to move it; double-click it to remove it.
+          <Panel position="bottom-center" className="flex items-center gap-1 rounded-md border border-border bg-surface/90 px-2 py-1 text-[11px] text-muted backdrop-blur">
+            Double-click to add a bend
+            <InfoTip label="About bends">Drag a bend to move it; double-click it to remove it.</InfoTip>
           </Panel>
         ) : null}
       </ReactFlow>
       <div className="absolute top-2 right-2 flex items-center gap-1 rounded-lg border border-border bg-surface/90 p-1 backdrop-blur">
         <IconButton icon="refresh" label="Reload from database" onClick={onReload} />
-        <ToolbarMenu
-          icon="sort"
-          label="Auto layout"
-          items={LAYOUT_ITEMS}
-          onSelect={(id) => {
-            if (isLayoutDirection(id)) layout(id);
-          }}
-        />
+        <OverflowMenu icon="sort" label="Auto layout" items={layoutItems} />
         <IconButton icon="grid" label={snapOn ? "Snap to grid: on (hold Ctrl / Cmd to snap while dragging)" : "Snap to grid: off (hold Ctrl / Cmd to snap while dragging)"} active={snapOn} onClick={() => { setSnapOn((v) => !v); }} />
-        <ToolbarMenu
-          icon="download"
-          label="Export image"
-          items={exportItems}
-          disabled={exporting}
-          onSelect={(id) => {
-            const format: ExportFormat = id.startsWith("png") ? "png" : "svg";
-            void runExport(format, id.endsWith("selection"));
-          }}
-        />
+        <OverflowMenu icon="download" label="Export image" items={exportItems} />
         <IconButton icon="pencil" label="Edit in designer (saves an editable copy)" onClick={() => void editInDesigner()} />
       </div>
       <div className="absolute bottom-3 left-14 flex items-center gap-2 rounded-md border border-border bg-surface/90 px-2 py-1 text-[11px] text-muted backdrop-blur">

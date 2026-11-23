@@ -7,11 +7,14 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverHeading, PopoverTrigger } from "@/components/ui/popover";
 import { sortLabels } from "./sortLabels";
 import type { SortEntry } from "./tableState";
+import { TriggerTip, WIDE_LABEL } from "./toolLabel";
 
 interface SortPopoverProps {
   columns: readonly { name: string; typeName?: string | undefined }[];
   entries: readonly SortEntry[];
   onChange: (entries: SortEntry[]) => void;
+  /// The trigger's text folds away on a narrow toolbar (the row carries `@container`).
+  compact?: boolean | undefined;
 }
 
 // WHAT:  The sort builder: an ordered list of rules, each with an on/off switch, a
@@ -21,11 +24,12 @@ interface SortPopoverProps {
 //        adds a rule here too.
 // HOW:   Rules apply top to bottom; the arrows reorder. Edits are a draft until Apply.
 // WHERE: src/features/grid/TableTab.tsx
-export function SortPopover({ columns, entries, onChange }: SortPopoverProps) {
+export function SortPopover({ columns, entries, onChange, compact = false }: SortPopoverProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<SortEntry[]>([]);
   const typeOf = (name: string) => columns.find((c) => c.name === name)?.typeName;
   const active = entries.filter((e) => e.enabled).length;
+  const triggerText = active > 0 ? `Sorted by ${active} ${active === 1 ? "rule" : "rules"}` : "Sort";
   const blank = (): SortEntry => ({ rule: { column: columns.find((c) => !draft.some((d) => d.rule.column === c.name))?.name ?? columns[0]?.name ?? "", desc: false }, enabled: true });
 
   const openWith = (next: boolean) => {
@@ -45,13 +49,16 @@ export function SortPopover({ columns, entries, onChange }: SortPopoverProps) {
 
   return (
     <Popover open={open} onOpenChange={openWith}>
-      <PopoverTrigger asChild>
-        <Button size="xs" variant={active > 0 ? "soft" : "toolbar"}>
-          <Icon name="sort" size={12} />
-          {active > 0 ? `Sorted by ${active} ${active === 1 ? "rule" : "rules"}` : "Sort"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[420px] max-w-[94vw] p-2.5">
+      <TriggerTip tip={triggerText} when={compact}>
+        <PopoverTrigger asChild>
+          <Button size="xs" variant={active > 0 ? "soft" : "toolbar"} aria-label={triggerText}>
+            <Icon name="sort" size={12} />
+            <span className={compact ? WIDE_LABEL : undefined}>{triggerText}</span>
+            {compact && active > 0 ? <span className="tabular-nums @4xl:hidden">{active}</span> : null}
+          </Button>
+        </PopoverTrigger>
+      </TriggerTip>
+      <PopoverContent className="w-[min(420px,90vw)] p-2.5">
         <PopoverHeading className="text-[11px] font-semibold uppercase tracking-wider text-muted">Sort</PopoverHeading>
         <div className="mt-2 flex flex-col gap-1.5">
           {draft.map((entry, index) => {

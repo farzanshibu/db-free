@@ -3,6 +3,7 @@ import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TILE_SWATCHES, gradientCss, isSwatch, swatchLabel, tintCss } from "./tiles";
 
 // WHAT:  A round swatch button that opens the 14 tile colours plus "none".
@@ -47,25 +48,32 @@ export function TileColorPicker({ value, onChange, kind, label }: PickerProps) {
       </PopoverTrigger>
       <PopoverContent className="w-auto p-2" align="start">
         <div className="grid grid-cols-8 gap-1.5">
-          <button
-            type="button"
-            aria-label={kind === "tint" ? "Default colour" : "No colour"}
-            title={kind === "tint" ? "Default" : "None"}
-            className={cn("flex size-5 items-center justify-center rounded-full border border-border bg-surface-secondary text-muted", !isSwatch(value) ? "ring-2 ring-accent" : "hover:ring-1 hover:ring-border")}
-            onClick={() => { onChange(null); }}
-          >
-            <Icon name="x" size={11} />
-          </button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={kind === "tint" ? "Default colour" : "No colour"}
+                className={cn("flex size-5 items-center justify-center rounded-full border border-border bg-surface-secondary text-muted", !isSwatch(value) ? "ring-2 ring-accent" : "hover:ring-1 hover:ring-border")}
+                onClick={() => { onChange(null); }}
+              >
+                <Icon name="x" size={11} />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent>{kind === "tint" ? "Default" : "None"}</TooltipContent>
+          </Tooltip>
           {TILE_SWATCHES.map((s) => (
-            <button
-              key={s.name}
-              type="button"
-              aria-label={s.label}
-              title={s.label}
-              className={cn("size-5 rounded-full border border-border", value === s.name ? "ring-2 ring-accent ring-offset-1 ring-offset-overlay" : "hover:ring-1 hover:ring-border")}
-              style={{ background: preview(s.name, kind) }}
-              onClick={() => { onChange(s.name); }}
-            />
+            <Tooltip key={s.name}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={s.label}
+                  className={cn("size-5 rounded-full border border-border", value === s.name ? "ring-2 ring-accent ring-offset-1 ring-offset-overlay" : "hover:ring-1 hover:ring-border")}
+                  style={{ background: preview(s.name, kind) }}
+                  onClick={() => { onChange(s.name); }}
+                />
+              </TooltipTrigger>
+              <TooltipContent>{s.label}</TooltipContent>
+            </Tooltip>
           ))}
         </div>
       </PopoverContent>

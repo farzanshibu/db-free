@@ -4,7 +4,10 @@ import type { CsvImportOptions, ImportConflict, ImportMapping, ImportPreview, Im
 import { ipc, ipcProgress, normalizeError } from "@/lib/ipc";
 import { formatCount } from "@/lib/format";
 import { tableKey, useWorkspace } from "@/stores/workspace";
+import { Disclosure } from "@/components/global/Disclosure";
 import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
+import { WithTip } from "@/components/global/InfoTip";
+import { SplitLayout } from "@/components/global/Layout";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -207,8 +210,16 @@ export function TableImport({ connectionId, path, format, onReset }: TableImport
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <ScrollArea className="w-[270px] shrink-0 border-r border-border/40 p-2.5">
+      <SplitLayout
+        className="flex-1"
+        defaultSize={270}
+        min={220}
+        max={480}
+        storageKey="db-free:import-options-width"
+        resizeLabel="Resize import options"
+        panelClassName="border-r border-border/40"
+        panel={
+        <ScrollArea className="h-full min-h-0 p-2.5">
           <div className="flex flex-col gap-2">
             {!speaksSql ? <p className="rounded-lg bg-warning/10 p-2 text-xs text-warning">This engine has no INSERT statement, so it cannot import a file.</p> : null}
             {readOnly ? <p className="rounded-lg bg-warning/10 p-2 text-xs text-warning">This connection is read-only, so it cannot import.</p> : null}
@@ -216,13 +227,18 @@ export function TableImport({ connectionId, path, format, onReset }: TableImport
             {format === "csv" ? (
               <>
                 <AppSelect label="Delimiter" value={csv.delimiter} options={DELIMITERS} onChange={(delimiter) => { setCsv({ ...csv, delimiter }); }} />
-                <AppSelect label="Quote character" value={csv.quote} options={QUOTES} onChange={(quote) => { setCsv({ ...csv, quote }); }} />
                 <Toggle checked={csv.header} onChange={(header) => { setCsv({ ...csv, header }); }} label="First row is a header" />
-                <Field label="Treat as NULL" value={csv.nullText} onChange={(nullText) => { setCsv({ ...csv, nullText }); }} placeholder="(empty cells)" mono description="Cells equal to this text become NULL. Empty cells always do when this is blank." />
+                {/* Quote and NULL text are rarely changed; open when either is. */}
+                <Disclosure label="Advanced" count={2} defaultOpen={csv.quote !== '"' || csv.nullText !== ""}>
+                  <AppSelect label="Quote character" value={csv.quote} options={QUOTES} onChange={(quote) => { setCsv({ ...csv, quote }); }} />
+                  <Field label="Treat as NULL" value={csv.nullText} onChange={(nullText) => { setCsv({ ...csv, nullText }); }} placeholder="(empty cells)" mono tip="Cells equal to this text become NULL. Empty cells always do when this is blank." />
+                </Disclosure>
               </>
             ) : null}
             <div className="flex flex-col gap-1.5">
-              <span className="text-[11px] font-medium text-muted">If a row already exists</span>
+              <span className="text-[11px] font-medium text-muted">
+                <WithTip tip="Rows are matched by the table's primary key." tipLabel="About existing rows">If a row already exists</WithTip>
+              </span>
               <Segmented<ImportConflict>
                 label="Conflict handling"
                 value={conflict}
@@ -233,15 +249,19 @@ export function TableImport({ connectionId, path, format, onReset }: TableImport
                   { value: "update", label: "Update", disabled: !support.update || !hasKey },
                 ]}
               />
-              <p className="text-xs text-muted">
-                {!support.skip ? "This engine cannot skip or update existing rows; a duplicate fails the import." : conflict === "update" && !hasKey ? "Update needs a primary key." : "Rows are matched by the table's primary key."}
-              </p>
+              {/* A limit that blocks an option stays on screen; the usual rule is in the tip. */}
+              {!support.skip ? (
+                <p className="text-xs text-muted">This engine cannot skip or update existing rows; a duplicate fails the import.</p>
+              ) : conflict === "update" && !hasKey ? (
+                <p className="text-xs text-warning">Update needs a primary key.</p>
+              ) : null}
             </div>
             <Toggle checked={truncate} onChange={setTruncate} label="Empty the table first" description="Deletes every existing row, then imports. You are asked to confirm." />
           </div>
         </ScrollArea>
-
-        <ScrollArea className="min-w-0 flex-1 p-2.5">
+        }
+      >
+        <ScrollArea className="min-h-0 min-w-0 flex-1 p-2.5">
           {previewLoading && value === null && preview.problem === null ? (
             <div className="flex h-40 items-center justify-center">
               <Spinner size="sm" />
@@ -332,7 +352,7 @@ export function TableImport({ connectionId, path, format, onReset }: TableImport
             </div>
           ) : null}
         </ScrollArea>
-      </div>
+      </SplitLayout>
     </div>
   );
 }

@@ -4,6 +4,7 @@ import type { SqlFileInfo, SqlImportProgress, SqlImportReport } from "@/lib/bind
 import { ipc, ipcProgress, normalizeError } from "@/lib/ipc";
 import { formatCount } from "@/lib/format";
 import { useWorkspace } from "@/stores/workspace";
+import { AutoGrid } from "@/components/global/Layout";
 import { Toggle } from "@/components/global/Field";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -124,7 +125,7 @@ export function SqlImport({ connectionId, path, onReset }: SqlImportProps) {
       </div>
 
       <ScrollArea className="min-h-0 flex-1 p-2.5">
-        <div className="flex max-w-3xl flex-col gap-3">
+        <div className="flex flex-col gap-3">
           {readOnly ? <p className="rounded-lg bg-warning/10 p-2 text-xs text-warning">This connection is read-only, so a script cannot run.</p> : null}
           {info.problem !== null ? <p className="rounded-lg bg-danger/10 p-2.5 text-xs text-danger">{info.problem}</p> : null}
           {value === null && info.problem === null ? (
@@ -135,11 +136,11 @@ export function SqlImport({ connectionId, path, onReset }: SqlImportProps) {
           ) : null}
           {value !== null ? (
             <>
-              <section className="grid grid-cols-3 gap-2">
+              <AutoGrid min="xs">
                 <Fact label="Size" value={formatSize(value.size)} />
                 <Fact label="Statements" value={formatCount(value.statements)} />
                 <Fact label="Drop / empty" value={formatCount(value.destructive)} warn={value.destructive > 0} />
-              </section>
+              </AutoGrid>
               {value.problem !== null ? <p className="rounded-lg bg-danger/10 p-2.5 text-xs text-danger">{value.problem}</p> : null}
               {needsConfirmation ? (
                 <section className="flex flex-col gap-2 rounded-lg border border-warning/40 bg-warning/10 p-2.5">
@@ -150,7 +151,7 @@ export function SqlImport({ connectionId, path, onReset }: SqlImportProps) {
                     ))}
                     {value.destructive > value.destructiveExamples.length ? <li className="list-none text-muted">… and {formatCount(value.destructive - value.destructiveExamples.length)} more</li> : null}
                   </ul>
-                  <Toggle checked={confirmed} onChange={setConfirmed} label="Run them" description="Without this, the first such statement stops the script." />
+                  <Toggle checked={confirmed} onChange={setConfirmed} label="Run them" tip="Without this, the first such statement stops the script." />
                 </section>
               ) : null}
               <section className="flex flex-col gap-1.5">

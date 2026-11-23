@@ -77,7 +77,7 @@ export function ModelPicker({ profiles, value, onChange, disabled }: ModelPicker
           <Icon name="chevron-down" size={10} />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" side="top" className="w-80 p-0">
+      <PopoverContent align="start" side="top" className="w-[min(26rem,90vw)] p-0">
         <div className="border-b border-border/40 p-2">
           <SearchInput value={search} onChange={setSearch} placeholder="Search or type a model id…" aria-label="Search models" />
         </div>

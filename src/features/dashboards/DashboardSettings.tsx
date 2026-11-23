@@ -4,6 +4,7 @@ import type { DashboardVariable } from "@/lib/bindings";
 import { Icon } from "@/lib/icons";
 import { AppSelect, Field } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
+import { WithTip } from "@/components/global/InfoTip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -98,17 +99,26 @@ export function DashboardSettings({ title, onTitle, variables, onVariables, onCl
       </div>
       <ScrollArea className="min-h-0 flex-1">
         <div className="flex flex-col gap-3 p-2.5">
-          <Field label="Title" value={title} onChange={onTitle} placeholder="No title" description="Drawn over the grid. Leave empty for none." />
+          <Field label="Title" value={title} onChange={onTitle} placeholder="No title" tip="Drawn over the grid. Leave empty for none." />
           <div className="flex flex-col gap-2">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-semibold text-foreground">Variables</span>
+              <WithTip
+                tipLabel="About variables"
+                tip={
+                  <>
+                    Use <code className="font-mono">{"{{name}}"}</code> in a tile's SQL. Values go in as quoted literals for the connection's dialect: text <code className="font-mono">'eu'</code>, a list <code className="font-mono">'a','b'</code> (empty is <code className="font-mono">NULL</code>), a date range as <code className="font-mono">'start' AND 'end'</code> or <code className="font-mono">{"{{name.start}}"}</code> / <code className="font-mono">{"{{name.end}}"}</code>. Renaming does not edit tile SQL.
+                  </>
+                }
+              >
+                <span className="text-xs font-semibold text-foreground">Variables</span>
+              </WithTip>
               <Button size="xs" variant="secondary" onClick={() => { onVariables([...variables, newVariable("text", nextVariableName(variables))]); }}>
                 <Icon name="plus" size={12} />
                 Add variable
               </Button>
             </div>
-            <p className="text-[11px] leading-relaxed text-muted">
-              Use <code className="font-mono">{"{{name}}"}</code> in a tile's SQL. Values go in as quoted literals for the connection's dialect: text <code className="font-mono">'eu'</code>, a list <code className="font-mono">'a','b'</code> (empty is <code className="font-mono">NULL</code>), a date range <code className="font-mono">{"{{name}}"}</code> as <code className="font-mono">'start' AND 'end'</code> or <code className="font-mono">{"{{name.start}}"}</code> / <code className="font-mono">{"{{name.end}}"}</code>. Renaming does not edit tile SQL.
+            <p className="text-[11px] text-muted">
+              In SQL: <code className="font-mono">{"{{name}}"}</code>
             </p>
             {variables.length === 0 ? <p className="rounded-lg border border-dashed border-border p-2.5 text-center text-xs text-muted">No variables yet.</p> : null}
             {variables.map((v) => (

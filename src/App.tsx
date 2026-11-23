@@ -25,6 +25,7 @@ import { BackupDialog } from "@/features/backup/BackupDialog";
 import { ConnectionEvents } from "@/features/connections/ConnectionEvents";
 import { Toaster } from "@/components/global/Toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { SplitLayout } from "@/components/global/Layout";
 import { useActiveTheme } from "@/stores/useTheme";
 
 /// Stacks used until the settings load (they match globals.css).
@@ -150,10 +151,19 @@ export function App() {
                 <Sidebar />
                 <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col">
                   <EnvironmentEdge environment={connection.environment} />
-                  <div className="flex min-h-0 flex-1">
+                  <SplitLayout
+                    side="right"
+                    collapsed={!changesOpen}
+                    defaultSize={360}
+                    min={280}
+                    max={750}
+                    storageKey="db-free:changes-panel-width"
+                    resizeLabel="Resize pending changes"
+                    className="h-auto flex-1"
+                    panel={<PendingChangesPanel connectionId={connection.id} />}
+                  >
                     <PaneArea />
-                    {changesOpen ? <PendingChangesPanel connectionId={connection.id} /> : null}
-                  </div>
+                  </SplitLayout>
                 </main>
               </>
             )}

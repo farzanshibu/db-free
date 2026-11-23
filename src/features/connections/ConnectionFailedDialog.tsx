@@ -34,7 +34,7 @@ export function ConnectionFailedDialog() {
               <DialogDescription>Unable to connect to “{failure.name}”.</DialogDescription>
             </DialogHeader>
             <DialogBody className="flex flex-col gap-2">
-              <p className="text-xs text-muted">Please check your connection settings and ensure:</p>
+              <p className="text-xs font-medium text-foreground">Check that</p>
               <ul className="ml-4 list-disc space-y-1 text-xs text-muted">
                 {connectionFailureHints(failure.message, connection).map((hint) => (
                   <li key={hint}>{hint}</li>

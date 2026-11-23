@@ -3,7 +3,8 @@ import { useEffect } from "react";
 import type { DocumentKind } from "@/lib/bindings";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/global/Button";
+import { WithTip } from "@/components/global/InfoTip";
 import { PinnedBoard } from "./PinnedBoard";
 import { RecentsPanel } from "./RecentsPanel";
 import { useResolveEntity } from "./useResolvedEntity";
@@ -46,18 +47,18 @@ export function HomeBoard() {
       {showPinned ? (
         <section className="flex flex-col gap-2" aria-label="Pinned">
           <div className="flex items-center gap-2">
-            <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Pinned</h2>
+            <WithTip tip="Pin a connection, table, saved query, dashboard, workflow or diagram to keep it one click away. Drag to reorder (Alt+← / → from the keyboard)." tipLabel="About pins">
+              <h2 className="text-xs font-semibold uppercase tracking-wide text-muted">Pinned</h2>
+            </WithTip>
             {visiblePins.length > 0 ? <span className="text-xs tabular-nums text-muted/70">{visiblePins.length}</span> : null}
-            <Button variant="ghost" size="icon-sm" className="ml-auto" aria-label="Home settings" title="Home settings" onClick={() => goSettingsSection("home")}>
-              <Icon name="settings" size={13} />
-            </Button>
+            <IconButton icon="settings" label="Home settings" size={13} className="ml-auto" onClick={() => goSettingsSection("home")} />
           </div>
           {visiblePins.length > 0 ? (
             <PinnedBoard pins={pins} />
           ) : (
-            <div className="flex flex-col items-center gap-1.5 rounded-lg border border-dashed border-border/60 px-3 py-2 text-center">
-              <Icon name="pin" size={14} className="text-muted" />
-              <p className="max-w-md text-xs text-muted">Nothing pinned yet. Pin a connection, table, saved query, dashboard, workflow or diagram to keep it one click away.</p>
+            <div className="flex items-center gap-2 rounded-lg border border-dashed border-border/60 px-3 py-1.5 text-xs text-muted">
+              <Icon name="pin" size={13} />
+              Nothing pinned yet
             </div>
           )}
         </section>

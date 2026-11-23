@@ -105,7 +105,8 @@ export function ImportPanel({ connectionId }: { connectionId: string }) {
         <EmptyState
           icon="download"
           title="Import a file"
-          body="Drop a CSV, TSV, JSON or SQL file here. A CSV or a JSON array loads into one table, a JSON object of tables becomes a checklist, and a .sql script runs statement by statement."
+          body="Drop a CSV, TSV, JSON or SQL file here."
+          tip="A CSV or a JSON array loads into one table, a JSON object of tables becomes a checklist, and a .sql script runs statement by statement."
           action={
             <div className="flex gap-2">
               <Button size="sm" onClick={() => void choose("data")}>

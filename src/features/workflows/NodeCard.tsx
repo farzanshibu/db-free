@@ -5,6 +5,7 @@ import { formatCount, formatMs } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { NODE_SPECS, NODE_WIDTH, summarize, titleOf } from "./model";
 
 // React Flow node data must be assignable to its record constraint; a type alias
@@ -135,7 +136,12 @@ export function NodeCard({ data, selected }: NodeProps<StepFlowNode>) {
           <span className="flex items-center gap-1.5">
             <span className="truncate text-xs font-medium">{titleOf(node)}</span>
             {problem !== null && update === null ? (
-              <span className="size-1.5 shrink-0 rounded-full bg-warning" title={problem} aria-label={problem} />
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="size-1.5 shrink-0 rounded-full bg-warning" aria-label={problem} />
+                </TooltipTrigger>
+                <TooltipContent>{problem}</TooltipContent>
+              </Tooltip>
             ) : null}
           </span>
           <span className="block truncate font-mono text-[11px] text-muted">{summarize(node.config)}</span>

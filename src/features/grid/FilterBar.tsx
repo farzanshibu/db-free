@@ -9,6 +9,7 @@ import { cn } from "@/lib/cn";
 import { Button } from "@/components/ui/button";
 import { activeRules, opsForType, type FilterEntry } from "./filterOps";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { InfoTip } from "@/components/global/InfoTip";
 
 interface FilterBarProps {
   columns: readonly { name: string; typeName?: string | undefined }[];
@@ -102,7 +103,7 @@ export function FilterBar({ columns, entries, mode, onApply, inputRef }: FilterB
         value={text}
         spellCheck={false}
         autoComplete="off"
-        placeholder={`Filter rows — status = active and revenue > 100${chord.length > 0 ? `   (${chord})` : ""}`}
+        placeholder="Filter…"
         aria-label="Filter rows"
         aria-invalid={showError}
         onChange={(e) => {
@@ -150,6 +151,11 @@ export function FilterBar({ columns, entries, mode, onApply, inputRef }: FilterB
           <Icon name="x" size={11} />
         </Button>
       ) : null}
+      <InfoTip label="Filter syntax" side="bottom" align="end">
+        <span className="font-mono">status = active and revenue &gt; 100</span>
+        <br />
+        Tab completes, ↵ applies, Esc cancels.{chord.length > 0 ? ` Focus with ${chord}.` : ""}
+      </InfoTip>
       {focused && suggestions.options.length > 0 ? (
         <div className="absolute left-7 top-7 z-30 min-w-52 overflow-hidden rounded-lg glass-modal">
         <ScrollArea orientation="both" className="max-h-60 p-1">

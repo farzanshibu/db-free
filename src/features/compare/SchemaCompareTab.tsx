@@ -5,6 +5,8 @@ import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Segmented } from "@/components/global/Field";
+import { SplitLayout } from "@/components/global/Layout";
+import { OverflowMenu } from "@/components/global/Toolbar";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
@@ -91,63 +93,89 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex app-toolbar shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Left</span>
+      {/* One row at every width: the side labels go first, then the direction
+          toggle folds into "⋯", then the pickers shrink. */}
+      <div className="@container flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface">
+        <span className="hidden text-[11px] font-semibold uppercase tracking-wider text-muted @6xl:inline">Left</span>
         <ConnectionPicker label="Left connection" value={leftId} onChange={(id) => { setLeftId(id); setLeftSchema(null); }} />
         <SchemaPicker label="Left schema" connectionId={leftId} value={leftSchema} onChange={setLeftSchema} />
-        <DirectionToggle value={direction} onChange={setDirection} />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Right</span>
+        <span className="hidden shrink-0 @4xl:flex">
+          <DirectionToggle value={direction} onChange={setDirection} />
+        </span>
+        <span className="hidden text-[11px] font-semibold uppercase tracking-wider text-muted @6xl:inline">Right</span>
         <ConnectionPicker label="Right connection" value={rightId} onChange={(id) => { setRightId(id); setRightSchema(null); }} />
         <SchemaPicker label="Right schema" connectionId={rightId} value={rightSchema} onChange={setRightSchema} />
-        <Button size="sm" pending={busy} onClick={() => void compare()} className="ml-auto">
-          <Icon name="git-branch" size={13} />
-          Compare
-        </Button>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <span className="flex @4xl:hidden">
+            <OverflowMenu
+              label="Script direction"
+              items={[
+                { id: "left_to_right", label: "Left → Right", icon: "git-branch", active: direction === "left_to_right", onSelect: () => setDirection("left_to_right") },
+                { id: "right_to_left", label: "Right → Left", icon: "git-branch", active: direction === "right_to_left", onSelect: () => setDirection("right_to_left") },
+              ]}
+            />
+          </span>
+          <Button size="sm" pending={busy} onClick={() => void compare()}>
+            <Icon name="git-branch" size={13} />
+            Compare
+          </Button>
+        </span>
       </div>
 
       {result === null ? (
         <EmptyState
           icon="git-branch"
           title="Compare two schemas"
-          body={`Pick a connection and schema for each side, choose which side the migration changes, then Compare. Only connected connections are listed${live.length < 2 ? " — connect another from the sidebar to compare across databases" : ""}.`}
+          tip="Pick a connection and schema for each side, choose which side the migration changes, then Compare. Only connected connections are listed."
+          body={live.length < 2 ? "Connect another database to compare across databases." : undefined}
         />
       ) : (
-        <div className="flex min-h-0 flex-1">
-          <div className="flex w-64 shrink-0 flex-col border-r border-border/40">
-            <div className="flex flex-col gap-2 p-2">
-              <Segmented label="Filter differences" value={filter} onChange={setFilter} options={FILTERS} />
-              <div className="flex flex-wrap gap-1 text-[10.5px]">
-                {STATUS_ORDER.map((s) => (
-                  <Badge key={s} size="sm" variant={DIFF_STATUS[s].variant} className="font-mono">
-                    {counts[s]} {DIFF_STATUS[s].label.toLowerCase()}
-                  </Badge>
-                ))}
-              </div>
-            </div>
-            <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
-              {visible.length === 0 ? (
-                <p className="px-2 py-2 text-xs text-muted">{filter === "changes" ? "No differences: the schemas match." : "Nothing in this filter."}</p>
-              ) : (
-                visible.map((t) => (
-                  <Button
-                    key={t.name}
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setSelected(t.name)}
-                    className={cn("flex h-6 w-full justify-start gap-2 rounded-md px-2 text-xs", selected === t.name ? "bg-surface-secondary text-foreground" : "text-muted")}
-                  >
-                    <Icon name="table" size={13} className="shrink-0 opacity-70" />
-                    <span className="min-w-0 flex-1 truncate text-left">{t.name}</span>
-                    <Badge size="sm" variant={DIFF_STATUS[t.status].variant}>
-                      {DIFF_STATUS[t.status].label}
+        <SplitLayout
+          side="left"
+          defaultSize={256}
+          min={200}
+          max={480}
+          storageKey="db-free:compare-schema-tables-width"
+          resizeLabel="Resize table list"
+          className="h-auto min-h-0 flex-1"
+          panelClassName="border-r border-border/40"
+          panel={
+            <>
+              <div className="flex flex-col gap-2 p-2">
+                <Segmented label="Filter differences" value={filter} onChange={setFilter} options={FILTERS} />
+                <div className="flex flex-wrap gap-1 text-[10.5px]">
+                  {STATUS_ORDER.map((s) => (
+                    <Badge key={s} size="sm" variant={DIFF_STATUS[s].variant} className="font-mono">
+                      {counts[s]} {DIFF_STATUS[s].label.toLowerCase()}
                     </Badge>
-                  </Button>
-                ))
-              )}
-            </ScrollArea>
-          </div>
-
-          <div className="flex min-w-0 flex-1 flex-col">
+                  ))}
+                </div>
+              </div>
+              <ScrollArea className="min-h-0 flex-1 px-1.5 pb-1.5">
+                {visible.length === 0 ? (
+                  <p className="px-2 py-2 text-xs text-muted">{filter === "changes" ? "No differences: the schemas match." : "Nothing in this filter."}</p>
+                ) : (
+                  visible.map((t) => (
+                    <Button
+                      key={t.name}
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setSelected(t.name)}
+                      className={cn("flex h-6 w-full justify-start gap-2 rounded-md px-2 text-xs", selected === t.name ? "bg-surface-secondary text-foreground" : "text-muted")}
+                    >
+                      <Icon name="table" size={13} className="shrink-0 opacity-70" />
+                      <span className="min-w-0 flex-1 truncate text-left">{t.name}</span>
+                      <Badge size="sm" variant={DIFF_STATUS[t.status].variant}>
+                        {DIFF_STATUS[t.status].label}
+                      </Badge>
+                    </Button>
+                  ))
+                )}
+              </ScrollArea>
+            </>
+          }
+        >
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             {result.notes.length > 0 ? (
               <ul className="shrink-0 space-y-0.5 border-b border-border/40 bg-warning-soft/40 px-2.5 py-1 text-[11px] text-warning">
                 {result.notes.map((n) => (
@@ -159,7 +187,7 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
               </ul>
             ) : null}
             <ScrollArea orientation="both" className="min-h-0 flex-1">
-              {current === null ? <EmptyState title="Pick a table" body="Select a table on the left to see its columns side by side." /> : <TableDetail table={current} leftName={leftName} rightName={rightName} />}
+              {current === null ? <EmptyState title="Pick a table" tip="Select a table on the left to see its columns side by side." /> : <TableDetail table={current} leftName={leftName} rightName={rightName} />}
             </ScrollArea>
             <div className="flex h-[40%] min-h-[160px] shrink-0 flex-col border-t border-border/40">
               <div className="flex h-7 shrink-0 items-center gap-2 px-2.5 text-xs text-muted">
@@ -180,7 +208,7 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
               </ScrollArea>
             </div>
           </div>
-        </div>
+        </SplitLayout>
       )}
     </div>
   );

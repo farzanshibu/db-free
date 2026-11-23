@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, type MouseEvent as ReactMouseEvent } from "react";
 import { usePendingCount, useWorkspace, type Tab } from "@/stores/workspace";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
+import { OverflowMenu, type ToolbarAction } from "@/components/global/Toolbar";
 import { Icon, type IconName } from "@/lib/icons";
 import { OBJECT_KINDS, TOOLS } from "@/lib/objects";
 import { MAX_PANES, paneCount, tabsInPane, topEdgePanes } from "@/lib/panes";
@@ -83,6 +84,21 @@ export function TabBar({ paneId }: { paneId: string }) {
     { id: "reopen", label: "Reopen closed tab", icon: "history", group: "new", disabled: !canReopen },
   ];
 
+  // WHAT:  The strip's "⋯" menu: the pane and tab commands that otherwise
+  //        live only in a tab's right-click menu or behind a shortcut.
+  // WHY:   Split view and Reopen closed tab were reachable only by right-click,
+  //        drag or chord — invisible to anyone who had not read the docs.
+  const activeIndex = activeTab === null ? -1 : mine.indexOf(activeTab);
+  const stripActions: ToolbarAction[] = [
+    ...(connectionId ? [{ id: "new-query", label: "New query tab", icon: "plus", shortcut: "new-query", onSelect: () => { focusPane(paneId); openQuery(connectionId); } } satisfies ToolbarAction] : []),
+    { id: "reopen", label: "Reopen closed tab", icon: "history", shortcut: "reopen-tab", disabled: !canReopen, onSelect: reopen },
+    { id: "split-right", label: "Split right", icon: "columns", group: "split", disabled: activeTab === null || !canSplit || mine.length < 2, onSelect: () => { if (activeTab) splitPane(paneId, "right", activeTab.id); } },
+    { id: "split-down", label: "Split down", icon: "rows", group: "split", disabled: activeTab === null || !canSplit || mine.length < 2, onSelect: () => { if (activeTab) splitPane(paneId, "down", activeTab.id); } },
+    { id: "close-pane", label: "Close pane", icon: "x", group: "split", disabled: count < 2, onSelect: () => { closePane(paneId); } },
+    { id: "close-others", label: "Close other tabs", icon: "x", group: "close", disabled: activeTab === null || mine.length < 2, onSelect: () => { if (activeTab) onAction(activeTab, activeIndex, "close-others"); } },
+    { id: "close-all", label: "Close all tabs", icon: "trash", group: "close", danger: true, disabled: mine.length === 0, onSelect: () => { requestClose(mine.map((t) => t.id)); } },
+  ];
+
   const onAction = (tab: Tab, index: number, id: string) => {
     if (id === "close") requestClose([tab.id]);
     else if (id === "close-others") requestClose(mine.filter((t) => t.id !== tab.id).map((t) => t.id));
@@ -151,6 +167,7 @@ export function TabBar({ paneId }: { paneId: string }) {
         </Tooltip>
       ) : null}
       <div className={cn("h-full min-w-6 flex-1", onTop ? "drag-region" : "")} data-tauri-drag-region={onTop ? true : undefined} />
+      <OverflowMenu items={stripActions} label="Tab and pane actions" className="mr-1 size-6 min-w-6 text-muted" />
       {carriesChanges && activeConnectionId ? (
         <Tooltip>
           <TooltipTrigger asChild>

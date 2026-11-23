@@ -9,6 +9,7 @@ import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
 import { Segmented } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
+import { AutoGrid } from "@/components/global/Layout";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ObjectRow } from "./ObjectList";
 import { XmlTree } from "@/features/tools/XmlTree";
@@ -141,7 +142,7 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
         ) : error !== null ? (
           <EmptyState icon="alert" title="Could not load this object" body={error} action={<Button size="sm" onClick={reload}>Retry</Button>} />
         ) : detail === null || current === null ? (
-          <EmptyState icon={meta.icon} title={reference.name} body={`The adapter reports nothing more about this ${meta.label.toLowerCase()}.`} />
+          <EmptyState icon={meta.icon} title={reference.name} tip={`The adapter reports nothing more about this ${meta.label.toLowerCase()}.`} />
         ) : current === "definition" ? (
           detail.language === "xml" ? (
             <ScrollArea className="h-full p-2.5">
@@ -154,13 +155,15 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
           )
         ) : current === "properties" ? (
           <ScrollArea className="h-full">
-            <dl className="grid grid-cols-[minmax(140px,max-content)_1fr] gap-x-3 gap-y-0 p-2.5 text-xs">
-              {detail.properties.map((p) => (
-                <div key={p.name} className="contents">
-                  <dt className="border-b border-separator py-1 font-medium text-muted">{p.name}</dt>
-                  <dd className="selectable min-w-0 border-b border-separator py-1 font-mono break-words text-foreground">{p.value}</dd>
-                </div>
-              ))}
+            <dl className="p-2.5 text-xs">
+              <AutoGrid min="md" className="gap-x-4 gap-y-0">
+                {detail.properties.map((p) => (
+                  <div key={p.name} className="grid min-w-0 grid-cols-[minmax(120px,40%)_1fr] gap-x-3 border-b border-separator py-1">
+                    <dt className="truncate font-medium text-muted">{p.name}</dt>
+                    <dd className="selectable min-w-0 font-mono break-words text-foreground">{p.value}</dd>
+                  </div>
+                ))}
+              </AutoGrid>
             </dl>
           </ScrollArea>
         ) : current === "columns" ? (
@@ -191,9 +194,9 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
           </ScrollArea>
         ) : (
           <ScrollArea className="h-full p-3">
-            <ul className="flex max-w-xl flex-col gap-2">
+            <AutoGrid min="md">
               {detail.actions.map((action) => (
-                <li key={action.id} className="flex items-center gap-2 rounded-lg glass-card border-border/40 p-2">
+                <div key={action.id} className="flex items-center gap-2 rounded-lg glass-card border-border/40 p-2">
                   <div className="min-w-0 flex-1">
                     <div className="text-xs font-medium text-foreground">{action.label}</div>
                     <code className="block truncate font-mono text-[11px] text-muted" title={action.statement}>
@@ -204,15 +207,15 @@ export function ObjectTab({ connectionId, reference }: { connectionId: string; r
                     {action.destructive ? <Icon name="alert" size={12} /> : <Icon name="play" size={12} />}
                     {action.destructive ? "Run…" : "Run"}
                   </Button>
-                </li>
+                </div>
               ))}
-            </ul>
+            </AutoGrid>
           </ScrollArea>
         )}
       </div>
 
       <Dialog open={confirming !== null} onOpenChange={(o) => !o && setConfirming(null)}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-[min(92vw,640px)]">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <Icon name="alert" size={14} className="text-danger" />

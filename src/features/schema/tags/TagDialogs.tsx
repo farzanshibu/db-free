@@ -94,7 +94,7 @@ export function TagDialog({ connectionId, database, scopes, initialScope, existi
         >
           <DialogHeader>
             <DialogTitle>{tag ? "Edit tag" : "New tag"}</DialogTitle>
-            <DialogDescription>Tags group tables in the sidebar. They live in this app only; your database is not touched.</DialogDescription>
+            <DialogDescription>Groups tables in the sidebar; kept in this app, not in the database.</DialogDescription>
           </DialogHeader>
           <DialogBody className="flex flex-col gap-2">
             <Field label="Name" value={name} onChange={(v) => { setName(v); setServerError(null); }} autoFocus placeholder="e.g. billing" />

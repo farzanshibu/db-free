@@ -69,7 +69,7 @@ function DuplicateForm({ profile, connectionId, table, onClose }: DuplicateTable
         <>
           <TableNameFields connectionId={connectionId} noun={`New ${noun}`} name={name} onName={setName} nameIssue={issue} schema={schema} onSchema={setSchema} autoFocus />
           <div className="flex flex-col gap-2">
-            <Toggle checked={includeData} onChange={setIncludeData} label="Copy the rows" description="Off creates an empty copy with the same structure." />
+            <Toggle checked={includeData} onChange={setIncludeData} label="Copy the rows" tip="Off creates an empty copy with the same structure." />
             <Toggle checked={includeIndexes} onChange={setIncludeIndexes} label="Copy the indexes" />
           </div>
         </>

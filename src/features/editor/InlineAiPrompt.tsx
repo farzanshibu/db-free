@@ -215,7 +215,6 @@ export function InlineAiPrompt({ connection, editorRef, selection, anchor, docum
               <Button
                 size="xs"
                 variant="ghost"
-                title="Open the chat with this question"
                 onClick={() => {
                   const prompt = chatPrompt();
                   cancel();

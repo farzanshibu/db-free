@@ -1,13 +1,13 @@
 // SOT: message-viewer-tab, topic-browser, consume-form, produce-form
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { QueryOutcome, ResultSet } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { parseJson } from "@/lib/json";
 import { DENSITIES, formatCount } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
-import { AppSelect, Field, NumberInput } from "@/components/global/Field";
-import { Segmented } from "@/components/global/Field";
+import { AppSelect, Field, FieldLabel, NumberInput, Segmented } from "@/components/global/Field";
+import { Disclosure } from "@/components/global/Disclosure";
 import { EmptyState } from "@/components/global/EmptyState";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
@@ -46,6 +46,8 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const current = topic.length > 0 ? topic : (options[0]?.value ?? "");
+  const valueId = useId();
+  const headersId = useId();
 
   const consume = async () => {
     setRunning(true);
@@ -96,7 +98,7 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
             {mode === "consume" ? (
               <>
                 <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-muted">Start</span>
+                  <FieldLabel label="Start" />
                   <Segmented label="Start position" value={start} onChange={setStart} options={[{ value: "earliest", label: "Earliest" }, { value: "latest", label: "Latest" }, { value: "offset", label: "Offset" }]} />
                 </div>
                 {start === "offset" ? <NumberInput label="Offset" integer value={offset} onChange={setOffset} /> : null}
@@ -110,13 +112,15 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
               <>
                 <Field label="Key" value={key} onChange={setKey} optional mono />
                 <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-muted">Value</span>
-                  <Textarea aria-label="Message value" value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} className="min-h-24 font-mono text-xs" placeholder='{"event": "signup", "user": 42}' />
+                  <FieldLabel htmlFor={valueId} label="Value" />
+                  <Textarea id={valueId} aria-label="Message value" value={value} onChange={(e) => setValue(e.target.value)} spellCheck={false} className="min-h-24 font-mono text-xs" placeholder='{"event": "signup", "user": 42}' />
                 </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-[11px] font-medium text-muted">Headers</span>
-                  <Textarea aria-label="Headers" value={headers} onChange={(e) => setHeaders(e.target.value)} spellCheck={false} className="min-h-14 font-mono text-xs" placeholder='{"source": "db-free"}' />
-                </div>
+                <Disclosure variant="inline" label="More options" count={1}>
+                  <div className="flex flex-col gap-1">
+                    <FieldLabel htmlFor={headersId} label="Headers" optional tip="A JSON object of string values." />
+                    <Textarea id={headersId} aria-label="Headers" value={headers} onChange={(e) => setHeaders(e.target.value)} spellCheck={false} className="min-h-14 font-mono text-xs" placeholder='{"source": "db-free"}' />
+                  </div>
+                </Disclosure>
                 <Button onClick={() => void produce()} disabled={running || current.length === 0 || value.length === 0}>
                   {running ? <Spinner size="sm" /> : <Icon name="send" size={13} />}
                   Produce
@@ -128,9 +132,20 @@ export function MessageViewerTab({ connectionId }: { connectionId: string }) {
         }
       >
         {result === null ? (
-          <EmptyState icon="message" title="Message viewer" body="Pick a topic and consume from the earliest offset, the latest, or a specific one. Switch to Produce to publish a message." />
+          <EmptyState
+            icon="message"
+            title="Message viewer"
+            tip="Consume from the earliest offset, the latest, or a specific one. Switch the mode to Produce to publish a message."
+            action={
+              mode === "consume" ? (
+                <Button size="sm" onClick={() => void consume()} disabled={running || current.length === 0}>
+                  Consume
+                </Button>
+              ) : null
+            }
+          />
         ) : result.columns.length === 0 || result.rows.length === 0 ? (
-          <EmptyState title="No messages" body="Nothing was read in this window. Try the earliest offset." />
+          <EmptyState title="No messages" tip="Nothing was read in this window. Try the earliest offset." />
         ) : (
           <DataGrid columns={result.columns.map((c) => ({ name: c.name, typeName: c.typeName }))} rowCount={result.rows.length} getRow={(i) => result.rows[i]} rowHeight={DENSITIES[density].rowHeight} />
         )}

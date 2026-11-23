@@ -2,7 +2,11 @@
 import { useState } from "react";
 import type { Snippet } from "@/lib/bindings";
 import { BUILTIN_SNIPPETS, SNIPPET_LANGUAGES, isSnippetLanguage, snippetPreview, type SnippetLanguage } from "@/lib/snippets";
+import { IconButton } from "@/components/global/Button";
+import { Disclosure } from "@/components/global/Disclosure";
 import { AppSelect, Field } from "@/components/global/Field";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 import { Icon } from "@/lib/icons";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -46,18 +50,26 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
   return (
     <>
       <div className="flex items-center gap-2">
-        <h2 className="text-[13px] font-semibold text-foreground">Snippets</h2>
+        <h2 className="text-[13px] font-semibold text-foreground">
+          <WithTip
+            tip={
+              <>
+                Type a prefix in the query editor and press Tab to expand it; Tab then walks the <span className="font-mono">{"${field}"}</span> placeholders. Snippets also appear in the suggestion list.
+              </>
+            }
+            tipLabel="About snippets"
+          >
+            Snippets
+          </WithTip>
+        </h2>
         <Button size="sm" variant="secondary" className="ml-auto" disabled={editing !== null} onClick={() => setEditing({ index: null, draft: BLANK })}>
           <Icon name="plus" size={12} />
           Add snippet
         </Button>
       </div>
-      <p className="text-xs text-muted">
-        Type a prefix in the query editor and press Tab to expand it; Tab then walks the <span className="font-mono">{"${field}"}</span> placeholders. Snippets also appear in the suggestion list.
-      </p>
       {editing !== null ? (
         <div className="flex flex-col gap-2 rounded-lg border border-border/60 bg-surface p-3">
-          <div className="grid grid-cols-3 gap-2">
+          <AutoGrid min="xs">
             <Field label="Prefix" value={editing.draft.prefix} onChange={(v) => patchDraft({ prefix: v })} placeholder="audit" mono autoFocus />
             <Field label="Name" value={editing.draft.name} onChange={(v) => patchDraft({ name: v })} placeholder="Audit columns" optional />
             <AppSelect<SnippetLanguage>
@@ -66,7 +78,7 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
               options={SNIPPET_LANGUAGES}
               onChange={(v) => patchDraft({ language: v })}
             />
-          </div>
+          </AutoGrid>
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="snippet-body" className="text-xs text-muted">
               Body
@@ -98,17 +110,13 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
               <Badge size="sm" variant="soft" className="shrink-0 text-[9.5px]">
                 {languageLabel(sn.language)}
               </Badge>
-              <Button size="icon-sm" variant="ghost" aria-label={`Edit ${sn.prefix}`} disabled={editing !== null} onClick={() => setEditing({ index: i, draft: sn })}>
-                <Icon name="pencil" size={12} />
-              </Button>
-              <Button size="icon-sm" variant="ghost" aria-label={`Delete ${sn.prefix}`} onClick={() => onChange(snippets.filter((_, j) => j !== i))}>
-                <Icon name="trash" size={12} />
-              </Button>
+              <IconButton icon="pencil" size={12} label={`Edit ${sn.prefix}`} disabled={editing !== null} onClick={() => setEditing({ index: i, draft: sn })} />
+              <IconButton icon="trash" size={12} label={`Delete ${sn.prefix}`} onClick={() => onChange(snippets.filter((_, j) => j !== i))} />
             </li>
           ))}
         </ul>
       )}
-      <h3 className="text-[11px] font-semibold tracking-wider text-muted uppercase">Built-in</h3>
+      <Disclosure label="Built-in" count={BUILTIN_SNIPPETS.length} tip="Shipped with the app; always available in the editor.">
       <ul className="divide-y divide-separator rounded-md border border-border bg-surface">
         {BUILTIN_SNIPPETS.map((sn) => (
           <li key={`${sn.language}:${sn.prefix}`} className="flex items-center gap-2 px-2.5 py-1 text-xs">
@@ -120,6 +128,7 @@ export function SnippetsSection({ snippets, onChange }: { snippets: readonly Sni
           </li>
         ))}
       </ul>
+      </Disclosure>
     </>
   );
 }

@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { InfoTip } from "@/components/global/InfoTip";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 
@@ -67,6 +69,19 @@ export function SqlView({ connectionId, ddl, pending, queryTitle, className, max
   const showInfo = useWorkspace((s) => s.showInfo);
   const sql = ddl?.sql ?? "";
   const empty = ddl !== null && sql.trim() === "";
+  const openButton = (
+    <Button
+      size="sm"
+      variant="secondary"
+      disabled={sql.trim() === "" || connectionId === null}
+      onClick={() => {
+        if (connectionId !== null) openQuery(connectionId, sql, queryTitle);
+      }}
+    >
+      <Icon name="terminal" size={13} />
+      Open in query tab
+    </Button>
+  );
   return (
     <div className={cn("flex min-h-0 flex-col gap-2", className)}>
       {ddl && ddl.warnings.length > 0 ? (
@@ -86,7 +101,10 @@ export function SqlView({ connectionId, ddl, pending, queryTitle, className, max
             <Spinner size="sm" />
           </div>
         ) : empty ? (
-          <p className="text-xs text-muted">Nothing to write yet. Add a table with at least one named column.</p>
+          <p className="flex items-center gap-1 text-xs text-muted">
+            Nothing to write yet
+            <InfoTip label="About the SQL">Add a table with at least one named column.</InfoTip>
+          </p>
         ) : (
           <pre className={cn("selectable font-mono text-[11px] whitespace-pre text-foreground transition-opacity", pending ? "opacity-60" : "")}>{sql}</pre>
         )}
@@ -106,18 +124,19 @@ export function SqlView({ connectionId, ddl, pending, queryTitle, className, max
           <Icon name="copy" size={13} />
           Copy
         </Button>
-        <Button
-          size="sm"
-          variant="secondary"
-          disabled={sql.trim() === "" || connectionId === null}
-          title={connectionId === null ? "Connect to a database to open the SQL in a query tab." : undefined}
-          onClick={() => {
-            if (connectionId !== null) openQuery(connectionId, sql, queryTitle);
-          }}
-        >
-          <Icon name="terminal" size={13} />
-          Open in query tab
-        </Button>
+        {connectionId === null ? (
+          // A disabled button gets no pointer events, so the reason sits on a focusable wrapper.
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span tabIndex={0} className="rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                {openButton}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>Connect to a database to open the SQL in a query tab.</TooltipContent>
+          </Tooltip>
+        ) : (
+          openButton
+        )}
       </div>
     </div>
   );
@@ -136,7 +155,7 @@ export function SqlDialog({ connectionId, body, name, children }: SqlDialogProps
   return (
     <Dialog>
       <DialogTrigger asChild>{children}</DialogTrigger>
-      <DialogContent className="sm:max-w-[760px]">
+      <DialogContent className="sm:max-w-[min(92vw,1000px)]">
         <DialogHeader>
           <DialogTitle>Generated SQL</DialogTitle>
         </DialogHeader>

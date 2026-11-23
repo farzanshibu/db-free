@@ -8,6 +8,7 @@ import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { EmptyState } from "@/components/global/EmptyState";
 import { JsonViewer } from "@/components/global/JsonViewer";
+import { SplitLayout } from "@/components/global/Layout";
 import { SERIES_COLORS } from "@/features/dashboards/charts";
 import { ToolShell } from "./ToolShell";
 import { cn } from "@/lib/cn";
@@ -16,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 export interface GraphNode {
   id: string;
@@ -404,44 +406,64 @@ export function GraphViewTab({ connectionId }: { connectionId: string }) {
         </div>
         {error !== null ? <p className="shrink-0 px-2.5 py-1 text-xs text-danger">{error}</p> : null}
         <div className="flex min-h-0 flex-1">
-          <div className="min-h-0 min-w-0 flex-1">
+          <SplitLayout
+            side="right"
+            defaultSize={256}
+            min={200}
+            max={560}
+            storageKey="db-free:graph-panel-width"
+            resizeLabel="Resize properties panel"
+            collapsed={graph === null || graph.nodes.length === 0}
+            panelClassName="border-l border-border/40"
+            panel={
+              graph !== null ? (
+                <>
+                  <Legend
+                    graph={graph}
+                    hiddenLabels={hiddenLabels}
+                    hiddenTypes={hiddenTypes}
+                    onToggleLabel={(l) => setHiddenLabels((set) => toggle(set, l))}
+                    onToggleType={(t) => setHiddenTypes((set) => toggle(set, t))}
+                  />
+                  <ScrollArea className="min-h-0 flex-1 border-t border-border/40 p-2.5">
+                    {selected === null ? (
+                      <p className="text-xs text-muted">Select a node or a relationship.</p>
+                    ) : (
+                      <>
+                        <div className="mb-2 flex items-center gap-2">
+                          <Badge size="sm" variant="soft" className="font-mono text-[10px]">
+                            {selected.kind === "node" ? selected.node.label : selected.edge.type}
+                          </Badge>
+                          <span className="truncate font-mono text-[11px] text-muted">{selected.kind === "node" ? selected.node.id : selected.edge.id}</span>
+                        </div>
+                        {selected.kind === "edge" ? (
+                          <p className="mb-2 font-mono text-[11px] text-muted">
+                            {selected.edge.from} → {selected.edge.to}
+                          </p>
+                        ) : null}
+                        <JsonViewer bare value={selected.kind === "node" ? selected.node.properties : selected.edge.properties} defaultDepth={2} />
+                      </>
+                    )}
+                  </ScrollArea>
+                </>
+              ) : null
+            }
+          >
             {shown === null || graph === null || graph.nodes.length === 0 ? (
-              <EmptyState icon="chart-relationship" title="Graph view" body="Run a query that returns nodes and relationships (⌘↩). Drag to pan, scroll to zoom, click a node or relationship for its properties, double-click a node to expand it." />
+              <EmptyState
+                icon="chart-relationship"
+                title="Graph view"
+                tip="Run a query that returns nodes and relationships (⌘↩). Drag to pan, scroll to zoom, click a node or relationship for its properties, double-click a node to expand it."
+                action={
+                  <Button size="sm" onClick={() => void run()} disabled={running || query.trim().length === 0}>
+                    Run
+                  </Button>
+                }
+              />
             ) : (
               <GraphCanvas key={layoutKey} graph={shown} selected={selected} onSelect={setSelected} onExpand={(n) => void expand(n)} />
             )}
-          </div>
-          {graph !== null && graph.nodes.length > 0 ? (
-            <aside className="flex w-64 shrink-0 flex-col border-l border-border/40">
-              <Legend
-                graph={graph}
-                hiddenLabels={hiddenLabels}
-                hiddenTypes={hiddenTypes}
-                onToggleLabel={(l) => setHiddenLabels((set) => toggle(set, l))}
-                onToggleType={(t) => setHiddenTypes((set) => toggle(set, t))}
-              />
-              <ScrollArea className="min-h-0 flex-1 border-t border-border/40 p-2.5">
-                {selected === null ? (
-                  <p className="text-xs text-muted">Select a node or a relationship.</p>
-                ) : (
-                  <>
-                    <div className="mb-2 flex items-center gap-2">
-                      <Badge size="sm" variant="soft" className="font-mono text-[10px]">
-                        {selected.kind === "node" ? selected.node.label : selected.edge.type}
-                      </Badge>
-                      <span className="truncate font-mono text-[11px] text-muted">{selected.kind === "node" ? selected.node.id : selected.edge.id}</span>
-                    </div>
-                    {selected.kind === "edge" ? (
-                      <p className="mb-2 font-mono text-[11px] text-muted">
-                        {selected.edge.from} → {selected.edge.to}
-                      </p>
-                    ) : null}
-                    <JsonViewer bare value={selected.kind === "node" ? selected.node.properties : selected.edge.properties} defaultDepth={2} />
-                  </>
-                )}
-              </ScrollArea>
-            </aside>
-          ) : null}
+          </SplitLayout>
         </div>
       </div>
     </ToolShell>
@@ -482,17 +504,21 @@ function Legend({
           const off = hiddenLabels.has(label);
           return (
             <li key={label}>
-              <button
-                type="button"
-                aria-pressed={!off}
-                title={off ? `Show ${label}` : `Hide ${label}`}
-                onClick={() => onToggleLabel(label)}
-                className={cn("flex items-center gap-1 rounded-md glass-pill px-1.5 py-0.5", off && "opacity-40")}
-              >
-                <span className="inline-block size-2 rounded-full" style={{ background: colors.get(label) }} />
-                <span className={cn("text-foreground", off && "line-through")}>{label}</span>
-                <span className="font-mono text-muted">{count}</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={!off}
+                    onClick={() => onToggleLabel(label)}
+                    className={cn("flex items-center gap-1 rounded-md glass-pill px-1.5 py-0.5", off && "opacity-40")}
+                  >
+                    <span className="inline-block size-2 rounded-full" style={{ background: colors.get(label) }} />
+                    <span className={cn("text-foreground", off && "line-through")}>{label}</span>
+                    <span className="font-mono text-muted">{count}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{off ? `Show ${label}` : `Hide ${label}`}</TooltipContent>
+              </Tooltip>
             </li>
           );
         })}
@@ -503,16 +529,20 @@ function Legend({
           const off = hiddenTypes.has(type);
           return (
             <li key={type}>
-              <button
-                type="button"
-                aria-pressed={!off}
-                title={off ? `Show ${type}` : `Hide ${type}`}
-                onClick={() => onToggleType(type)}
-                className={cn("flex items-center gap-1 rounded-md glass-pill px-1.5 py-0.5", off && "opacity-40")}
-              >
-                <span className={cn("text-foreground", off && "line-through")}>{type}</span>
-                <span className="font-mono text-muted">{count}</span>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-pressed={!off}
+                    onClick={() => onToggleType(type)}
+                    className={cn("flex items-center gap-1 rounded-md glass-pill px-1.5 py-0.5", off && "opacity-40")}
+                  >
+                    <span className={cn("text-foreground", off && "line-through")}>{type}</span>
+                    <span className="font-mono text-muted">{count}</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{off ? `Show ${type}` : `Hide ${type}`}</TooltipContent>
+              </Tooltip>
             </li>
           );
         })}

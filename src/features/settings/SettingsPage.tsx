@@ -8,11 +8,14 @@ import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid, PageHeader } from "@/components/global/Layout";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
 import { AiSection } from "./AiSection";
 import { ShortcutsSection } from "./ShortcutsSection";
@@ -87,16 +90,11 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 
   return (
     <div className="grid-bg relative flex h-full min-h-0 flex-1 flex-col">
-      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onClick={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
-          <Icon name="chevron-left" size={14} />
-          Back
-        </Button>
-        <span className="text-[13px] font-semibold text-foreground tracking-tight" data-tauri-drag-region>
-          Preferences
-        </span>
-        <div className="drag-region h-full flex-1" data-tauri-drag-region />
-      </div>
+      <PageHeader
+        title="Settings"
+        onBack={goConnections}
+        tip="Changes are drafted until you press Save in the bar that appears at the bottom. AI settings save on their own."
+      />
       <div className="flex min-h-0 flex-1">
         <nav className="w-48 shrink-0 space-y-0.5 px-2 py-2.5 glass-sidebar" aria-label="Settings sections">
           {SETTINGS_SECTIONS.map((s) => (
@@ -116,7 +114,15 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
           ))}
         </nav>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-5 py-3">
+          {/* WHAT:  The section body uses the whole width: setting rows flow into
+                     as many ≥26rem columns as fit (2 on a laptop, 3 on a wide
+                     screen); headings, intros, lists and whole-section
+                     components span every column.
+              WHY:   A centred 720px column left most of a wide window empty
+                     and put each control a long eye-trip from its label.
+              HOW:   Rows carry data-slot="settings-row" (SettingsRow); any
+                     other direct child is col-span-full. */}
+          <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(26rem,1fr))] content-start gap-2 px-4 py-3 pb-16 [&>*:not([data-slot=settings-row])]:col-span-full">
             {section === "general" ? (
               <>
                 <h2 className="text-[13px] font-semibold text-foreground">General</h2>
@@ -138,9 +144,14 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 <Row title="Layout" body="Sidebar and inspector arrangements. Applies at once, to this window.">
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {LAYOUT_PRESETS.map((preset) => (
-                      <Button key={preset.id} size="sm" variant="secondary" title={preset.description} onClick={() => { applyLayout(preset.id); }}>
-                        {preset.label}
-                      </Button>
+                      <Tooltip key={preset.id}>
+                        <TooltipTrigger asChild>
+                          <Button size="sm" variant="secondary" onClick={() => { applyLayout(preset.id); }}>
+                            {preset.label}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{preset.description}</TooltipContent>
+                      </Tooltip>
                     ))}
                   </div>
                 </Row>
@@ -151,8 +162,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             ) : null}
             {section === "fonts" ? (
               <>
-                <h2 className="text-[13px] font-semibold text-foreground">Fonts</h2>
-                <p className="text-xs text-muted">Every family is bundled with the app, so the picker works offline.</p>
+                <h2 className="text-[13px] font-semibold text-foreground">
+                  <WithTip tip="Every family is bundled with the app, so the picker works offline." tipLabel="About fonts">Fonts</WithTip>
+                </h2>
                 <Row title="Interface font" body="Menus, panels, labels.">
                   <AppSelect ariaLabel="Interface font" value={draft.uiFont} options={UI_FONT_OPTIONS} onChange={(v) => patch({ uiFont: v })} className="w-44" />
                 </Row>
@@ -201,7 +213,7 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             ) : null}
             {section === "editor" ? (
               <>
-                <h2 className="text-[13px] font-semibold text-foreground">Query Behaviour</h2>
+                <h2 className="text-[13px] font-semibold text-foreground">Query behaviour</h2>
                 <Row title="Max query rows" body="Caps how many rows a query in the editor returns. Larger results are trimmed to this limit to keep the app fast; the results banner says when that happened.">
                   <AppSelect
                     ariaLabel="Max query rows"
@@ -218,16 +230,16 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     className="w-40"
                   />
                 </Row>
-                <Row title="Show Results Pane When Running a Query" body="Automatically expand the SQL results pane when you run a query.">
+                <Row title="Show results when a query runs" body="Automatically expand the SQL results pane when you run a query.">
                   <Toggle checked={draft.showResultsPane} onChange={(v) => patch({ showResultsPane: v })} label="" />
                 </Row>
-                <Row title="Condense SQL When Formatting" body="Keep lists and expressions on a single line when you use Format.">
+                <Row title="Condense SQL when formatting" body="Keep lists and expressions on a single line when you use Format.">
                   <Toggle checked={draft.condenseSqlWhenFormatting} onChange={(v) => patch({ condenseSqlWhenFormatting: v })} label="" />
                 </Row>
-                <Row title="Run Without a Selection" body="Run every statement in the editor, or just the statement your cursor is in.">
+                <Row title="Run without a selection" body="Run every statement in the editor, or just the statement your cursor is in.">
                   <AppSelect<RunScope> ariaLabel="Run scope" value={draft.runScope} options={[{ value: "all", label: "All statements" }, { value: "current", label: "Current statement" }]} onChange={(v) => patch({ runScope: v })} className="w-48" />
                 </Row>
-                <Row title="Keep Query Log For" body="Statements the app logs are deleted after this long, when the app starts. The log is what the History tab and the editor's history panel show.">
+                <Row title="Keep query log for" body="Statements the app logs are deleted after this long, when the app starts. The log is what the History tab and the editor's history panel show.">
                   <AppSelect
                     ariaLabel="Query log retention"
                     value={String(draft.logRetentionDays)}
@@ -243,51 +255,66 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                     className="w-40"
                   />
                 </Row>
-                <Row title="Keep AI Prompt as a Comment" body="When the editor's inline AI (⌘I) writes code, put your instruction above it as a comment.">
+                <Row title="Keep AI prompt as a comment" body="When the editor's inline AI (⌘I) writes code, put your instruction above it as a comment.">
                   <Toggle checked={draft.inlineAiPromptAsComment} onChange={(v) => patch({ inlineAiPromptAsComment: v })} label="" />
                 </Row>
-                <Row title="Execution Mode" body="Review Mode queues changes for review before applying. Direct Mode applies changes immediately.">
+                <Row title="Execution mode" body="Review Mode queues changes for review before applying. Direct Mode applies changes immediately.">
                   <AppSelect<ExecutionMode> ariaLabel="Execution mode" value={draft.executionMode} options={[{ value: "review", label: "Review Mode" }, { value: "direct", label: "Direct Mode" }]} onChange={(v) => patch({ executionMode: v })} className="w-48" />
                 </Row>
                 <Separator />
-                <h2 className="text-[13px] font-semibold text-foreground">Command Menu</h2>
-                <p className="text-xs text-muted">Order of sections in the command menu (⌘K). Use the arrows to reorder and the eye to hide a section.</p>
-                <ul className="flex flex-col gap-1">
-                  {draft.commandMenuSections.map((name, i) => {
-                    const hidden = draft.commandMenuHiddenSections.includes(name);
-                    return (
-                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1 text-xs">
-                      <span className={cn("capitalize", hidden && "text-muted line-through")}>{name.replace("_", " ")}</span>
-                      <span className="ml-auto flex gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          aria-label={hidden ? `Show ${name.replace("_", " ")}` : `Hide ${name.replace("_", " ")}`}
-                          aria-pressed={hidden}
-                          onClick={() => patch({ commandMenuHiddenSections: hidden ? draft.commandMenuHiddenSections.filter((h) => h !== name) : [...draft.commandMenuHiddenSections, name] })}
-                        >
-                          <Icon name={hidden ? "eye-off" : "eye"} size={12} />
-                        </Button>
-                        <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
-                        <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.commandMenuSections.length - 1} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
-                      </span>
-                    </li>
-                    );
-                  })}
-                </ul>
-                <h2 className="text-[13px] font-semibold text-foreground">Inspector Tabs</h2>
-                <p className="text-xs text-muted">Order of the tabs in the record inspector. The top tab is the default.</p>
-                <ul className="flex flex-col gap-1">
-                  {draft.inspectorTabs.map((name, i) => (
-                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1 text-xs">
-                      <span className="uppercase">{name}</span>
-                      <span className="ml-auto flex gap-1">
-                        <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
-                        <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.inspectorTabs.length - 1} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                {/* WHAT:  The two reorder lists side by side in one row, each a
+                    compact card whose items flow top-to-bottom into columns
+                    (CSS columns keep the list order readable down each column). */}
+                <AutoGrid min="lg" className="items-start">
+                  <Card className="rounded-lg glass-card border-border/40 px-2.5 py-2 shadow-xs">
+                    <CardContent className="flex flex-col gap-2 p-0">
+                      <h2 className="text-[13px] font-semibold text-foreground">
+                        <WithTip tip="Order of sections in the command menu (⌘K). Use the arrows to reorder and the eye to hide a section." tipLabel="About the command menu order">Command Menu</WithTip>
+                      </h2>
+                      <ul className="columns-3xs gap-1" aria-label="Command menu sections">
+                        {draft.commandMenuSections.map((name, i) => {
+                          const hidden = draft.commandMenuHiddenSections.includes(name);
+                          return (
+                            <li key={name} className="mb-1 flex break-inside-avoid items-center gap-2 rounded-md border border-border bg-surface py-0.5 pr-0.5 pl-2 text-xs">
+                              <span className={cn("capitalize", hidden && "text-muted line-through")}>{name.replace("_", " ")}</span>
+                              <span className="ml-auto flex gap-0.5">
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  aria-label={hidden ? `Show ${name.replace("_", " ")}` : `Hide ${name.replace("_", " ")}`}
+                                  aria-pressed={hidden}
+                                  onClick={() => patch({ commandMenuHiddenSections: hidden ? draft.commandMenuHiddenSections.filter((h) => h !== name) : [...draft.commandMenuHiddenSections, name] })}
+                                >
+                                  <Icon name={hidden ? "eye-off" : "eye"} size={12} />
+                                </Button>
+                                <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
+                                <Button size="icon-sm" variant="ghost" aria-label="Move down" disabled={i === draft.commandMenuSections.length - 1} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                  <Card className="rounded-lg glass-card border-border/40 px-2.5 py-2 shadow-xs">
+                    <CardContent className="flex flex-col gap-2 p-0">
+                      <h2 className="text-[13px] font-semibold text-foreground">
+                        <WithTip tip="Order of the tabs in the record inspector. The top tab is the default." tipLabel="About the inspector tab order">Inspector Tabs</WithTip>
+                      </h2>
+                      <ul className="columns-3xs gap-1" aria-label="Inspector tabs">
+                        {draft.inspectorTabs.map((name, i) => (
+                          <li key={name} className="mb-1 flex break-inside-avoid items-center gap-2 rounded-md border border-border bg-surface py-0.5 pr-0.5 pl-2 text-xs">
+                            <span className="uppercase">{name}</span>
+                            <span className="ml-auto flex gap-0.5">
+                              <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
+                              <Button size="icon-sm" variant="ghost" aria-label="Move down" disabled={i === draft.inspectorTabs.length - 1} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </AutoGrid>
                 <Separator />
                 <SnippetsSection snippets={draft.snippets} onChange={(snippets) => patch({ snippets })} />
               </>
@@ -318,10 +345,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 <h2 className="text-[13px] font-semibold text-foreground">Advanced</h2>
                 <Card className="rounded-lg glass-card border-border/40 px-3 py-2 shadow-xs">
                   <CardContent className="flex flex-col gap-2 p-0">
-                    <div>
-                      <p className="text-xs font-semibold text-foreground tracking-tight">Backup tools</p>
-                      <p className="text-xs text-muted mt-0.5">Backup / Restore runs pg_dump, mysqldump and mongodump. Leave a field empty to use PATH, or point it at the program or its folder.</p>
-                    </div>
+                    <p className="text-xs font-semibold text-foreground tracking-tight">
+                      <WithTip tip="Backup / Restore runs pg_dump, mysqldump and mongodump. Leave a field empty to use PATH, or point it at the program or its folder." tipLabel="About backup tools">Backup tools</WithTip>
+                    </p>
                     <NativeToolPaths value={draft.nativeToolPaths} onChange={(nativeToolPaths) => patch({ nativeToolPaths })} />
                   </CardContent>
                 </Card>

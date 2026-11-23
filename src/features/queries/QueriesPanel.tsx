@@ -1,5 +1,5 @@
 // SOT: queries-panel, saved-queries-sidebar, recent-queries
-import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import { useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent, type ReactElement } from "react";
 import type { HistoryEntry, LibraryFolder, SavedQuery } from "@/lib/bindings";
 import { savedQueryEntity } from "@/lib/home";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -7,7 +7,8 @@ import { buildTree, folderIdOf, itemsInFolder, itemsUnder, nameTaken, siblingFol
 import { pickSqlSavePath } from "@/lib/native";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { useLibrary } from "@/stores/library";
-import { IconButton } from "@/components/global/Button";
+import { EmptyState } from "@/components/global/EmptyState";
+import { ToolbarActions } from "@/components/global/Toolbar";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
 import { Segmented } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
@@ -19,6 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { QueryVersionsDialog } from "./QueryVersionsDialog";
 
 type DialogState =
@@ -227,28 +229,29 @@ export function QueriesPanel() {
   const renderQuery = (q: SavedQuery, context: ItemRowContext) => (
     <div
       key={q.id}
-      title={q.sql}
       {...context.dragProps}
       onContextMenu={(event) => openQueryMenu(event, q)}
       className="group flex h-6 items-center gap-1.5 rounded-md pr-1 text-xs text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
       style={{ paddingLeft: 8 + context.depth * 14 }}
     >
-      <Button
-        variant="ghost"
-        size="sm"
-        onClick={() => {
-          if (!context.justDragged()) openSaved(q);
-        }}
-        className="flex h-auto min-w-0 flex-1 items-center justify-start gap-2 bg-transparent p-0 text-left hover:bg-transparent"
-      >
-        <Icon name="file" size={13} className="shrink-0 text-accent" />
-        <span className="truncate">{q.name}</span>
-        {q.tags.length > 0 ? (
-          <Badge size="sm" variant="soft" className="ml-auto max-w-24 truncate text-[10px]">
-            {q.tags.join(", ")}
-          </Badge>
-        ) : null}
-      </Button>
+      <SqlTip sql={q.sql}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            if (!context.justDragged()) openSaved(q);
+          }}
+          className="flex h-auto min-w-0 flex-1 items-center justify-start gap-2 bg-transparent p-0 text-left hover:bg-transparent"
+        >
+          <Icon name="file" size={13} className="shrink-0 text-accent" />
+          <span className="truncate">{q.name}</span>
+          {q.tags.length > 0 ? (
+            <Badge size="sm" variant="soft" className="ml-auto max-w-24 truncate text-[10px]">
+              {q.tags.join(", ")}
+            </Badge>
+          ) : null}
+        </Button>
+      </SqlTip>
       {isPinned(q) ? <Icon name="pin" size={11} className="shrink-0 text-accent/80" aria-label="Pinned to Home" /> : null}
       <span className="flex shrink-0 items-center opacity-0 transition-opacity group-hover:opacity-100">
         <Button variant="ghost" size="icon-sm" aria-label={`Version history of ${q.name}`} onClick={() => setDialog({ kind: "versions", query: q })}>
@@ -269,12 +272,16 @@ export function QueriesPanel() {
       <div className="@container flex app-toolbar shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/40 glass-header">
         <ConnectionSwitcher caption="Saved queries" />
         <div className="min-w-0 flex-1" />
-        <span className="flex shrink-0 items-center gap-0.5">
-          <IconButton icon="refresh" label="Refresh" onClick={() => void guard(async () => { await reload(); })} />
-          <IconButton icon="folder" label="New folder" onClick={() => setDialog({ kind: "new-folder", parentId: null })} />
-          <IconButton icon="download" label="Export queries as .sql" onClick={() => void exportQueries(exportVisibleIds, slug(connection.name))} />
-          <IconButton icon="plus" label="New query" onClick={() => openQuery(cid)} />
-        </span>
+        <ToolbarActions
+          foldBelow="xs"
+          menuLabel="More saved-query actions"
+          actions={[
+            { id: "new-query", label: "New query", icon: "plus", shortcut: "new-query", onSelect: () => openQuery(cid) },
+            { id: "new-folder", label: "New folder", icon: "folder", onSelect: () => setDialog({ kind: "new-folder", parentId: null }), priority: "wide" },
+            { id: "refresh", label: "Refresh", icon: "refresh", onSelect: () => void guard(async () => { await reload(); }), priority: "menu" },
+            { id: "export", label: "Export queries as .sql…", icon: "download", onSelect: () => void exportQueries(exportVisibleIds, slug(connection.name)), priority: "menu" },
+          ]}
+        />
       </div>
       <div className="flex flex-col gap-2 px-2.5 py-1.5">
         <SearchInput value={search} onChange={setSearch} aria-label="Search saved queries" placeholder="Search name or SQL…" className="glass-input w-full rounded-md text-xs" />
@@ -296,9 +303,34 @@ export function QueriesPanel() {
       </div>
       <ScrollArea className="min-h-0 flex-1 px-1.5 py-1">
         {savedQueries.length === 0 && folderCount === 0 ? (
-          <p className="px-2.5 py-1.5 text-xs text-muted">No saved queries yet. Use Save in a query tab.</p>
+          <EmptyState
+            size="inline"
+            icon="file"
+            title="No saved queries"
+            tip="Save a query from a query tab (Save in its toolbar) and it is listed here."
+            action={
+              <Button size="sm" variant="secondary" onClick={() => openQuery(cid)}>
+                <Icon name="plus" size={12} />
+                New query
+              </Button>
+            }
+          />
         ) : tree.count === 0 && tree.folders.length === 0 ? (
-          <p className="px-2.5 py-1.5 text-xs text-muted">{needle.length > 0 ? `No saved query matches “${search.trim()}”.` : "Nothing saved for this connection. Switch to “All” to see every saved query."}</p>
+          needle.length > 0 ? (
+            <p className="px-2.5 py-1.5 text-xs text-muted">No saved query matches.</p>
+          ) : (
+            <EmptyState
+              size="inline"
+              icon="file"
+              title="None for this connection"
+              tip="Saved queries of other connections are hidden while “This connection” is on."
+              action={
+                <Button size="sm" variant="secondary" onClick={() => library.getState().setThisConnectionOnly("saved_query", false)}>
+                  Show all
+                </Button>
+              }
+            />
+          )
         ) : null}
         <LibraryTreeView
           tree={tree}
@@ -318,7 +350,6 @@ export function QueriesPanel() {
         {visibleRecent.map((r) => (
           <div
             key={r.id}
-            title={r.sql}
             className="w-full"
             onContextMenu={(e) =>
               menu.open(
@@ -337,15 +368,17 @@ export function QueriesPanel() {
               )
             }
           >
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => openQuery(cid, r.sql)}
-              className="flex h-6 w-full items-center justify-start gap-2 rounded-md px-2 text-left text-[11px] text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
-            >
-              <Icon name="file" size={12} className="shrink-0 opacity-60" />
-              <span className="truncate font-mono">{r.sql.replace(/\s+/g, " ")}</span>
-            </Button>
+            <SqlTip sql={r.sql}>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => openQuery(cid, r.sql)}
+                className="flex h-6 w-full items-center justify-start gap-2 rounded-md px-2 text-left text-[11px] text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover"
+              >
+                <Icon name="file" size={12} className="shrink-0 opacity-60" />
+                <span className="truncate font-mono">{r.sql.replace(/\s+/g, " ")}</span>
+              </Button>
+            </SqlTip>
           </div>
         ))}
       </ScrollArea>
@@ -388,7 +421,7 @@ export function QueriesPanel() {
       {dialog?.kind === "delete-folder" ? (
         <ConfirmDeleteDialog
           title={`Delete folder “${dialog.folder.name}”?`}
-          body="The folder is removed; everything inside it moves up one level. No saved query is deleted."
+          body="Its contents move up one level; no saved query is deleted."
           confirmLabel="Delete folder"
           onConfirm={() => library.getState().deleteFolder(dialog.folder.id)}
           onClose={() => setDialog(null)}
@@ -424,7 +457,7 @@ export function QueriesPanel() {
       {dialog?.kind === "copy" ? (
         <ConnectionPickerDialog
           title={`Copy “${dialog.query.name}” to a connection`}
-          description="A copy of this query is saved on the connection you pick, in the same folder. The original stays where it is."
+          description="Saves a copy in the same folder on the connection you pick."
           exclude={dialog.query.connectionId}
           onPick={async (targetConnectionId) => {
             const copy = await ipc("duplicate_saved_query", { id: dialog.query.id, targetConnectionId, name: null });
@@ -437,7 +470,7 @@ export function QueriesPanel() {
       {dialog?.kind === "delete" ? (
         <ConfirmDeleteDialog
           title={`Delete “${dialog.query.name}”?`}
-          body="This saved query and its version history are deleted for good."
+          body="The query and its version history are deleted for good."
           confirmLabel="Delete query"
           onConfirm={async () => {
             await deleteSavedQuery(dialog.query.id);
@@ -458,5 +491,19 @@ export function QueriesPanel() {
         />
       ) : null}
     </aside>
+  );
+}
+
+// WHAT:  The full SQL of a saved or recent query, on hover or focus of its row.
+// WHY:   Rows show a name or one squashed line; the statement itself is one
+//        pointer move away instead of a slow, unstyled native title.
+function SqlTip({ sql, children }: { sql: string; children: ReactElement }) {
+  return (
+    <Tooltip delayDuration={600}>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" align="start" className="max-w-md">
+        <span className="line-clamp-8 font-mono text-[11px] whitespace-pre-wrap">{sql}</span>
+      </TooltipContent>
+    </Tooltip>
   );
 }

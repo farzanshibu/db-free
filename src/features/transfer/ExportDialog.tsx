@@ -156,10 +156,10 @@ function ExportDialogContent({ onOpenChange, connectionId, title, baseName, tabl
   };
 
   return (
-    <DialogContent className="sm:max-w-[800px]">
+    <DialogContent className="sm:max-w-[min(92vw,1100px)]">
       <DialogHeader>
         <DialogTitle>Export {title}</DialogTitle>
-        <DialogDescription>Preview the first {PREVIEW_ROWS} rows as they will be written, then copy them or save a file.</DialogDescription>
+        <DialogDescription>The first {PREVIEW_ROWS} rows, as they will be written.</DialogDescription>
       </DialogHeader>
       <DialogBody className="grid min-h-0 gap-3 md:grid-cols-[15rem_minmax(0,1fr)]">
         <ScrollArea className="max-h-[60vh] pr-2">

@@ -14,3 +14,6 @@ src-tauri/target-*
 # Artifacts from scripts/test-by-category.sh
 category-report.md
 .category-logs/
+
+# UI refresh screenshots (large; paths are listed in docs/ui-refresh.md)
+docs/ui-refresh/*.png

@@ -8,8 +8,14 @@ export interface ResizerProps {
   onResize: (delta: number) => void;
   /// Fires once when the pointer is released after a drag.
   onDragEnd?: (() => void) | undefined;
+  /// Accessible name of the handle ("Resize sidebar").
+  label?: string | undefined;
   className?: string;
 }
+
+/// Arrow-key step (px); Shift makes it a coarse step.
+const KEY_STEP = 16;
+const KEY_STEP_COARSE = 64;
 
 // WHAT:  Draggable splitter handle for expanding/collapsing sidebars,
 //        inspectors, split panes and grid columns with fluid macOS-style
@@ -22,7 +28,7 @@ export interface ResizerProps {
 //        instead of resizing. The callbacks live in refs so a caller can hand
 //        over a fresh closure every render (the grid does, per column) without
 //        the drag being torn down and the body cursor reset mid-drag.
-export function Resizer({ direction = "horizontal", onResize, onDragEnd, className }: ResizerProps) {
+export function Resizer({ direction = "horizontal", onResize, onDragEnd, label, className }: ResizerProps) {
   const [dragging, setDragging] = useState(false);
   // Gate the move handler on a ref, not on `dragging`: the state set in
   // pointerdown has not necessarily been committed when the browser delivers
@@ -91,6 +97,18 @@ export function Resizer({ direction = "horizontal", onResize, onDragEnd, classNa
       role="separator"
       tabIndex={0}
       aria-orientation={direction}
+      aria-label={label ?? "Resize"}
+      // The handle is focusable, so it is also keyboard-resizable: arrows step
+      // 16 px (Shift: 64), and each step is a whole "drag" so it is remembered.
+      onKeyDown={(e) => {
+        const back = direction === "horizontal" ? "ArrowLeft" : "ArrowUp";
+        const forward = direction === "horizontal" ? "ArrowRight" : "ArrowDown";
+        if (e.key !== back && e.key !== forward) return;
+        e.preventDefault();
+        const step = e.shiftKey ? KEY_STEP_COARSE : KEY_STEP;
+        resizeRef.current(e.key === back ? -step : step);
+        endRef.current?.();
+      }}
       onPointerDown={begin}
       onPointerMove={move}
       onPointerUp={end}

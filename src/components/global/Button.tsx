@@ -2,7 +2,9 @@
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Icon, type IconName } from "@/lib/icons";
+import type { ShortcutAction } from "@/lib/keymap";
 import { cn } from "@/lib/cn";
+import { Shortcut } from "./Kbd";
 
 interface IconButtonProps {
   icon: IconName;
@@ -11,6 +13,10 @@ interface IconButtonProps {
   disabled?: boolean;
   active?: boolean;
   size?: number;
+  /// The live chord for this command, shown in the tooltip after the label.
+  shortcut?: ShortcutAction | undefined;
+  /// Which side the tooltip opens on; `right` for vertical rails.
+  tooltipSide?: "top" | "right" | "bottom" | "left";
   className?: string;
 }
 
@@ -19,7 +25,7 @@ interface IconButtonProps {
 //        screen readers, and without `aria-label` it exists only for sighted users.
 //        Pairing them here means neither can be forgotten at a call site.
 // WHERE: https://ui.shadcn.com/docs/components/tooltip
-export function IconButton({ icon, label, onClick, disabled = false, active = false, size = 14, className }: IconButtonProps) {
+export function IconButton({ icon, label, onClick, disabled = false, active = false, size = 14, shortcut, tooltipSide = "top", className }: IconButtonProps) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
@@ -34,7 +40,10 @@ export function IconButton({ icon, label, onClick, disabled = false, active = fa
           <Icon name={icon} size={size} />
         </Button>
       </TooltipTrigger>
-      <TooltipContent>{label}</TooltipContent>
+      <TooltipContent side={tooltipSide} className="flex items-center gap-1.5">
+        {label}
+        {shortcut !== undefined ? <Shortcut action={shortcut} /> : null}
+      </TooltipContent>
     </Tooltip>
   );
 }

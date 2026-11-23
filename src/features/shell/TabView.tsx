@@ -15,7 +15,8 @@ import { ToolTab } from "@/features/tools/ToolTab";
 import { SchemaCompareTab } from "@/features/compare/SchemaCompareTab";
 import { DataCompareTab } from "@/features/compare/DataCompareTab";
 import { EmptyState } from "@/components/global/EmptyState";
-import { RunShortcut } from "@/components/global/Kbd";
+import { Shortcut } from "@/components/global/Kbd";
+import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 
 // WHAT:  The body of one tab, routed by kind.
@@ -30,12 +31,13 @@ export function TabBody({ tab }: { tab: Tab | null }) {
   const active = useActiveConnection();
   const own = useTabConnection(tab);
   const closeTab = useWorkspace((s) => s.closeTab);
+  const openQuery = useWorkspace((s) => s.openQuery);
   if (tab !== null && tab.connectionId !== null && own === null) {
     return (
       <EmptyState
         icon="plug"
-        title="This connection was removed"
-        body="The tab belonged to a connection that no longer exists, so it will not run against another one."
+        title="Connection removed"
+        tip="This tab belonged to a connection that no longer exists, so it will not run against another one."
         action={
           <Button variant="secondary" onClick={() => { closeTab(tab.id); }}>
             Close tab
@@ -46,7 +48,22 @@ export function TabBody({ tab }: { tab: Tab | null }) {
   }
   const connection = tab !== null && tab.connectionId !== null ? own : active;
   if (tab === null || connection === null) {
-    return <EmptyState icon="table" title="Pick a table" body="Select a table on the left to browse it, or open a query tab. Run with" action={<RunShortcut />} />;
+    return (
+      <EmptyState
+        icon="table"
+        title="No tab open"
+        tip="Pick a table in the sidebar to browse it, or open a query tab and run it with the Run shortcut."
+        action={
+          connection !== null ? (
+            <Button variant="secondary" size="sm" onClick={() => { openQuery(connection.id); }}>
+              <Icon name="terminal" size={13} />
+              New query
+              <Shortcut action="new-query" />
+            </Button>
+          ) : undefined
+        }
+      />
+    );
   }
   switch (tab.kind) {
     case "table":

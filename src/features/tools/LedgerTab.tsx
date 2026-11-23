@@ -69,9 +69,18 @@ export function LedgerTab({ connectionId }: { connectionId: string }) {
         }
       >
         {result === null ? (
-          <EmptyState icon="git-branch" title="Ledger history" body="Every write to a key stays: load its revisions with transaction ids and verify them against the ledger state." />
+          <EmptyState
+            icon="git-branch"
+            title="Ledger history"
+            tip="Every write to a key stays: load its revisions with transaction ids and verify them against the ledger state."
+            action={
+              <Button size="sm" onClick={() => void run()} disabled={running}>
+                Load history
+              </Button>
+            }
+          />
         ) : result.columns.length === 0 || result.rows.length === 0 ? (
-          <EmptyState title="No history" body="No revisions were found for this subject." />
+          <EmptyState title="No history" tip="No revisions were found for this subject." />
         ) : (
           <DataGrid columns={result.columns.map((c) => ({ name: c.name, typeName: c.typeName }))} rowCount={result.rows.length} getRow={(i) => result.rows[i]} rowHeight={DENSITIES[density].rowHeight} />
         )}

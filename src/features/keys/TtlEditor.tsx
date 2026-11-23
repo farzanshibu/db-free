@@ -92,7 +92,7 @@ export function TtlEditor({ connectionId, keyName, expiresAt, readOnly, onChange
           {label}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-2 p-2.5">
+      <PopoverContent align="end" className="w-auto min-w-64 max-w-[90vw] space-y-2 p-2.5">
         <div className="space-y-0.5">
           <p className="text-xs font-medium text-foreground">Time to live</p>
           <p className="text-xs text-muted">{expiresAt === null ? "This key never expires." : `Expires ${new Date(expiresAt).toLocaleString()}.`}</p>

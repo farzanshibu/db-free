@@ -1,11 +1,11 @@
 // SOT: metrics-tab, range-query-playground, time-range-presets, series-chart
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 import type { RangeResult, Series } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { engineMeta } from "@/lib/engines";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
-import { DateTimeField, Segmented } from "@/components/global/Field";
+import { DateTimeField, FieldLabel, Segmented } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
 import { SERIES_COLORS } from "@/features/dashboards/charts";
 import { ToolBody, ToolShell } from "./ToolShell";
@@ -50,6 +50,7 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [hidden, setHidden] = useState<ReadonlySet<string>>(new Set());
+  const queryId = useId();
 
   const window = (): { from: number; to: number } => {
     const now = Date.now() / 1000;
@@ -88,8 +89,9 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
         form={
           <>
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted">{language} expression</span>
+              <FieldLabel htmlFor={queryId} label={`${language} expression`} tip="⌘↩ runs it." />
               <Textarea
+                id={queryId}
                 aria-label="Query"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
@@ -104,7 +106,7 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
               />
             </div>
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted">Range</span>
+              <FieldLabel label="Range" />
               <Segmented label="Time range" value={preset} onChange={setPreset} options={PRESETS.map((p) => ({ value: p.value, label: p.label }))} />
             </div>
             {preset === "custom" ? (
@@ -127,9 +129,18 @@ export function MetricsTab({ connectionId }: { connectionId: string }) {
         }
       >
         {result === null ? (
-          <EmptyState icon="chart" title="Metrics explorer" body="Write an expression, pick a window and run it (⌘↩). Each series becomes a line; click legend entries to hide them." />
+          <EmptyState
+            icon="chart"
+            title="Metrics explorer"
+            tip="Write an expression, pick a window and run it (⌘↩). Each series becomes a line; click a legend entry to hide it."
+            action={
+              <Button size="sm" onClick={() => void run()} disabled={running || query.trim().length === 0}>
+                Run
+              </Button>
+            }
+          />
         ) : result.series.length === 0 ? (
-          <EmptyState title="No series" body="The expression returned no samples in this window." />
+          <EmptyState title="No series" tip="The expression returned no samples in this window." />
         ) : (
           <div className="flex h-full min-h-0 flex-col">
             <div className="min-h-0 flex-1 p-2.5">

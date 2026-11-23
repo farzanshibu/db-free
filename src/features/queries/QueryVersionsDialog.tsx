@@ -11,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
+import { EmptyState } from "@/components/global/EmptyState";
+import { SplitLayout } from "@/components/global/Layout";
 
 interface QueryVersionsDialogProps {
   query: SavedQuery;
@@ -78,7 +80,7 @@ export function QueryVersionsDialog({ query, onOpenVersion, onRestored, onClose 
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="sm:max-w-[760px]">
+      <DialogContent className="w-[min(92vw,1100px)] sm:max-w-[min(92vw,1100px)]">
         <DialogHeader>
           <DialogTitle>Version history · {query.name}</DialogTitle>
         </DialogHeader>
@@ -88,10 +90,22 @@ export function QueryVersionsDialog({ query, onOpenVersion, onRestored, onClose 
               <Spinner size="sm" />
             </div>
           ) : versions.length === 0 ? (
-            <p className="px-3 py-3 text-xs text-muted">{error ?? "No versions yet. One is added each time a save changes the SQL."}</p>
+            error !== null ? (
+              <p className="px-3 py-3 text-xs text-danger">{error}</p>
+            ) : (
+              <EmptyState size="inline" icon="history" title="No versions yet" tip="A version is added each time a save changes the SQL." />
+            )
           ) : (
-            <div className="grid h-[320px] grid-cols-[220px_1fr]">
-              <ScrollArea className="border-r border-border/50">
+            <SplitLayout
+              className="h-[min(60vh,560px)]"
+              defaultSize={240}
+              min={180}
+              max={420}
+              storageKey="db-free:query-versions-list-width"
+              resizeLabel="Resize version list"
+              panelClassName="border-r border-border/50"
+              panel={
+              <ScrollArea className="min-h-0 flex-1">
                 <div role="listbox" aria-label="Versions" className="flex flex-col p-1.5">
                   {versions.map((v) => {
                     const isSelected = v.id === selectedId;
@@ -119,7 +133,9 @@ export function QueryVersionsDialog({ query, onOpenVersion, onRestored, onClose 
                   })}
                 </div>
               </ScrollArea>
-              <div className="flex min-w-0 flex-col">
+              }
+            >
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div className="flex shrink-0 items-center gap-2 border-b border-border/50 px-2.5 py-1.5 text-xs text-muted">
                   <Icon name="history" size={13} />
                   {selected !== null ? (
@@ -135,7 +151,7 @@ export function QueryVersionsDialog({ query, onOpenVersion, onRestored, onClose 
                   <pre className="whitespace-pre-wrap break-words p-2.5 font-mono text-xs leading-relaxed text-foreground">{selected?.sql ?? ""}</pre>
                 </ScrollArea>
               </div>
-            </div>
+            </SplitLayout>
           )}
         </DialogBody>
         {error !== null && versions !== null && versions.length > 0 ? <p className="px-3 pb-1.5 text-xs text-danger">{error}</p> : null}

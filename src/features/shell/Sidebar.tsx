@@ -63,7 +63,7 @@ export function Sidebar() {
         <div className="flex min-h-0 flex-1 flex-col">{renderPanel(mode)}</div>
         <ConnectionHealth />
       </div>
-      <Resizer direction="horizontal" onResize={handleResize} onDragEnd={remember} className="absolute -right-0.5 top-0 bottom-0" />
+      <Resizer direction="horizontal" label="Resize sidebar" onResize={handleResize} onDragEnd={remember} className="absolute -right-0.5 top-0 bottom-0" />
     </div>
   );
 }

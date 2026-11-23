@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Icon } from "@/lib/icons";
 import { CollectionEditor } from "./CollectionEditor";
 import { ConfirmPopover } from "./ConfirmPopover";
@@ -106,9 +107,14 @@ function RedisKeyView({ connectionId, table }: { connectionId: string; table: Ta
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface">
         {kind !== undefined ? <Icon name={KEY_TYPE_ICON[kind]} size={14} className="shrink-0 text-accent" /> : null}
         {info !== null ? (
-          <Badge size="sm" variant="soft" title={info.typeName}>
-            {KEY_TYPE_LABEL[info.kind]}
-          </Badge>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Badge size="sm" variant="soft" tabIndex={0}>
+                {KEY_TYPE_LABEL[info.kind]}
+              </Badge>
+            </TooltipTrigger>
+            <TooltipContent className="font-mono">{info.typeName}</TooltipContent>
+          </Tooltip>
         ) : null}
         <span className="selectable min-w-0 truncate font-mono text-xs text-foreground" title={key}>
           {key}
@@ -162,7 +168,7 @@ function RedisKeyView({ connectionId, table }: { connectionId: string; table: Ta
             <Spinner size="sm" />
           </div>
         ) : status.state === "missing" ? (
-          <EmptyState icon="key" title="This key no longer exists" body="It was deleted or it expired. Reload to check again, or close this tab." />
+          <EmptyState icon="key" title="This key no longer exists" tip="It was deleted or it expired. Reload to check again, or close this tab." />
         ) : status.state === "failed" ? (
           <EmptyState icon="alert" title="Could not read the key" body={status.message} />
         ) : (
@@ -193,7 +199,7 @@ function Body({ connectionId, keyName, info, readOnly, onMutated }: { connection
     case "stream":
       return <StreamView connectionId={connectionId} keyName={keyName} />;
     case "other":
-      return <EmptyState icon="key" title={`No editor for ${info.typeName}`} body="This key belongs to a module. Use the query tab to work with it." />;
+      return <EmptyState icon="key" title={`No editor for ${info.typeName}`} tip="This key belongs to a module. Use the query tab to work with it." />;
   }
 }
 
@@ -209,10 +215,15 @@ function Metadata({ info }: { info: RedisKeyInfo }) {
   return (
     <dl className="mr-1 hidden items-center gap-x-2 text-[10px] text-muted md:flex">
       {items.map((item) => (
-        <div key={item.label} className="flex items-center gap-1" title={item.hint}>
-          <dt>{item.label}</dt>
-          <dd className="font-mono text-foreground/80">{item.value}</dd>
-        </div>
+        <Tooltip key={item.label}>
+          <TooltipTrigger asChild>
+            <div className="flex items-center gap-1 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring/50" tabIndex={0}>
+              <dt>{item.label}</dt>
+              <dd className="font-mono text-foreground/80">{item.value}</dd>
+            </div>
+          </TooltipTrigger>
+          <TooltipContent>{item.hint}</TooltipContent>
+        </Tooltip>
       ))}
     </dl>
   );
@@ -264,12 +275,17 @@ function RenameKey({ connectionId, keyName, disabled, onRenamed }: { connectionI
         }
       }}
     >
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label="Rename key" disabled={disabled}>
-          <Icon name="pencil" size={14} />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" className="w-72 space-y-2 p-2.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label="Rename key" disabled={disabled}>
+              <Icon name="pencil" size={14} />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Rename key</TooltipContent>
+      </Tooltip>
+      <PopoverContent align="end" className="w-auto min-w-72 max-w-[min(32rem,90vw)] space-y-2 p-2.5">
         <p className="text-xs font-medium text-foreground">Rename key</p>
         <Input
           autoFocus

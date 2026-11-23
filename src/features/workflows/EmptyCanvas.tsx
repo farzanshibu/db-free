@@ -1,6 +1,7 @@
 // SOT: workflow-empty-canvas, ask-ai-workflow-prompt
 import { useState } from "react";
 import { Icon } from "@/lib/icons";
+import { WithTip } from "@/components/global/InfoTip";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { NodePicker } from "./NodePicker";
@@ -31,11 +32,12 @@ export function EmptyCanvas({ onPick, onAskAi }: EmptyCanvasProps) {
     <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-3">
       <div className="pointer-events-auto flex w-full max-w-sm flex-col gap-2.5 rounded-lg border border-border bg-surface-elevated p-3 shadow-md">
         <div className="flex flex-col gap-1">
-          <h2 className="flex items-center gap-2 text-[13px] font-semibold">
-            <Icon name="flow" size={14} className="text-accent" />
-            Build a workflow
-          </h2>
-          <p className="text-xs leading-relaxed text-muted">Chain queries, files, API calls, filters and notifications into something that runs on demand or on a schedule.</p>
+          <WithTip tip="Chain queries, files, API calls, filters and notifications into something that runs on demand or on a schedule." tipLabel="About workflows">
+            <h2 className="flex items-center gap-2 text-[13px] font-semibold">
+              <Icon name="flow" size={14} className="text-accent" />
+              Build a workflow
+            </h2>
+          </WithTip>
         </div>
         <NodePicker onPick={onPick} label="Add the first node" />
         <div className="flex flex-col gap-2 border-t border-border pt-2.5">
@@ -57,7 +59,7 @@ export function EmptyCanvas({ onPick, onAskAi }: EmptyCanvasProps) {
           />
           <div className="flex flex-wrap items-center gap-1.5">
             {EXAMPLES.map((example) => (
-              <Button key={example} size="xs" variant="tertiary" disabled={onAskAi === null} onClick={() => { setPrompt(example); }}>
+              <Button key={example} size="xs" variant="tertiary" className="h-auto max-w-full py-1 text-left whitespace-normal" disabled={onAskAi === null} onClick={() => { setPrompt(example); }}>
                 {example}
               </Button>
             ))}

@@ -5,6 +5,7 @@ import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { InfoTip, WithTip } from "@/components/global/InfoTip";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
@@ -77,8 +78,9 @@ function CheckpointPopover({ current }: { current: () => Document }) {
         <TooltipContent>Save a checkpoint</TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="flex w-72 flex-col gap-2">
-        <p className="text-xs font-semibold text-foreground">Save a checkpoint</p>
-        <p className="text-[11px] leading-relaxed text-muted">A named state to come back to. Automatic versions are pruned to the latest twenty; checkpoints never are.</p>
+        <WithTip tip="A named state to come back to. Automatic versions are pruned to the latest twenty; checkpoints never are." tipLabel="About checkpoints">
+          <p className="text-xs font-semibold text-foreground">Save a checkpoint</p>
+        </WithTip>
         <Input
           autoFocus
           value={name}
@@ -177,7 +179,10 @@ function HistoryPopover({ documentId, settle, onRestored }: Pick<VersionsMenuPro
               <Spinner size="sm" />
             </div>
           ) : versions.length === 0 ? (
-            <p className="px-2.5 py-3 text-center text-xs text-muted">No versions yet. One is filed a few seconds after you stop editing.</p>
+            <p className="flex items-center justify-center gap-1 px-2.5 py-3 text-xs text-muted">
+              No versions yet
+              <InfoTip label="About versions">One is filed a few seconds after you stop editing.</InfoTip>
+            </p>
           ) : (
             versions.map((v, index) => (
               <div key={v.version} className="group flex items-start gap-2 border-b border-border px-2.5 py-1.5 last:border-b-0 hover:bg-surface-secondary/60">

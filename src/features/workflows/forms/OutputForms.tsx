@@ -9,7 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { pickOutputFile, SAVE_EXTENSIONS } from "../pickers";
 import { connectionOptions } from "./DataForms";
-import type { FormProps } from "./common";
+import { HowTip, type FormProps } from "./common";
 
 const SAVE_FORMATS: readonly { value: SaveFormat; label: string }[] = [
   { value: "csv", label: "CSV" },
@@ -40,7 +40,7 @@ export function SaveFileForm({ config, onChange }: FormProps<"save_file">) {
     <div className="flex flex-col gap-2">
       <AppSelect label="Format" value={config.format} options={SAVE_FORMATS} onChange={(format) => { onChange({ ...config, format, path: withExtension(config.path, format) }); }} />
       <div className="flex items-end gap-2">
-        <Field label="File" mono value={config.path} placeholder="Asked on the first run" onChange={(path) => { onChange({ ...config, path }); }} />
+        <Field label="File" mono value={config.path} placeholder="Asked on the first run" tip="The file is replaced on every run. Several inputs are merged: columns are united and a missing value is NULL." onChange={(path) => { onChange({ ...config, path }); }} />
         <Button variant="secondary" size="md" onClick={() => void browse()}>
           <Icon name="folder" size={14} />
           Browse
@@ -49,7 +49,6 @@ export function SaveFileForm({ config, onChange }: FormProps<"save_file">) {
       {config.format === "sql" ? (
         <Field label="Table name" optional mono value={config.tableName} placeholder="The file's name" onChange={(tableName) => { onChange({ ...config, tableName }); }} />
       ) : null}
-      <p className="text-[11px] leading-relaxed text-muted">The file is replaced on every run. Several inputs are merged: columns are united and a missing value is NULL.</p>
     </div>
   );
 }
@@ -83,9 +82,7 @@ export function InsertForm({ config, onChange, context }: FormProps<"insert">) {
           ))}
         </datalist>
       </div>
-      <p className="text-[11px] leading-relaxed text-muted">
-        The table must already exist (create it with a Query node first if needed). Writes follow the connection's read-only lock.
-      </p>
+      <HowTip label="The table must already exist">Create it with a Query node first if needed. Writes follow the connection's read-only lock.</HowTip>
     </div>
   );
 }

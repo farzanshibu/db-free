@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchInput } from "@/components/ui/input";
+import { TriggerTip, WIDE_LABEL } from "./toolLabel";
 
 // WHAT:  Column visibility: a searchable checklist over the grid's columns.
 // WHY:   Wide tables are read one slice at a time; hiding the rest beats
@@ -13,7 +14,18 @@ import { SearchInput } from "@/components/ui/input";
 //        tab saves it per connection and table (tableState.ts), a query result
 //        keeps it for the tab.
 // WHERE: src/features/grid/TableTab.tsx, src/features/editor/ResultsPane.tsx
-export function ColumnsPopover({ columns, hidden, onChange }: { columns: readonly { name: string }[]; hidden: ReadonlySet<string>; onChange: (next: ReadonlySet<string>) => void }) {
+export function ColumnsPopover({
+  columns,
+  hidden,
+  onChange,
+  compact = false,
+}: {
+  columns: readonly { name: string }[];
+  hidden: ReadonlySet<string>;
+  onChange: (next: ReadonlySet<string>) => void;
+  /// The trigger's text folds away on a narrow toolbar (the row carries `@container`).
+  compact?: boolean | undefined;
+}) {
   const [search, setSearch] = useState("");
   const needle = search.trim().toLowerCase();
   const shown = columns.filter((c) => needle.length === 0 || c.name.toLowerCase().includes(needle));
@@ -25,13 +37,19 @@ export function ColumnsPopover({ columns, hidden, onChange }: { columns: readonl
   };
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button size="xs" variant={hidden.size > 0 ? "soft" : "toolbar"}>
-          <Icon name="columns" size={12} />
-          {hidden.size > 0 ? `${columns.length - hidden.size}/${columns.length}` : "Columns"}
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent className="w-[260px] p-2">
+      <TriggerTip tip={hidden.size > 0 ? `${columns.length - hidden.size} of ${columns.length} columns shown` : "Columns"} when={compact}>
+        <PopoverTrigger asChild>
+          <Button size="xs" variant={hidden.size > 0 ? "soft" : "toolbar"} aria-label={hidden.size > 0 ? `Columns: ${columns.length - hidden.size} of ${columns.length} shown` : "Columns"}>
+            <Icon name="columns" size={12} />
+            {hidden.size > 0 ? (
+              <span className="tabular-nums">{`${columns.length - hidden.size}/${columns.length}`}</span>
+            ) : (
+              <span className={compact ? WIDE_LABEL : undefined}>Columns</span>
+            )}
+          </Button>
+        </PopoverTrigger>
+      </TriggerTip>
+      <PopoverContent className="w-[min(280px,90vw)] p-2">
           <SearchInput value={search} onChange={setSearch} aria-label="Search columns" placeholder="Search…" autoFocus className="glass-input w-full text-xs" />
           <ScrollArea hideScrollBar className="mt-2 max-h-64">
             <ul className="flex flex-col gap-0.5">

@@ -8,6 +8,8 @@ import { DataGrid, type GridColumn } from "@/features/grid/DataGrid";
 import { AppSelect, Segmented } from "@/components/global/Field";
 import { ConfirmDialog } from "@/components/global/ConfirmDialog";
 import { IconButton } from "@/components/global/Button";
+import { InfoTip } from "@/components/global/InfoTip";
+import { ToolbarActions } from "@/components/global/Toolbar";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
@@ -137,7 +139,7 @@ export function HistoryTab({ connectionId }: { connectionId: string }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface ">
+      <div className="@container flex app-toolbar min-w-0 shrink-0 items-center gap-2 border-b border-border bg-surface">
         <Segmented
           label="History filter"
           value={filter}
@@ -147,16 +149,22 @@ export function HistoryTab({ connectionId }: { connectionId: string }) {
           }}
           options={[{ value: "all", label: "All" }, { value: "system", label: "System" }, { value: "user", label: "User" }]}
         />
-        <IconButton icon="trash" label="Clear history" onClick={() => { setClearOpen(true); }} />
-        <IconButton icon="refresh" label="Refresh" onClick={() => { setRefresh((r) => r + 1); }} />
-        <span className="ml-auto text-xs text-muted">{page.total === 0 ? "No rows" : `${formatCount(first)}–${formatCount(last)} of ${formatCount(page.total)}`}</span>
+        <InfoTip label="About history filters">System: queries the app runs for you (table pages, catalog probes). User: statements you run.</InfoTip>
+        <span className="ml-auto truncate text-xs text-muted tabular-nums">{page.total === 0 ? "No rows" : `${formatCount(first)}–${formatCount(last)} of ${formatCount(page.total)}`}</span>
+        <ToolbarActions
+          menuLabel="More history actions"
+          actions={[
+            { id: "refresh", label: "Refresh", icon: "refresh", onSelect: () => { setRefresh((r) => r + 1); } },
+            { id: "clear", label: "Clear history…", icon: "trash", danger: true, onSelect: () => { setClearOpen(true); }, priority: "menu" },
+          ]}
+        />
       </div>
       <div className="min-h-0 flex-1">
         {loaded && page.entries.length === 0 && page.total > 0 ? (
           // Rows were removed while this page was open (or the filter narrowed): the page no longer exists.
-          <EmptyState icon="history" title="No rows on this page" body="The log has fewer rows than it did." action={<Button size="sm" variant="secondary" onClick={() => { setPageIndex(0); }}>Back to the first page</Button>} />
+          <EmptyState icon="history" title="No rows on this page" tip="The log has fewer rows than it did when this page was opened." action={<Button size="sm" variant="secondary" onClick={() => { setPageIndex(0); }}>Back to the first page</Button>} />
         ) : loaded && page.entries.length === 0 ? (
-          <EmptyState icon="history" title="No history yet" body="Statements you run (and the queries the app runs for table pages) appear here." action={<Button size="sm" variant="secondary" onClick={() => { openQuery(connectionId); }}><Icon name="terminal" size={13} />New query</Button>} />
+          <EmptyState icon="history" title="No history yet" tip="Statements you run (and the queries the app runs for table pages) appear here." action={<Button size="sm" variant="secondary" onClick={() => { openQuery(connectionId); }}><Icon name="terminal" size={13} />New query</Button>} />
         ) : (
           <DataGrid
             columns={COLUMNS}

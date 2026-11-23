@@ -1,5 +1,5 @@
 // SOT: pending-changes-panel, review-mode-ui, commit-flow, visual-diff, grouped-row-edits, highlighted-pending-sql, statement-comments, ddl-pending-change
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChangePreview, SqlToken, StagedChange, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatCell } from "@/lib/format";
@@ -8,10 +8,11 @@ import { tableKey, useWorkspace } from "@/stores/workspace";
 import { useShortcut } from "@/stores/useShortcut";
 import { Segmented } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
-import { Resizer } from "@/components/global/Resizer";
+import { EmptyState } from "@/components/global/EmptyState";
+import { WithTip } from "@/components/global/InfoTip";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
-import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
+import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,6 +38,8 @@ const EMPTY_CHANGES: StagedChange[] = [];
 // HOW:   Statements are the preview's, one per staged change in order; DDL changes
 //        (a rename, an index drop, a Redis `DEL`) are cards of their own and a
 //        destructive one — or a destructive statement the block spots — asks first.
+//        App.tsx hosts it as a SplitLayout panel (width remembered under
+//        db-free:changes-panel-width), so it only fills the space it is given.
 // WHERE: src-tauri/src/services/changes.rs, src/features/changes/commitPending.ts
 export function PendingChangesPanel({ connectionId }: { connectionId: string }) {
   const changes = useWorkspace((s) => s.pendingChanges[connectionId] ?? EMPTY_CHANGES);
@@ -53,28 +56,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
   const preview = changes.length === 0 || loadedPreview?.statements.length !== changes.length ? null : loadedPreview;
   const [committing, setCommitting] = useState(false);
   const [confirm, setConfirm] = useState<string[] | null>(null);
-  const [width, setWidth] = useState<number>(() => {
-    try {
-      const saved = localStorage.getItem("db-free:changes-panel-width");
-      return saved ? Math.max(280, Math.min(750, Number(saved))) : 360;
-    } catch {
-      return 360;
-    }
-  });
   const groups = useMemo(() => groupChanges(changes), [changes]);
-
-  const handleResize = useCallback((delta: number) => {
-    setWidth((prev) => {
-      // Dragging left (negative delta) expands panel width
-      const next = Math.max(280, Math.min(750, prev - delta));
-      try {
-        localStorage.setItem("db-free:changes-panel-width", String(next));
-      } catch {
-        // ignore
-      }
-      return next;
-    });
-  }, []);
 
   useEffect(() => {
     const token = { cancelled: false };
@@ -122,10 +104,16 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
   };
 
   return (
-    <aside className="relative flex shrink-0 flex-col glass-sidebar select-none" style={{ width }}>
-      <Resizer direction="horizontal" onResize={handleResize} className="absolute -left-1 top-0 bottom-0" />
-      <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header ">
-        <span className="text-[13px] font-semibold text-foreground tracking-tight">Pending Changes</span>
+    <aside className="flex min-h-0 flex-1 flex-col glass-sidebar select-none">
+      <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header">
+        <WithTip tip="Review mode: edits, inserts and deletes wait here and commit together. Switch to Direct mode in Settings → Editor." tipLabel="About pending changes">
+          <span className="text-[13px] font-semibold text-foreground tracking-tight">Pending Changes</span>
+        </WithTip>
+        {changes.length > 0 ? (
+          <Badge size="sm" variant="soft" className="font-mono text-[10px] tabular-nums">
+            {changes.length}
+          </Badge>
+        ) : null}
         <span className="ml-auto flex items-center gap-0.5">
           {view === "sql" && preview ? <IconButton icon="copy" label="Copy the script" onClick={() => copy(annotated(), "Script")} size={13} className="size-6 min-w-6" /> : null}
           <Button variant="ghost" size="icon-sm" aria-label="Hide panel" onClick={() => setOpen(false)}><Icon name="x" /></Button>
@@ -136,7 +124,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
       </div>
       <ScrollArea className="min-h-0 flex-1 px-2.5 pb-2">
         {changes.length === 0 ? (
-          <p className="py-4 text-center text-xs text-muted">No pending changes. Double-click a cell to edit, use Insert, or select rows and Delete.</p>
+          <EmptyState size="inline" icon="check" title="No pending changes" tip="Double-click a cell to edit, use Insert, or select rows and Delete." />
         ) : view === "sql" ? (
           preview ? (
             <ul className="flex flex-col gap-2">
@@ -150,7 +138,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
                 );
               })}
               <li className="px-1 pt-1 font-mono text-[10px] text-muted">
-                {/COMMIT( TRANSACTION)?;\s*$/.test(preview.script) ? "Runs in one transaction: all of it lands or none of it." : "This engine has no transactions: each statement runs on its own."}
+                {/COMMIT( TRANSACTION)?;\s*$/.test(preview.script) ? "One transaction: all or nothing." : "No transactions here: each statement runs on its own."}
               </li>
             </ul>
           ) : (
@@ -188,7 +176,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
       </div>
 
       <Dialog open={confirm !== null} onOpenChange={(open) => !open && setConfirm(null)}>
-        <DialogContent className="sm:max-w-[480px]">
+        <DialogContent className="sm:max-w-[min(92vw,560px)]">
           <DialogHeader>
             <span className="bg-danger-soft text-danger">
               <Icon name="trash" size={16} />
@@ -199,8 +187,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
             <Alert variant="danger" className="rounded-lg">
               <AlertIndicator />
               <AlertContent>
-                <AlertTitle className="font-semibold text-xs">Destructive Operations</AlertTitle>
-                <AlertDescription className="text-xs">These statements change or remove data without a safety net. Review before continuing.</AlertDescription>
+                <AlertDescription className="text-xs">These statements change or remove data, with no undo.</AlertDescription>
               </AlertContent>
             </Alert>
             <ul className="flex flex-col gap-1.5">

@@ -10,6 +10,7 @@ import type { TreeRow } from "@/lib/tableTree";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // ============================================================================
 // WHAT:  How each kind of sidebar row looks and which gestures it answers: schema
@@ -194,17 +195,21 @@ export const TreeRowView = memo(function TreeRowView({ row, top, height, domId, 
       return (
         <div id={domId} role="presentation" style={{ ...position, paddingLeft: 40 }} className={cn(BASE, "justify-between pr-2 text-[10px] uppercase tracking-wide text-muted/60")}>
           <span>{row.count} {row.count === 1 ? "column" : "columns"}</span>
-          <Button
-            variant="ghost"
-            size="sm"
-            tabIndex={-1}
-            aria-label={`Refresh columns of ${row.table.name}`}
-            title="Refresh columns"
-            onClick={() => { handlers.refreshColumns(row.table); }}
-            className="size-4.5 min-w-4.5 rounded-sm p-0 text-muted"
-          >
-            <Icon name="refresh" size={10} />
-          </Button>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                tabIndex={-1}
+                aria-label={`Refresh columns of ${row.table.name}`}
+                onClick={() => { handlers.refreshColumns(row.table); }}
+                className="size-4.5 min-w-4.5 rounded-sm p-0 text-muted"
+              >
+                <Icon name="refresh" size={10} />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>Refresh columns</TooltipContent>
+          </Tooltip>
         </div>
       );
 

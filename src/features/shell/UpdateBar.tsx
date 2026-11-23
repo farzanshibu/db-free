@@ -2,6 +2,7 @@
 import { useWorkspace } from "@/stores/workspace";
 import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useUpdates } from "./useUpdates";
 
 function openNotes(): void {
@@ -40,15 +41,19 @@ export function UpdateBar() {
       ) : (
         <>
           <Icon name="sparkles" size={13} className="text-accent" />
-          <span className="text-foreground">DB Free {available ?? "update"} is ready to install.</span>
-          <span className="text-muted">Restarting takes a moment.</span>
+          <span className="text-foreground">DB Free {available ?? "update"} is ready</span>
           <span className="ml-auto flex items-center gap-1.5">
             <Button size="sm" variant="ghost" className="h-5 px-1.5 text-xs" onClick={openNotes}>
               What&apos;s new
             </Button>
-            <Button size="sm" className="h-5 px-1.5 text-xs font-semibold" onClick={() => void install()}>
-              Restart now
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" className="h-5 px-1.5 text-xs font-semibold" onClick={() => void install()}>
+                  Restart now
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Installs the update and reopens DB Free. Takes a moment.</TooltipContent>
+            </Tooltip>
           </span>
         </>
       )}

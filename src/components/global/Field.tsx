@@ -1,4 +1,4 @@
-// SOT: form-fields, text-field, select-field, toggle-field, segmented-control, checkbox-field, datetime-field, number-input
+// SOT: form-fields, field-label, field-tip, text-field, select-field, toggle-field, segmented-control, checkbox-field, datetime-field, number-input
 import { useId, useState, type ReactNode } from "react";
 import { cn } from "@/lib/cn";
 import { useDatePickerEnabled } from "@/lib/uiPrefs";
@@ -13,6 +13,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { InfoTip } from "./InfoTip";
 
 // WHAT:  Typed, labelled wrappers over the shadcn/ui form primitives.
 // WHY:   shadcn ships unopinionated parts — a Label, an Input, a Select root and
@@ -22,6 +23,27 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 //        caller's own string union, which is what keeps features free of the
 //        casts a `string`-typed Select value would otherwise force.
 // WHERE: https://ui.shadcn.com/docs/components/{input,select,switch,checkbox,tabs}
+
+// WHAT:  A control's label, with an optional "(optional)" mark and help tip.
+// WHY:   Help text under a field doubles the height of a form and is read once;
+//        the refresh moves it into a tip beside the label. The tip sits outside
+//        the <label>, so clicking it opens the tip instead of focusing the input.
+// WHERE: src/components/global/InfoTip.tsx, docs/ui-refresh.md
+export function FieldLabel({ htmlFor, label, tip, optional = false }: { htmlFor?: string | undefined; label: string; tip?: ReactNode; optional?: boolean }) {
+  return (
+    <span className="flex min-w-0 items-center gap-1">
+      <Label htmlFor={htmlFor}>
+        {label}
+        {optional ? <span className="text-muted/70">(optional)</span> : null}
+      </Label>
+      {tip !== undefined && tip !== null && tip !== "" ? <InfoTip label={`About ${label}`}>{tip}</InfoTip> : null}
+    </span>
+  );
+}
+
+function hasLabel(label: string | undefined): label is string {
+  return label !== undefined && label !== "";
+}
 
 // WHAT:  Controls fill their container unless the caller sets an explicit width.
 function widthClass(className: string | undefined): string {
@@ -34,6 +56,10 @@ interface FieldProps {
   onChange: (value: string) => void;
   placeholder?: string | undefined;
   type?: "text" | "password" | "number" | "email";
+  /// Help shown in a tip beside the label. Prefer this to `description`.
+  tip?: ReactNode;
+  /// Text under the field. Keep for what must be seen while typing (a format,
+  /// a live validation message); everything else is a `tip`.
   description?: string | undefined;
   optional?: boolean;
   disabled?: boolean;
@@ -46,20 +72,18 @@ interface FieldProps {
   compact?: boolean;
 }
 
-export function Field({ label, value, onChange, placeholder, type = "text", description, optional = false, disabled = false, autoFocus = false, className, suffix, mono = false, compact = false }: FieldProps) {
+export function Field({ label, value, onChange, placeholder, type = "text", tip, description, optional = false, disabled = false, autoFocus = false, className, suffix, mono = false, compact = false }: FieldProps) {
   const id = useId();
   return (
     <div className={cn("group/field flex w-full flex-col", compact ? "gap-0" : "gap-1", className)} data-disabled={disabled}>
-      <Label htmlFor={id}>
-        {label}
-        {optional ? <span className="text-muted/70">(optional)</span> : null}
-      </Label>
+      {hasLabel(label) || tip !== undefined ? <FieldLabel htmlFor={id} label={label} tip={tip} optional={optional} /> : null}
       {/* The suffix sits inside the field's own box rather than beside it, so a
           reveal-password or unit affordance keeps the input's focus ring. */}
       <div className="relative flex w-full items-center">
         <Input
           id={id}
           type={type}
+          {...(hasLabel(label) ? {} : { "aria-label": placeholder ?? "Value" })}
           value={value}
           onChange={(event) => { onChange(event.target.value); }}
           disabled={disabled}
@@ -87,6 +111,8 @@ interface AppSelectProps<T extends string> {
   options: readonly Option<T>[];
   onChange: (value: T) => void;
   label?: string | undefined;
+  /// Help shown in a tip beside the label.
+  tip?: ReactNode;
   ariaLabel?: string | undefined;
   className?: string | undefined;
   disabled?: boolean;
@@ -96,12 +122,12 @@ interface AppSelectProps<T extends string> {
   plain?: boolean;
 }
 
-export function AppSelect<T extends string>({ value, options, onChange, label, ariaLabel, className, disabled = false, size = "md", icon, plain = false }: AppSelectProps<T>) {
+export function AppSelect<T extends string>({ value, options, onChange, label, tip, ariaLabel, className, disabled = false, size = "md", icon, plain = false }: AppSelectProps<T>) {
   const current = options.find((o) => o.value === value);
   const leading = icon ?? current?.icon;
   return (
     <div className={cn("flex flex-col gap-1", plain ? "w-auto" : widthClass(className), "min-w-0", className)}>
-      {label !== undefined && label !== "" ? <Label>{label}</Label> : null}
+      {hasLabel(label) ? <FieldLabel label={label} tip={tip} /> : null}
       <Select
         value={value}
         onValueChange={(next) => {
@@ -121,7 +147,9 @@ export function AppSelect<T extends string>({ value, options, onChange, label, a
               : "",
           )}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-1">
+          {/* Radix's SelectValue drops `className`, so the span around it lets
+              the value shrink and truncate when a toolbar squeezes the select. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1 [&>span:last-child]:min-w-0 [&>span:last-child]:truncate">
             {icon === undefined && current?.leading ? (
               <span className="flex shrink-0 items-center">{current.leading}</span>
             ) : leading !== undefined ? (
@@ -129,7 +157,7 @@ export function AppSelect<T extends string>({ value, options, onChange, label, a
             ) : null}
             {/* The trigger shows the label alone: `SelectValue` would re-render
                 the whole item, drawing a second copy of an option's logo. */}
-            <SelectValue className="truncate">
+            <SelectValue>
               <span className={cn("truncate text-left", plain ? "max-w-[150px]" : "")}>{current?.label ?? ""}</span>
             </SelectValue>
           </span>
@@ -151,10 +179,12 @@ interface ToggleProps {
   checked: boolean;
   onChange: (checked: boolean) => void;
   label: string;
+  /// Help shown in a tip beside the label. Prefer this to `description`.
+  tip?: ReactNode;
   description?: string;
 }
 
-export function Toggle({ checked, onChange, label, description }: ToggleProps) {
+export function Toggle({ checked, onChange, label, tip, description }: ToggleProps) {
   const id = useId();
   return (
     <div className="flex w-full flex-col gap-0.5">
@@ -165,6 +195,7 @@ export function Toggle({ checked, onChange, label, description }: ToggleProps) {
             {label}
           </Label>
         ) : null}
+        {tip !== undefined && tip !== null && tip !== "" ? <InfoTip label={`About ${label}`}>{tip}</InfoTip> : null}
       </div>
       {description !== undefined && description !== "" ? <p className="text-[11px] text-muted">{description}</p> : null}
     </div>
@@ -229,6 +260,8 @@ interface DateTimeFieldProps {
   value: string;
   onChange: (text: string) => void;
   label?: string | undefined;
+  /// Help shown in a tip beside the label.
+  tip?: ReactNode;
   ariaLabel?: string | undefined;
   /// Fits a grid row: no label, cell-height control, tighter padding.
   compact?: boolean;
@@ -249,7 +282,7 @@ interface DateTimeFieldProps {
 //        or an offset no picker models — so the text is the control and the
 //        pickers write into it, never the other way round.
 // WHERE: https://ui.shadcn.com/docs/components/date-picker
-export function DateTimeField({ kind, value, onChange, label, ariaLabel, compact = false, autoFocus = false, autoOpen = false, onDone, disabled = false, className }: DateTimeFieldProps) {
+export function DateTimeField({ kind, value, onChange, label, tip, ariaLabel, compact = false, autoFocus = false, autoOpen = false, onDone, disabled = false, className }: DateTimeFieldProps) {
   // Settings → Data Grid → "Date picker" off: the field is plain text, no button, no popover.
   const pickerEnabled = useDatePickerEnabled();
   const [open, setOpen] = useState(autoOpen);
@@ -261,7 +294,7 @@ export function DateTimeField({ kind, value, onChange, label, ariaLabel, compact
 
   return (
     <div className={cn("flex flex-col", compact ? "h-full gap-0" : "w-full gap-1", className)}>
-      {label !== undefined && label !== "" ? <Label htmlFor={id}>{label}</Label> : null}
+      {hasLabel(label) ? <FieldLabel htmlFor={id} label={label} tip={tip} /> : null}
       <div className="relative flex h-full items-center">
         <Input
           id={id}
@@ -337,6 +370,8 @@ interface NumberInputProps {
   /// Whole numbers only (int / serial columns).
   integer?: boolean;
   label?: string | undefined;
+  /// Help shown in a tip beside the label.
+  tip?: ReactNode;
   ariaLabel?: string | undefined;
   /// Fits a grid row: no label, no stepper buttons, cell-height input.
   compact?: boolean;
@@ -349,12 +384,12 @@ interface NumberInputProps {
 //        what is typed and what is sent.
 // WHY:   shadcn has no number field, and the browser's own spinner is both
 //        locale-aware and unstyleable; these steppers are plain buttons.
-export function NumberInput({ value, onChange, integer = false, label, ariaLabel, compact = false, autoFocus = false, disabled = false, className }: NumberInputProps) {
+export function NumberInput({ value, onChange, integer = false, label, tip, ariaLabel, compact = false, autoFocus = false, disabled = false, className }: NumberInputProps) {
   const id = useId();
   const step = (delta: number) => { onChange(Number(((value ?? 0) + delta).toFixed(integer ? 0 : 10))); };
   return (
     <div className={cn("flex flex-col", compact ? "h-full gap-0" : "w-full gap-1", className)}>
-      {label !== undefined && label !== "" ? <Label htmlFor={id}>{label}</Label> : null}
+      {hasLabel(label) ? <FieldLabel htmlFor={id} label={label} tip={tip} /> : null}
       <div className={cn("flex h-full items-center", compact ? "" : "gap-0.5")}>
         {compact ? null : (
           <Button variant="secondary" size="icon-sm" aria-label="Decrement" disabled={disabled} onClick={() => { step(-1); }}>
