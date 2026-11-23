@@ -603,7 +603,7 @@ function Designer({ doc }: { doc: Document }) {
             <Controls showInteractive={false} />
             <MiniMap pannable zoomable className="!bg-surface" nodeColor="var(--accent)" maskColor="var(--backdrop)" />
             {selectedTables.length >= 2 ? (
-              <Panel position="top-center" className="flex items-center gap-2 rounded-lg border border-border bg-surface/95 px-2 py-1 shadow-md backdrop-blur">
+              <Panel position="top-center" className="flex items-center gap-2 rounded-lg border border-border bg-popover px-2 py-1 shadow-md">
                 <span className="text-xs font-medium text-muted">{selectedTables.length} tables</span>
                 <span className="h-4 w-px bg-separator" />
                 <ColorSwatches
@@ -649,7 +649,7 @@ function Designer({ doc }: { doc: Document }) {
           </EdgeActionsContext>
           {empty ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-3">
-              <div className="pointer-events-auto flex w-[360px] max-w-full flex-col gap-2 rounded-lg border border-border bg-surface/95 p-3 shadow-md backdrop-blur">
+              <div className="pointer-events-auto flex w-[360px] max-w-full flex-col gap-2 rounded-lg border border-border bg-popover p-3 shadow-md">
                 <WithTip tip="Add a table, then drag from the edge of one table to another to relate them." tipLabel="About the designer">
                   <p className="text-[13px] font-medium text-foreground">Start your schema</p>
                 </WithTip>

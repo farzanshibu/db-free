@@ -42,7 +42,7 @@ export function FindBar({ query, onQuery, matchCase, onMatchCase, total, index, 
   };
   const status = query.length === 0 ? "" : total === 0 ? "No results" : `${formatCount(index + 1)} of ${formatCount(total)}${capped ? "+" : ""}`;
   return (
-    <div role="search" className="absolute right-3 top-8 z-30 flex items-center gap-1 rounded-lg border border-border/60 bg-surface p-1 shadow-md">
+    <div role="search" className="absolute right-3 top-8 z-30 flex items-center gap-1 rounded-lg glass-modal p-1">
       <Input
         ref={inputRef}
         value={query}

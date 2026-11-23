@@ -157,7 +157,7 @@ export function FilterBar({ columns, entries, mode, onApply, inputRef }: FilterB
         Tab completes, ↵ applies, Esc cancels.{chord.length > 0 ? ` Focus with ${chord}.` : ""}
       </InfoTip>
       {focused && suggestions.options.length > 0 ? (
-        <div className="absolute left-7 top-7 z-30 min-w-52 overflow-hidden rounded-lg border border-border/60 bg-surface shadow-lg">
+        <div className="absolute left-7 top-7 z-30 min-w-52 overflow-hidden rounded-lg glass-modal">
         <ScrollArea orientation="both" className="max-h-60 p-1">
         <ul role="listbox" aria-label="Filter suggestions">
           {suggestions.options.slice(0, 40).map((option, index) => (

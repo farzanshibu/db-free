@@ -127,7 +127,7 @@ export function ConnectionEvents() {
   if (!hovering) return null;
   return (
     <div className="pointer-events-none fixed inset-0 z-[60] flex items-center justify-center bg-backdrop/60 backdrop-blur-sm">
-      <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface px-5 py-4 text-center shadow-xl">
+      <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-accent bg-popover px-5 py-4 text-center shadow-xl">
         <Icon name="database" size={20} className="text-accent" />
         <p className="text-[13px] font-semibold text-foreground">Drop to open this database</p>
         <p className="text-xs text-muted">SQLite files (.db, .sqlite, .sqlite3) open straight away.</p>
