@@ -138,6 +138,7 @@
           columns: clone(columns),
           rows: clone(rows).slice(offset, offset + limit),
           offset: offset, total: rows.length, totalExact: true,
+          columnTraits: [], truncated: [], editable: true,
         });
       }
       if (cmd === "execute_query") {
