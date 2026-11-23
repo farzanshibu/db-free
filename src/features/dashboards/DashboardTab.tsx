@@ -263,7 +263,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
             <TooltipTrigger asChild>
               <Button size="sm" variant="ghost" className="shrink-0 text-muted" onClick={refresh} disabled={connectionId === null} aria-label="Refresh">
                 <Icon name="refresh" size={13} className={anyRunning ? "animate-spin" : ""} />
-                <span className="hidden @3xl:inline">Refresh</span>
+                <span className="hidden @4xl:inline">Refresh</span>
               </Button>
             </TooltipTrigger>
             <TooltipContent className="flex items-center gap-1.5">
@@ -276,7 +276,7 @@ export function DashboardTab({ document: doc, connectionId: initialConnectionId 
           <div className="ml-auto flex shrink-0 items-center gap-1 pl-2">
             <ToolbarActions
               foldBelow="xl"
-              labelsFrom="3xl"
+              labelsFrom="4xl"
               menuLabel="More dashboard actions"
               actions={[
                 { id: "tile", label: "Add tile", icon: "plus", onSelect: () => { addTile(null); } },
