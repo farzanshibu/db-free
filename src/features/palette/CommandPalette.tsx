@@ -13,10 +13,8 @@ import { readStored, writeStored } from "@/lib/storage";
 import { LAYOUT_PRESETS } from "@/lib/layouts";
 import { runShellAction } from "@/features/shell/shellActions";
 import { ConnectionChip, useConnectionIdentity } from "@/features/shell/TabIdentity";
-import { Badge } from "@/components/ui/badge";
-import { Kbd } from "@/components/ui/kbd";
 import { Button } from "@/components/ui/button";
-import { Command, CommandDialog, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { libraryActions, useLibraryPaletteState } from "./libraryActions";
 
 const EMPTY_SECTIONS: string[] = [];
@@ -29,6 +27,25 @@ const LARGE_SECTIONS = new Set(["tables", "saved_queries", "dashboards", "workfl
 const LARGE_SECTION_PREVIEW = 6;
 /// The "open what you typed as a query" entry: one-off text, never remembered as a recent.
 const SQL_ACTION_ID = "sql:open-as-query";
+
+/// Group headings. A section not listed here is shown with its id title-cased.
+const SECTION_LABELS: Record<string, string> = {
+  recent: "Recent",
+  query: "Query",
+  create: "Create",
+  navigation: "Go to",
+  connections: "Connections",
+  tables: "Tables",
+  saved_queries: "Saved queries",
+  settings: "App",
+};
+
+function sectionLabel(section: string): string {
+  const known = SECTION_LABELS[section];
+  if (known !== undefined) return known;
+  const words = section.replace(/_/g, " ");
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
 
 // WHAT:  The ids of the actions the user ran last, newest first.
 // WHY:   The thing you did a minute ago is the thing you want again; showing it
@@ -181,6 +198,19 @@ export function CommandPalette() {
     return [...shortcut, ...scored.map((x) => x.a)].slice(0, MAX_RESULTS);
   }, [actions, needle, recents, sections, connection, store]);
 
+  // WHAT:  Consecutive actions of one section become one headed group.
+  // WHY:   A badge on every row repeated the section name up to 60 times; a
+  //        heading says it once. `visible` is already in section order.
+  const groups = useMemo(() => {
+    const out: { section: string; items: Action[] }[] = [];
+    for (const a of visible) {
+      const last = out[out.length - 1];
+      if (last?.section === a.section) last.items.push(a);
+      else out.push({ section: a.section, items: [a] });
+    }
+    return out;
+  }, [visible]);
+
   const choose = (a: Action) => {
     setOpen(false);
     setQuery("");
@@ -207,39 +237,37 @@ export function CommandPalette() {
           autoFocus
         />
         <CommandList className="mt-1.5">
-          <CommandEmpty>No matching command, table or saved query.</CommandEmpty>
-          {visible.map((a) => (
-            <CommandItem
-              key={a.id}
-              value={a.id}
-              onSelect={() => {
-                choose(a);
-              }}
-            >
-              {a.leading ? <span className="flex shrink-0 items-center">{a.leading}</span> : <Icon name={a.icon} size={14} className="shrink-0 text-accent" />}
-              <span className="truncate font-medium text-foreground">{a.label}</span>
-              {a.hint !== undefined ? <span className="truncate font-mono text-[10.5px] text-muted/80">{a.hint}</span> : null}
-              <Badge size="sm" variant="soft" className="ml-auto text-[9.5px] font-medium tracking-wider uppercase">
-                {a.section.replace("_", " ")}
-              </Badge>
-            </CommandItem>
+          <CommandEmpty>No match.</CommandEmpty>
+          {groups.map((group, index) => (
+            <CommandGroup key={`${group.section}:${String(index)}`} heading={sectionLabel(group.section)}>
+              {group.items.map((a) => (
+                <CommandItem
+                  key={a.id}
+                  value={a.id}
+                  className="group"
+                  onSelect={() => {
+                    choose(a);
+                  }}
+                >
+                  {a.leading ? <span className="flex shrink-0 items-center">{a.leading}</span> : <Icon name={a.icon} size={14} className="shrink-0 text-accent" />}
+                  <span className="truncate font-medium text-foreground">{a.label}</span>
+                  {/* The hint shows on the highlighted row only: enough to tell
+                      two similar entries apart without a second line on every one. */}
+                  {a.hint !== undefined ? <span className="ml-auto hidden min-w-0 truncate pl-2 font-mono text-[10.5px] text-muted/80 group-data-[selected=true]:inline">{a.hint}</span> : null}
+                </CommandItem>
+              ))}
+            </CommandGroup>
           ))}
         </CommandList>
-        <div className="mt-2 flex items-center justify-between border-t border-border/40 px-2 pt-1.5 text-[11px] text-muted">
-          <div className="flex items-center gap-2">
-            <span className="flex items-center gap-1">
-              <Kbd>↵</Kbd> select
-            </span>
-            <span className="flex items-center gap-1">
-              <Kbd>Esc</Kbd> close
-            </span>
+        {identity !== null || (recents.length > 0 && needle.length === 0) ? (
+          <div className="mt-2 flex items-center justify-between border-t border-border/40 px-2 pt-1.5 text-[11px] text-muted">
             {identity !== null ? (
               <span className="flex items-center gap-1">
-                acting on <ConnectionChip identity={identity} />
+                Acting on <ConnectionChip identity={identity} />
               </span>
-            ) : null}
-          </div>
-          <span className="flex items-center gap-2">
+            ) : (
+              <span />
+            )}
             {recents.length > 0 && needle.length === 0 ? (
               <Button
                 size="sm"
@@ -250,12 +278,11 @@ export function CommandPalette() {
                   writeStored(RECENTS_KEY, "[]");
                 }}
               >
-                Clear recents
+                Clear recent
               </Button>
             ) : null}
-            <span className="font-mono text-[10px] text-muted/60">{visible.length} results</span>
-          </span>
-        </div>
+          </div>
+        ) : null}
       </Command>
     </CommandDialog>
   );

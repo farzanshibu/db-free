@@ -8,6 +8,7 @@ import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { EnvBadge } from "@/components/global/Badge";
 import { EngineIcon } from "@/components/global/EngineIcon";
+import { AutoGrid } from "@/components/global/Layout";
 import { Button } from "@/components/ui/button";
 import { openHomeEntity } from "./openEntity";
 import { useResolveEntity } from "./useResolvedEntity";
@@ -74,7 +75,7 @@ export function PinnedBoard({ pins }: { pins: readonly HomePin[] }) {
   };
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <AutoGrid min="xs">
       {order.map((id) => {
         const pin = byId.get(id);
         if (pin === undefined) return null;
@@ -89,7 +90,7 @@ export function PinnedBoard({ pins }: { pins: readonly HomePin[] }) {
             data-drop-id={pin.id}
             onPointerDown={(event) => begin(event, pin.id, resolved.label)}
             className={cn(
-              "group relative w-40 cursor-grab touch-none select-none rounded-lg border border-border/40 glass-card glass-card-hover",
+              "group relative min-w-0 cursor-grab touch-none select-none rounded-lg border border-border/40 glass-card glass-card-hover",
               dragging ? "opacity-40" : "",
             )}
           >
@@ -132,6 +133,6 @@ export function PinnedBoard({ pins }: { pins: readonly HomePin[] }) {
           </div>
         );
       })}
-    </div>
+    </AutoGrid>
   );
 }
