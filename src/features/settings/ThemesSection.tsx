@@ -20,10 +20,14 @@ import { isSafeColor, parseThemeFile, serializeTheme } from "@/lib/themeFile";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
+import { IconButton } from "@/components/global/Button";
 import { AppSelect, Field } from "@/components/global/Field";
+import { InfoTip, WithTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { SettingsRow } from "./SettingsRow";
 import { ThemePreview } from "./ThemePreview";
 
 const ACCENTS = [
@@ -131,10 +135,13 @@ export function ThemesSection({ theme, accent, customThemes, system, onChange }:
 
   return (
     <>
-      <h2 className="text-[13px] font-semibold text-foreground">Themes</h2>
-      <p className="text-xs text-muted">Pick a look, or build your own from any of them. System follows the operating system and switches with it. Changes apply when you save.</p>
+      <h2 className="text-[13px] font-semibold text-foreground">
+        <WithTip tip="Pick a look, or build your own from any of them. System follows the operating system and switches with it. Changes apply when you save." tipLabel="About themes">
+          Themes
+        </WithTip>
+      </h2>
 
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <AutoGrid min="xs">
         <ThemeCard label="System" caption={`Follows the OS (${system})`} selected={theme === SYSTEM_THEME} colors={snapshotTheme(system)} base={system} onSelect={() => { onChange({ theme: SYSTEM_THEME }); }} />
         {BUILT_IN_THEMES.map((t) => (
           <ThemeCard key={t.id} label={t.label} caption={t.base === "dark" ? "Dark" : "Light"} selected={theme === t.id} colors={snapshotTheme(t.id)} base={t.base} onSelect={() => { onChange({ theme: t.id }); }} />
@@ -142,20 +149,17 @@ export function ThemesSection({ theme, accent, customThemes, system, onChange }:
         {customThemes.map((t) => (
           <ThemeCard key={t.id} label={t.name} caption={`Custom · ${t.base}`} selected={theme === t.id} colors={t.colors} base={t.base} onSelect={() => { onChange({ theme: t.id }); }} />
         ))}
-      </div>
+      </AutoGrid>
 
       {accentApplies ? (
-        <Card className="rounded-lg glass-card border-border/40 px-2.5 py-1.5 shadow-xs">
-          <CardContent className="flex flex-row items-center gap-3 p-0 w-full">
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-semibold text-foreground tracking-tight">Accent</p>
-              <p className="mt-0.5 text-xs text-muted">Buttons, selections, links.</p>
-            </div>
-            <AppSelect ariaLabel="Accent" value={accent} options={ACCENTS} onChange={(v) => { onChange({ accent: v }); }} className="w-44" />
-          </CardContent>
-        </Card>
+        <SettingsRow title="Accent" body="Buttons, selections, links.">
+          <AppSelect ariaLabel="Accent" value={accent} options={ACCENTS} onChange={(v) => { onChange({ accent: v }); }} className="w-44" />
+        </SettingsRow>
       ) : (
-        <p className="text-xs text-muted">This theme sets its own accent; the Accent setting applies to Dark, Light and custom themes without one.</p>
+        <p className="flex items-center gap-1 text-xs text-muted">
+          This theme sets its own accent.
+          <InfoTip label="About the accent">The Accent setting applies to Dark, Light and custom themes without one.</InfoTip>
+        </p>
       )}
 
       <div className="mt-2 flex items-center gap-2">
@@ -173,7 +177,12 @@ export function ThemesSection({ theme, accent, customThemes, system, onChange }:
         </span>
       </div>
 
-      {customThemes.length === 0 ? <p className="text-xs text-muted">No custom themes yet. Start one from any theme above, or import a theme file (DB Free or DB Pro).</p> : null}
+      {customThemes.length === 0 ? (
+        <p className="flex items-center gap-1 text-xs text-muted">
+          No custom themes yet.
+          <InfoTip label="About custom themes">Start one from any theme above, or import a theme file (DB Free or DB Pro).</InfoTip>
+        </p>
+      ) : null}
       <ul className="flex flex-col gap-1.5">
         {customThemes.map((t) => (
           <li key={t.id} className={cn("flex items-center gap-2 rounded-md border bg-surface px-2.5 py-1 text-xs", editingId === t.id ? "border-accent/60" : "border-border")}>
@@ -183,15 +192,9 @@ export function ThemesSection({ theme, accent, customThemes, system, onChange }:
               <Icon name="pencil" size={12} />
               {editingId === t.id ? "Done" : "Edit"}
             </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={`Duplicate ${t.name}`} title="Duplicate" onClick={() => { duplicate(t); }}>
-              <Icon name="copy" size={12} />
-            </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={`Export ${t.name}`} title="Export…" disabled={busy} onClick={() => void exportFile(t)}>
-              <Icon name="download" size={12} />
-            </Button>
-            <Button size="icon-sm" variant="ghost" aria-label={`Delete ${t.name}`} title="Delete" onClick={() => { remove(t.id); }}>
-              <Icon name="trash" size={12} />
-            </Button>
+            <IconButton icon="copy" size={12} label={`Duplicate ${t.name}`} onClick={() => { duplicate(t); }} />
+            <IconButton icon="download" size={12} label={`Export ${t.name}…`} disabled={busy} onClick={() => void exportFile(t)} />
+            <IconButton icon="trash" size={12} label={`Delete ${t.name}`} onClick={() => { remove(t.id); }} />
           </li>
         ))}
       </ul>
@@ -244,32 +247,34 @@ function ThemeEditor({ theme, onChange }: { theme: CustomTheme; onChange: (next:
             { value: "light", label: "Light" },
           ]}
           onChange={(base) => { onChange({ ...theme, base }); }}
+          tip="Tells the editor, diagrams and the OS window whether the ground is dark or light."
         />
       </div>
-      <p className="text-xs text-muted">The scheme tells the editor, diagrams and the OS window whether the ground is dark or light.</p>
       <ThemePreview colors={colors} base={theme.base} />
       <div className="flex flex-col gap-1">
         {THEME_GROUPS.map((group) => {
           const open = openGroup === group.id;
           return (
             <section key={group.id} className="rounded-lg border border-border/60">
-              <button
-                type="button"
-                aria-expanded={open}
-                onClick={() => { setOpenGroup(open ? null : group.id); }}
-                className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs font-medium text-foreground outline-none hover:bg-surface-secondary/50 focus-visible:ring-2 focus-visible:ring-ring/60"
-              >
-                <Icon name={open ? "chevron-down" : "chevron-right"} size={12} className="text-muted" />
-                {group.label}
+              <div className="flex items-center gap-1 pr-2.5 hover:bg-surface-secondary/50">
+                <button
+                  type="button"
+                  aria-expanded={open}
+                  onClick={() => { setOpenGroup(open ? null : group.id); }}
+                  className="flex min-w-0 flex-1 items-center gap-2 py-1.5 pl-2.5 text-left text-xs font-medium text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                >
+                  <Icon name={open ? "chevron-down" : "chevron-right"} size={12} className="text-muted" />
+                  {group.label}
+                </button>
+                <InfoTip label={`About ${group.label}`}>{group.description}</InfoTip>
                 <span className="ml-auto text-[11px] font-normal text-muted">{group.tokens.length} colours</span>
-              </button>
+              </div>
               {open ? (
-                <div className="flex flex-col gap-1 border-t border-border/60 px-2.5 py-1.5">
-                  <p className="pb-1 text-[11px] text-muted">{group.description}</p>
+                <AutoGrid min="lg" className="gap-1 border-t border-border/60 px-2.5 py-1.5">
                   {group.tokens.map((t) => (
                     <TokenRow key={t.name} name={t.name} label={t.label} value={theme.colors[t.name] ?? ""} onChange={(value) => { setColor(t.name, value); }} />
                   ))}
-                </div>
+                </AutoGrid>
               ) : null}
             </section>
           );
@@ -293,7 +298,9 @@ function TokenRow({ name, label, value, onChange }: { name: string; label: strin
   const valid = text.trim().length === 0 || isSafeColor(text);
   return (
     <div className="flex items-center gap-2 text-xs">
-      <label className="relative size-6 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border" title="Pick a colour">
+      <Tooltip>
+      <TooltipTrigger asChild>
+      <label className="relative size-6 shrink-0 cursor-pointer overflow-hidden rounded-md border border-border">
         <span className="absolute inset-0" style={{ backgroundColor: valid && text.trim().length > 0 ? text : "transparent" }} />
         <input
           type="color"
@@ -308,9 +315,15 @@ function TokenRow({ name, label, value, onChange }: { name: string; label: strin
           className="absolute inset-0 size-full cursor-pointer opacity-0"
         />
       </label>
-      <span className="w-44 shrink-0 truncate text-foreground" title={name}>
-        {label}
-      </span>
+      </TooltipTrigger>
+      <TooltipContent>Pick a colour</TooltipContent>
+      </Tooltip>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="w-44 shrink-0 truncate text-foreground">{label}</span>
+        </TooltipTrigger>
+        <TooltipContent className="font-mono">{name}</TooltipContent>
+      </Tooltip>
       <Input
         value={text}
         aria-label={`${label} value`}

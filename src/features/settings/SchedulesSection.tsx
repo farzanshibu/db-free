@@ -4,6 +4,9 @@ import type { WorkflowScheduleStatus } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { Icon } from "@/lib/icons";
+import { EmptyState } from "@/components/global/EmptyState";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -76,19 +79,23 @@ export function SchedulesSection() {
 
   return (
     <>
-      <h2 className="text-[13px] font-semibold text-foreground">Schedules</h2>
-      <p className="text-xs text-muted">
-        Every Schedule node in your workflows. An active workflow runs on its own while the app is open, even with its tab closed. A run is skipped if the previous one is still going.
-      </p>
+      <h2 className="text-[13px] font-semibold text-foreground">
+        <WithTip
+          tip="Every Schedule node in your workflows. An active workflow runs on its own while the app is open, even with its tab closed. A run is skipped if the previous one is still going."
+          tipLabel="About schedules"
+        >
+          Schedules
+        </WithTip>
+      </h2>
       {rows === null ? (
         <div className="flex items-center gap-2 py-2 text-xs text-muted">
           <Spinner size="sm" />
           Loading schedules…
         </div>
       ) : rows.length === 0 ? (
-        <p className="py-2 text-xs text-muted">No schedules yet. Add a Schedule node to a workflow and turn on Schedules active.</p>
+        <EmptyState size="inline" icon="clock" title="No schedules yet" tip="Add a Schedule node to a workflow and turn on Schedules active." />
       ) : (
-        <div className="flex flex-col gap-2">
+        <AutoGrid min="lg">
           {rows.map((row) => (
             <Card key={`${row.workflowId}:${row.nodeId}`} className="rounded-lg glass-card border-border/40 px-2.5 py-1.5 shadow-xs">
               <CardContent className="flex items-center gap-2 p-0">
@@ -119,7 +126,7 @@ export function SchedulesSection() {
               </CardContent>
             </Card>
           ))}
-        </div>
+        </AutoGrid>
       )}
     </>
   );

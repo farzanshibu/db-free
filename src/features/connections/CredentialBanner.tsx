@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import type { CredentialStatus } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
+import { WithTip } from "@/components/global/InfoTip";
 import { ConfirmDialog } from "@/components/global/ConfirmDialog";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -63,7 +64,7 @@ export function CredentialBanner() {
   if (status === null && error === null) return null;
 
   return (
-    <div className="mb-3 flex flex-col gap-2">
+    <div className="flex flex-col gap-2">
       {error !== null ? (
         <Alert variant="danger">
           <AlertIndicator />
@@ -77,10 +78,13 @@ export function CredentialBanner() {
         <Alert variant="danger">
           <AlertIndicator />
           <AlertContent className="gap-2">
-            <AlertTitle>Credentials lost</AlertTitle>
+            <AlertTitle>
+              <WithTip tip="The OS keychain no longer holds the key that seals your saved passwords. DB Free did not create a replacement key, because that would hide the problem. After clearing, you enter each password again." tipLabel="About lost credentials">
+                Credentials lost
+              </WithTip>
+            </AlertTitle>
             <AlertDescription>
-              The OS keychain no longer holds the key that seals your saved passwords, so {status.lostSecrets} stored password{status.lostSecrets === 1 ? "" : "s"} can't be decrypted. DB Free did not create a replacement
-              key, because that would hide the problem. Clear the unreadable passwords to continue; you will enter each one again.
+              {status.lostSecrets} saved password{status.lostSecrets === 1 ? "" : "s"} can't be decrypted. Clear them to continue.
             </AlertDescription>
             <div>
               <Button variant="danger" size="sm" onClick={() => { setConfirming(true); }}>
@@ -94,10 +98,14 @@ export function CredentialBanner() {
         <Alert variant="warning">
           <AlertIndicator />
           <AlertContent className="gap-2">
-            <AlertTitle>No OS keychain available</AlertTitle>
+            <AlertTitle>
+              <WithTip tip="Install or unlock a keychain (Secret Service on Linux) to move the key there." tipLabel="About the key file">
+                No OS keychain available
+              </WithTip>
+            </AlertTitle>
             <AlertDescription>
-              The key that seals your saved passwords is kept in a file readable only by you
-              {status.keyPath !== null ? <> (<span className="selectable break-all font-mono">{status.keyPath}</span>)</> : null}. Anyone who can read that file can decrypt your saved passwords. Install or unlock a keychain (Secret Service on Linux) to move it there.
+              Anyone who can read the key file can decrypt your saved passwords
+              {status.keyPath !== null ? <> (<span className="selectable break-all font-mono">{status.keyPath}</span>)</> : null}.
             </AlertDescription>
             <div>
               <Button variant="tertiary" size="sm" onClick={() => { setDismissedFileWarning(true); }}>
@@ -111,7 +119,7 @@ export function CredentialBanner() {
         open={confirming}
         onOpenChange={setConfirming}
         title="Clear saved passwords?"
-        description="The passwords (and SSH passwords, and the AI key) that can't be decrypted are removed. Connections stay; you enter the passwords again."
+        description="Unreadable passwords, SSH passwords and the AI key are removed. Connections stay."
         confirmLabel="Clear passwords"
         pending={resetting}
         onConfirm={reset}

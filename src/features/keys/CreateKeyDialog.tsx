@@ -5,7 +5,8 @@ import { normalizeError } from "@/lib/ipc";
 import { parseJson } from "@/lib/json";
 import { redisLine } from "@/lib/redisCommands";
 import { useWorkspace } from "@/stores/workspace";
-import { AppSelect, Field, NumberInput } from "@/components/global/Field";
+import { AppSelect, Field, FieldLabel, NumberInput } from "@/components/global/Field";
+import { AutoGrid } from "@/components/global/Layout";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -166,23 +167,23 @@ export function CreateKeyDialog({ connectionId, trigger, onCreated }: CreateKeyD
       }}
     >
       <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent className="sm:max-w-[520px]">
+      <DialogContent className="sm:max-w-[min(92vw,640px)]">
         <DialogHeader>
           <DialogTitle>New key</DialogTitle>
           <DialogDescription>{readOnly ? "This connection is read-only, so a key cannot be created." : "The key is created with its first contents; Redis has no empty collections."}</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-2">
           <Field label="Key name" value={name} onChange={setName} mono autoFocus placeholder="app:users:42" />
-          <div className="grid grid-cols-2 gap-2">
+          <AutoGrid min="sm">
             <AppSelect label="Type" value={kind} options={TYPES.map((t) => ({ value: t, label: KEY_TYPE_LABEL[t] }))} onChange={setKind} />
             <div className="flex flex-col gap-1.5">
-              <Label>Expires after (optional)</Label>
+              <FieldLabel label="Expires after" optional />
               <div className="grid grid-cols-[1fr_7rem] gap-2">
                 <NumberInput ariaLabel="Expires after" value={amount} onChange={setAmount} integer />
                 <AppSelect ariaLabel="Unit" value={unit} options={TTL_UNITS.map((u) => ({ value: u.value, label: u.label }))} onChange={setUnit} />
               </div>
             </div>
-          </div>
+          </AutoGrid>
           {kind === "string" || kind === "json" ? (
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="new-key-value">{kind === "json" ? "JSON document" : "Value"}</Label>

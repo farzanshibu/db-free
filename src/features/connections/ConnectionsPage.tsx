@@ -10,13 +10,14 @@ import { HomeBoard } from "@/features/home/HomeBoard";
 import { useContextMenu } from "@/components/global/ContextMenu";
 import { ConfirmDialog } from "@/components/global/ConfirmDialog";
 import { EmptyState } from "@/components/global/EmptyState";
+import { IconButton } from "@/components/global/Button";
+import { InfoTip } from "@/components/global/InfoTip";
+import { AutoGrid, Page, PageHeader } from "@/components/global/Layout";
+import { OverflowMenu, type ToolbarAction } from "@/components/global/Toolbar";
 import { Icon } from "@/lib/icons";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { SearchInput } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConnectionCard } from "./ConnectionCard";
 import { ConnectionFailedDialog } from "./ConnectionFailedDialog";
 import { ExportConnectionsDialog, ImportConnectionsDialog } from "./ConnectionTransferDialogs";
@@ -125,111 +126,88 @@ export function ConnectionsPage() {
     }
   };
 
+  const moreActions: ToolbarAction[] = [
+    { id: "import", label: "Import connections…", icon: "transfer", onSelect: () => { setImporting(true); }, group: "transfer" },
+    { id: "export", label: "Export connections…", icon: "download", disabled: saved.length === 0, onSelect: () => { setExporting(true); }, group: "transfer" },
+    { id: "organize", label: "Tags and folders…", icon: "tag", onSelect: () => { setManaging(true); }, group: "org" },
+    { id: "demo", label: "Open the demo database", icon: "package", onSelect: () => void tryDemo(), group: "org" },
+  ];
+
   return (
-    <div className="grid-bg flex h-full min-h-0 flex-1 flex-col">
-      <div className="drag-region app-titlebar shrink-0" data-tauri-drag-region />
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="mx-auto w-full max-w-6xl px-4 pb-6">
-          <div className="mb-3 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <h1 className="text-[13px] font-semibold tracking-tight text-foreground">Connections</h1>
-              <Badge size="sm" variant="soft" color="accent" className="font-medium">
-                {saved.length} saved
-              </Badge>
-            </div>
-            <div className="flex min-w-0 items-center gap-2">
-              {connections.length > 0 ? (
-                <div className="w-64 min-w-0">
-                  <SearchInput value={search} onChange={setSearch} aria-label="Search connections" placeholder="Search name, host, engine, tag…" className="glass-input w-full rounded-md text-xs" />
-                </div>
-              ) : null}
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="secondary" size="icon" aria-label="More actions" className="glass-pill">
-                    <Icon name="more" size={14} />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="min-w-56">
-                  <DropdownMenuItem onSelect={() => { setImporting(true); }}>
-                    <Icon name="transfer" />
-                    Import connections…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={saved.length === 0} onSelect={() => { setExporting(true); }}>
-                    <Icon name="download" />
-                    Export connections…
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onSelect={() => { setManaging(true); }}>
-                    <Icon name="tag" />
-                    Tags and folders…
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onSelect={() => void tryDemo()}>
-                    <Icon name="package" />
-                    Open the demo database
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
-              <Button onClick={() => openForm()} className="font-semibold liquid-hover">
-                <Icon name="plus" size={14} />
-                New Connection
-              </Button>
-            </div>
+    <div className="flex h-full min-h-0 flex-1 flex-col">
+      <Page
+        header={
+          <PageHeader
+            title="Connections"
+            meta={`${saved.length} saved`}
+            tip="Search covers name, host, engine, folder and tag. Right-click a card for more."
+            actions={
+              <>
+                {connections.length > 0 ? (
+                  <div className="w-64 min-w-0">
+                    <SearchInput value={search} onChange={setSearch} aria-label="Search connections" placeholder="Search…" className="glass-input w-full rounded-md text-xs" />
+                  </div>
+                ) : null}
+                <OverflowMenu items={moreActions} label="More actions" />
+                <Button size="sm" onClick={() => openForm()} className="font-semibold liquid-hover">
+                  <Icon name="plus" size={14} />
+                  New Connection
+                </Button>
+              </>
+            }
+          />
+        }
+      >
+        <CredentialBanner />
+
+        {folders.length > 0 ? <FolderChips folders={folders} counts={countsByFolder(connections)} total={saved.length} active={folderFilter} onSelect={setFolderFilter} onManage={() => { setManaging(true); }} /> : null}
+
+        <HomeBoard />
+        {connections.length === 0 ? (
+          <Card className="w-full glass-card rounded-lg border-border/60">
+            <CardContent>
+              <EmptyState
+                icon="plug"
+                title="No connections yet"
+                tip="PostgreSQL, MySQL, SQLite, Redis, MongoDB and 60+ more engines. The demo is a sample shop database. Import and export live in the ⋯ menu."
+                action={
+                  <div className="flex flex-wrap items-center justify-center gap-2">
+                    <Button onClick={() => openForm()} className="font-semibold">
+                      <Icon name="plus" size={14} />
+                      New connection
+                    </Button>
+                    <Button variant="secondary" pending={demoBusy} onClick={() => void tryDemo()}>
+                      <Icon name="package" size={14} />
+                      Try the demo
+                    </Button>
+                  </div>
+                }
+              />
+            </CardContent>
+          </Card>
+        ) : needle.length > 0 && matching.length === 0 ? (
+          <p className="px-1 py-2 text-xs text-muted">No connection matches “{needle}”.</p>
+        ) : (
+          <div className="flex flex-col gap-3">
+            {groups
+              .filter((g) => g.items.length > 0 || (needle.length === 0 && g.kind === "folder"))
+              .map((group) => (
+                <GroupSection
+                  key={group.key}
+                  group={group}
+                  // A search shows every match: collapsing would hide what was asked for.
+                  open={needle.length > 0 || !collapsed.includes(group.key)}
+                  onToggle={() => { toggle(group.key); }}
+                >
+                  {group.items.map((c) => (
+                    <ConnectionCard key={c.id} connection={c} tags={tags} menu={menu} onOrganize={setOrganizing} onDelete={setDeleting} onFilterTag={(tag) => { setSearch(tag.name); }} />
+                  ))}
+                </GroupSection>
+              ))}
+            {menu.node}
           </div>
-
-          <CredentialBanner />
-
-          {folders.length > 0 ? <FolderChips folders={folders} counts={countsByFolder(connections)} total={saved.length} active={folderFilter} onSelect={setFolderFilter} onManage={() => { setManaging(true); }} /> : null}
-
-          <HomeBoard />
-          {connections.length === 0 ? (
-            <Card className="w-full glass-card rounded-lg border-border/60">
-              <CardContent>
-                <EmptyState
-                  icon="plug"
-                  title="No connections yet"
-                  body="Add a PostgreSQL, SQLite, MySQL, Redis, or MongoDB connection to start browsing tables and running queries, or explore a sample shop database first."
-                  action={
-                    <div className="flex flex-wrap items-center justify-center gap-2">
-                      <Button onClick={() => openForm()} className="font-semibold">
-                        Add connection
-                      </Button>
-                      <Button variant="secondary" pending={demoBusy} onClick={() => void tryDemo()}>
-                        <Icon name="package" size={14} />
-                        Try the demo
-                      </Button>
-                      <Button variant="tertiary" onClick={() => { setImporting(true); }}>
-                        <Icon name="transfer" size={14} />
-                        Import…
-                      </Button>
-                    </div>
-                  }
-                />
-              </CardContent>
-            </Card>
-          ) : needle.length > 0 && matching.length === 0 ? (
-            <p className="px-1 py-2 text-xs text-muted">No connection matches “{needle}”.</p>
-          ) : (
-            <div className="flex flex-col gap-3">
-              {groups
-                .filter((g) => g.items.length > 0 || (needle.length === 0 && g.kind === "folder"))
-                .map((group) => (
-                  <GroupSection
-                    key={group.key}
-                    group={group}
-                    // A search shows every match: collapsing would hide what was asked for.
-                    open={needle.length > 0 || !collapsed.includes(group.key)}
-                    onToggle={() => { toggle(group.key); }}
-                  >
-                    {group.items.map((c) => (
-                      <ConnectionCard key={c.id} connection={c} tags={tags} menu={menu} onOrganize={setOrganizing} onDelete={setDeleting} onFilterTag={(tag) => { setSearch(tag.name); }} />
-                    ))}
-                  </GroupSection>
-                ))}
-              {menu.node}
-            </div>
-          )}
-        </div>
-      </ScrollArea>
+        )}
+      </Page>
       {organizing ? <OrganizeDialog connection={organizing} onClose={() => { setOrganizing(null); }} /> : null}
       <ManageOrgDialog open={managing} onOpenChange={setManaging} />
       <ExportConnectionsDialog open={exporting} onOpenChange={setExporting} />
@@ -287,12 +265,10 @@ function FolderChips({ folders, counts, total, active, onSelect, onManage }: Fol
     </Button>
   );
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by folder">
+    <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter by folder">
       {chip(null, "All", total)}
       {folders.map((f) => chip(f.id, f.name, counts[f.id] ?? 0))}
-      <Button variant="ghost" size="icon-sm" aria-label="Manage folders and tags" title="Manage folders and tags" onClick={onManage} className="size-6 rounded-full text-muted">
-        <Icon name="settings" size={13} />
-      </Button>
+      <IconButton icon="settings" label="Manage folders and tags" onClick={onManage} size={13} className="size-6 rounded-full text-muted" />
     </div>
   );
 }
@@ -314,13 +290,16 @@ function GroupSection({ group, open, onToggle, children }: { group: ConnectionGr
       </Button>
       {open ? (
         group.items.length === 0 ? (
-          <p className="px-2 text-xs text-muted">Empty folder. Right-click a connection and choose “Tags and folders…” to add it here.</p>
+          <p className="flex items-center gap-1 px-2 text-xs text-muted">
+            Empty folder.
+            <InfoTip label="Add to this folder">Right-click a connection and choose “Tags and folders…”.</InfoTip>
+          </p>
         ) : (
           // WHAT:  Cards flow into as many columns as the window affords.
           // WHY:   One narrow column left most of a desktop window empty, and
           //        the list got longer the more connections someone saved —
           //        exactly the wrong way round.
-          <div className="grid gap-2 md:grid-cols-2 2xl:grid-cols-3">{children}</div>
+          <AutoGrid min="lg">{children}</AutoGrid>
         )
       ) : null}
     </section>

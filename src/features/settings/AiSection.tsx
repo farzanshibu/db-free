@@ -1,5 +1,5 @@
 // SOT: ai-settings-section, ai-provider-profiles-ui, ai-model-fetch-ui, ai-data-access-setting, ai-autonomy-setting
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   AgentAutonomy,
   AgentSkill,
@@ -13,7 +13,11 @@ import type {
 } from "@/lib/bindings";
 import { ipc } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
+import { Disclosure } from "@/components/global/Disclosure";
+import { EmptyState } from "@/components/global/EmptyState";
 import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 import { DATA_ACCESS_OPTIONS } from "@/features/chat/access";
 import { relativeTime } from "@/features/chat/chatMessages";
 import { ipcMessage } from "@/features/chat/ipcMessage";
@@ -25,6 +29,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { SettingsRow as SectionRow } from "./SettingsRow";
 
 // WHAT:  Settings → AI: the providers you have configured (each with its own
 //        key), which one and which model is the default, what the assistant may
@@ -66,20 +71,6 @@ function clampSteps(steps: number): number {
 
 function providerInfo(provider: AiProvider) {
   return PROVIDERS.find((p) => p.value === provider);
-}
-
-function SectionRow({ title, body, children }: { title: string; body: ReactNode; children: ReactNode }) {
-  return (
-    <Card className="rounded-lg glass-card border-border/40 px-3 py-2 shadow-xs">
-      <CardContent className="flex w-full flex-row items-center gap-4 p-0">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs font-semibold tracking-tight text-foreground">{title}</p>
-          <p className="mt-0.5 text-xs text-muted">{body}</p>
-        </div>
-        <div className="shrink-0">{children}</div>
-      </CardContent>
-    </Card>
-  );
 }
 
 /// What makes two drafts the same save: everything the server stores, nothing it derives.
@@ -251,11 +242,14 @@ function AiBody({ saved }: { saved: AiSettings }) {
 
   return (
     <>
-      <h2 className="text-[13px] font-semibold text-foreground">AI (bring your own key)</h2>
-      <p className="text-xs text-muted">
-        A database assistant that reads your schema, writes and runs queries, draws charts and builds dashboards, workflows and diagrams.
-        What it may see is your choice below. Keys are encrypted at rest and never shown again.
-      </p>
+      <h2 className="text-[13px] font-semibold text-foreground">
+        <WithTip
+          tip="A database assistant that reads your schema, writes and runs queries, draws charts and builds dashboards, workflows and diagrams. Keys are encrypted at rest and never shown again."
+          tipLabel="About the AI assistant"
+        >
+          AI (bring your own key)
+        </WithTip>
+      </h2>
 
       <SectionRow title="What it may see" body={accessInfo?.description ?? ""}>
         <Segmented<AiDataAccess>
@@ -267,7 +261,9 @@ function AiBody({ saved }: { saved: AiSettings }) {
       </SectionRow>
 
       <div className="flex items-center justify-between pt-1">
-        <h3 className="text-xs font-semibold text-foreground">Providers</h3>
+        <h3 className="text-xs font-semibold text-foreground">
+          <WithTip tip="Add several and choose between their models in the chat." tipLabel="About providers">Providers</WithTip>
+        </h3>
         <div className="flex items-center gap-2">
           <AppSelect<RealProvider>
             ariaLabel="Provider to add"
@@ -286,17 +282,25 @@ function AiBody({ saved }: { saved: AiSettings }) {
 
       {draft.profiles.length === 0 ? (
         <Card className="rounded-lg glass-card border-dashed border-border/50 px-3 py-3 shadow-xs">
-          <CardContent className="flex flex-col items-center gap-1 p-0 text-center">
-            <Icon name="brain" size={16} className="text-muted" />
-            <p className="text-xs font-semibold text-foreground">No provider yet</p>
-            <p className="max-w-sm text-xs text-muted">
-              Pick Anthropic, OpenAI, Google Gemini, OpenRouter or a local Ollama above and add your key. You can add several and
-              choose between their models in the chat.
-            </p>
+          <CardContent className="p-0">
+            <EmptyState
+              size="inline"
+              icon="brain"
+              title="No provider yet"
+              tip="Pick Anthropic, OpenAI, Google Gemini, OpenRouter or a local Ollama and add your key. You can add several and choose between their models in the chat."
+              action={
+                <Button size="sm" variant="secondary" onClick={addProfile}>
+                  <Icon name="plus" size={12} />
+                  Add {providerInfo(adding)?.label ?? "provider"}
+                </Button>
+              }
+            />
           </CardContent>
         </Card>
       ) : null}
 
+      {draft.profiles.length > 0 ? (
+      <AutoGrid min="lg" className="items-start">
       {draft.profiles.map((profile) => (
         <ProfileCard
           key={profile.id}
@@ -326,6 +330,8 @@ function AiBody({ saved }: { saved: AiSettings }) {
           onRefresh={() => { void loadModels(profile, typedKeys[profile.id] ?? "", true); }}
         />
       ))}
+      </AutoGrid>
+      ) : null}
 
       {defaultProfile !== null ? (
         <SectionRow
@@ -363,7 +369,7 @@ function AiBody({ saved }: { saved: AiSettings }) {
 
       <SectionRow
         title="What it may do on its own"
-        body="Reads always run unattended. A statement that writes or deletes is shown to you for approval first — unless you turn that off here. A read-only connection refuses writes whatever this says. Saving a dashboard, workflow or diagram always asks."
+        body="Reads run unattended; writes and deletes ask first unless you change this. A read-only connection refuses writes whatever this says."
       >
         <AppSelect<AgentAutonomy>
           ariaLabel="Autonomy"
@@ -376,7 +382,7 @@ function AiBody({ saved }: { saved: AiSettings }) {
 
       <SectionRow
         title="Tool-step limit"
-        body={`How many model round trips (each can call tools) one message may take before the assistant stops and offers Continue. ${STEP_LIMIT.min}–${STEP_LIMIT.max}, default ${STEP_LIMIT.fallback}. Raise it for long jobs such as auditing a whole schema; lower it to keep a wandering run cheap.`}
+        body={`Model round trips one message may take before the assistant stops and offers Continue. ${STEP_LIMIT.min}–${STEP_LIMIT.max}, default ${STEP_LIMIT.fallback}.`}
       >
         <StepLimitField value={draft.maxSteps} onChange={(maxSteps) => { setDraft((d) => ({ ...d, maxSteps })); }} />
       </SectionRow>
@@ -391,6 +397,20 @@ function AiBody({ saved }: { saved: AiSettings }) {
       >
         <span className="text-xs text-muted tabular-nums">{skills.length}</span>
       </SectionRow>
+
+      {/* The detail behind the one-line tips above, one click away. */}
+      <Disclosure variant="inline" label="More about autonomy and steps">
+        <div className="flex max-w-[80ch] flex-col gap-1.5 text-xs text-muted">
+          <p>
+            Reads always run unattended. A statement that writes or deletes is shown to you for approval first, unless you choose Write without asking. A
+            read-only connection refuses writes whatever this says. Saving a dashboard, workflow or diagram always asks.
+          </p>
+          <p>
+            Each step is one model round trip, and each can call tools. Raise the limit for long jobs such as auditing a whole schema; lower it to keep a
+            wandering run cheap.
+          </p>
+        </div>
+      </Disclosure>
 
       {dirty ? (
         <div className="pointer-events-none sticky bottom-3 z-10 flex justify-center">
@@ -519,16 +539,7 @@ function ProfileCard({
           </div>
         </div>
 
-        <div className="grid gap-2 sm:grid-cols-2">
-          <Field
-            label="Base URL"
-            optional
-            value={profile.baseUrl ?? ""}
-            onChange={(url) => { onPatch({ baseUrl: url.trim().length > 0 ? url : null }); }}
-            placeholder={info?.endpoint ?? ""}
-            description="Leave empty for the provider's own endpoint. Proxies and remote Ollama go here."
-            mono
-          />
+        <div className="flex flex-col gap-2">
           {needsKey ? (
             <div className="flex flex-col gap-1.5">
               <Field
@@ -543,8 +554,20 @@ function ProfileCard({
               {profile.hasApiKey ? <Toggle checked={clearing} onChange={onClearKey} label="Remove the stored key on save" /> : null}
             </div>
           ) : (
-            <p className="self-end pb-1 text-xs text-muted">{keyStatus}</p>
+            <p className="text-xs text-muted">{keyStatus}</p>
           )}
+          {/* Opens itself when an address is set, so a custom endpoint is never hidden. */}
+          <Disclosure variant="inline" label="Base URL" defaultOpen={profile.baseUrl !== null}>
+            <Field
+              label="Base URL"
+              optional
+              value={profile.baseUrl ?? ""}
+              onChange={(url) => { onPatch({ baseUrl: url.trim().length > 0 ? url : null }); }}
+              placeholder={info?.endpoint ?? ""}
+              tip="Leave empty for the provider's own endpoint. Proxies and remote Ollama go here."
+              mono
+            />
+          </Disclosure>
         </div>
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border/30 pt-1.5">

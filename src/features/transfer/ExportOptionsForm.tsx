@@ -1,6 +1,7 @@
 // SOT: export-options-form, export-format-picker, delimiter-picker, json-shape-picker, null-text-field
 import type { ExportFormat, ExportJsonShape, ExportOptions } from "@/lib/bindings";
-import { EXPORT_FORMAT_FACTS, EXPORT_FORMATS } from "@/lib/export";
+import { DEFAULT_EXPORT_OPTIONS, EXPORT_FORMAT_FACTS, EXPORT_FORMATS } from "@/lib/export";
+import { Disclosure } from "@/components/global/Disclosure";
 import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
 
 // WHAT:  The controls of an export: the format and, for each format, only the
@@ -35,6 +36,9 @@ export function ExportOptionsForm({ options, onChange, structure = false, format
   const delimited = options.format === "csv" || options.format === "tsv";
   const json = options.format === "json";
   const sql = options.format === "sql";
+  // Encoding safety switches most people never touch: under Advanced, open
+  // when either differs from its default.
+  const advancedChanged = options.bom !== DEFAULT_EXPORT_OPTIONS.bom || (delimited && options.quoteFormulas !== DEFAULT_EXPORT_OPTIONS.quoteFormulas);
 
   return (
     <div className="flex flex-col gap-2">
@@ -57,9 +61,6 @@ export function ExportOptionsForm({ options, onChange, structure = false, format
         </>
       ) : null}
 
-      {delimited ? (
-        <Toggle checked={options.quoteFormulas} onChange={(quoteFormulas) => { set({ quoteFormulas }); }} label="Protect against spreadsheet formulas" description="Text starting with = + - @ is prefixed with ' so Excel does not run it." />
-      ) : null}
 
       {json ? (
         <>
@@ -86,7 +87,12 @@ export function ExportOptionsForm({ options, onChange, structure = false, format
         </>
       ) : null}
 
-      <Toggle checked={options.bom} onChange={(bom) => { set({ bom }); }} label="UTF-8 byte-order mark" description="Excel needs it to read non-English text in a CSV." />
+      <Disclosure label="Advanced" count={delimited ? 2 : 1} defaultOpen={advancedChanged}>
+        {delimited ? (
+          <Toggle checked={options.quoteFormulas} onChange={(quoteFormulas) => { set({ quoteFormulas }); }} label="Protect against spreadsheet formulas" tip="Text starting with = + - @ is prefixed with ' so Excel does not run it." />
+        ) : null}
+        <Toggle checked={options.bom} onChange={(bom) => { set({ bom }); }} label="UTF-8 byte-order mark" tip="Excel needs it to read non-English text in a CSV." />
+      </Disclosure>
     </div>
   );
 }

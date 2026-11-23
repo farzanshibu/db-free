@@ -8,6 +8,7 @@ import { formatCount } from "@/lib/format";
 import { tableKey, useWorkspace } from "@/stores/workspace";
 import { Check, Segmented } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
+import { SplitLayout } from "@/components/global/Layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { SearchInput } from "@/components/ui/input";
@@ -125,8 +126,17 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
   const rowsWritten = report?.files.reduce((n, f) => n + f.rows, 0) ?? 0;
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="flex w-60 shrink-0 flex-col border-r border-border/40">
+    // WHAT:  Tables | options | preview, the two side lists resizable and remembered.
+    <SplitLayout
+      className="flex-1"
+      defaultSize={240}
+      min={180}
+      max={420}
+      storageKey="db-free:export-tables-width"
+      resizeLabel="Resize table list"
+      panelClassName="border-r border-border/40"
+      panel={
+      <div className="flex h-full min-h-0 flex-col">
         <div className="flex items-center gap-2 px-2.5 py-1.5">
           <Badge size="sm" variant="soft" className="font-mono text-[10px]">
             {selected.size} of {tables.length}
@@ -162,8 +172,17 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
           )}
         </ScrollArea>
       </div>
-
-      <ScrollArea className="w-64 shrink-0 border-r border-border/40 p-2.5">
+      }
+    >
+    <SplitLayout
+      defaultSize={256}
+      min={220}
+      max={480}
+      storageKey="db-free:export-options-width"
+      resizeLabel="Resize export options"
+      panelClassName="border-r border-border/40"
+      panel={
+      <ScrollArea className="h-full min-h-0 p-2.5">
         <ExportOptionsForm options={options} onChange={setOptions} structure disabled={running !== null} {...(formats === undefined ? {} : { formats })} />
         <div className="mt-3 flex flex-col gap-1.5">
           <span className="text-[11px] font-medium text-muted">Output</span>
@@ -185,6 +204,8 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
           </p>
         </div>
       </ScrollArea>
+      }
+    >
 
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border/40 px-2.5">
@@ -235,7 +256,7 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
         </div>
         <ScrollArea orientation="both" className="min-h-0 flex-1 px-2.5 pb-2">
           {chosen.length === 0 ? (
-            <EmptyState icon="download" title="Choose tables to export" body="Tick tables on the left. The preview shows the file as it will be written." />
+            <EmptyState icon="download" title="Choose tables to export" tip="Tick tables on the left. The preview shows the file as it will be written." />
           ) : preview.problem !== null ? (
             <p className="text-xs text-danger">{preview.problem}</p>
           ) : preview.value === null ? (
@@ -252,6 +273,7 @@ export function ExportPanel({ connectionId }: { connectionId: string }) {
           )}
         </ScrollArea>
       </div>
-    </div>
+    </SplitLayout>
+    </SplitLayout>
   );
 }

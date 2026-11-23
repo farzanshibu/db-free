@@ -8,12 +8,14 @@ import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
-import { PageHeader } from "@/components/global/Layout";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid, PageHeader } from "@/components/global/Layout";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { SETTINGS_SECTIONS } from "@/lib/settingsSections";
 import { AiSection } from "./AiSection";
 import { ShortcutsSection } from "./ShortcutsSection";
@@ -142,9 +144,14 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 <Row title="Layout" body="Sidebar and inspector arrangements. Applies at once, to this window.">
                   <div className="flex flex-wrap justify-end gap-1.5">
                     {LAYOUT_PRESETS.map((preset) => (
-                      <Button key={preset.id} size="sm" variant="secondary" title={preset.description} onClick={() => { applyLayout(preset.id); }}>
-                        {preset.label}
-                      </Button>
+                      <Tooltip key={preset.id}>
+                        <TooltipTrigger asChild>
+                          <Button size="sm" variant="secondary" onClick={() => { applyLayout(preset.id); }}>
+                            {preset.label}
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>{preset.description}</TooltipContent>
+                      </Tooltip>
                     ))}
                   </div>
                 </Row>
@@ -155,8 +162,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
             ) : null}
             {section === "fonts" ? (
               <>
-                <h2 className="text-[13px] font-semibold text-foreground">Fonts</h2>
-                <p className="text-xs text-muted">Every family is bundled with the app, so the picker works offline.</p>
+                <h2 className="text-[13px] font-semibold text-foreground">
+                  <WithTip tip="Every family is bundled with the app, so the picker works offline." tipLabel="About fonts">Fonts</WithTip>
+                </h2>
                 <Row title="Interface font" body="Menus, panels, labels.">
                   <AppSelect ariaLabel="Interface font" value={draft.uiFont} options={UI_FONT_OPTIONS} onChange={(v) => patch({ uiFont: v })} className="w-44" />
                 </Row>
@@ -254,44 +262,59 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                   <AppSelect<ExecutionMode> ariaLabel="Execution mode" value={draft.executionMode} options={[{ value: "review", label: "Review Mode" }, { value: "direct", label: "Direct Mode" }]} onChange={(v) => patch({ executionMode: v })} className="w-48" />
                 </Row>
                 <Separator />
-                <h2 className="text-[13px] font-semibold text-foreground">Command Menu</h2>
-                <p className="text-xs text-muted">Order of sections in the command menu (⌘K). Use the arrows to reorder and the eye to hide a section.</p>
-                <ul className="flex flex-col gap-1">
-                  {draft.commandMenuSections.map((name, i) => {
-                    const hidden = draft.commandMenuHiddenSections.includes(name);
-                    return (
-                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1 text-xs">
-                      <span className={cn("capitalize", hidden && "text-muted line-through")}>{name.replace("_", " ")}</span>
-                      <span className="ml-auto flex gap-1">
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          aria-label={hidden ? `Show ${name.replace("_", " ")}` : `Hide ${name.replace("_", " ")}`}
-                          aria-pressed={hidden}
-                          onClick={() => patch({ commandMenuHiddenSections: hidden ? draft.commandMenuHiddenSections.filter((h) => h !== name) : [...draft.commandMenuHiddenSections, name] })}
-                        >
-                          <Icon name={hidden ? "eye-off" : "eye"} size={12} />
-                        </Button>
-                        <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
-                        <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.commandMenuSections.length - 1} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
-                      </span>
-                    </li>
-                    );
-                  })}
-                </ul>
-                <h2 className="text-[13px] font-semibold text-foreground">Inspector Tabs</h2>
-                <p className="text-xs text-muted">Order of the tabs in the record inspector. The top tab is the default.</p>
-                <ul className="flex flex-col gap-1">
-                  {draft.inspectorTabs.map((name, i) => (
-                    <li key={name} className="flex items-center gap-2 rounded-md border border-border bg-surface px-2.5 py-1 text-xs">
-                      <span className="uppercase">{name}</span>
-                      <span className="ml-auto flex gap-1">
-                        <Button size="sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
-                        <Button size="sm" variant="ghost" aria-label="Move down" disabled={i === draft.inspectorTabs.length - 1} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                {/* WHAT:  The two reorder lists side by side in one row, each a
+                    compact card whose items flow top-to-bottom into columns
+                    (CSS columns keep the list order readable down each column). */}
+                <AutoGrid min="lg" className="items-start">
+                  <Card className="rounded-lg glass-card border-border/40 px-2.5 py-2 shadow-xs">
+                    <CardContent className="flex flex-col gap-2 p-0">
+                      <h2 className="text-[13px] font-semibold text-foreground">
+                        <WithTip tip="Order of sections in the command menu (⌘K). Use the arrows to reorder and the eye to hide a section." tipLabel="About the command menu order">Command Menu</WithTip>
+                      </h2>
+                      <ul className="columns-3xs gap-1" aria-label="Command menu sections">
+                        {draft.commandMenuSections.map((name, i) => {
+                          const hidden = draft.commandMenuHiddenSections.includes(name);
+                          return (
+                            <li key={name} className="mb-1 flex break-inside-avoid items-center gap-2 rounded-md border border-border bg-surface py-0.5 pr-0.5 pl-2 text-xs">
+                              <span className={cn("capitalize", hidden && "text-muted line-through")}>{name.replace("_", " ")}</span>
+                              <span className="ml-auto flex gap-0.5">
+                                <Button
+                                  size="icon-sm"
+                                  variant="ghost"
+                                  aria-label={hidden ? `Show ${name.replace("_", " ")}` : `Hide ${name.replace("_", " ")}`}
+                                  aria-pressed={hidden}
+                                  onClick={() => patch({ commandMenuHiddenSections: hidden ? draft.commandMenuHiddenSections.filter((h) => h !== name) : [...draft.commandMenuHiddenSections, name] })}
+                                >
+                                  <Icon name={hidden ? "eye-off" : "eye"} size={12} />
+                                </Button>
+                                <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
+                                <Button size="icon-sm" variant="ghost" aria-label="Move down" disabled={i === draft.commandMenuSections.length - 1} onClick={() => patch({ commandMenuSections: move(draft.commandMenuSections, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
+                              </span>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                  <Card className="rounded-lg glass-card border-border/40 px-2.5 py-2 shadow-xs">
+                    <CardContent className="flex flex-col gap-2 p-0">
+                      <h2 className="text-[13px] font-semibold text-foreground">
+                        <WithTip tip="Order of the tabs in the record inspector. The top tab is the default." tipLabel="About the inspector tab order">Inspector Tabs</WithTip>
+                      </h2>
+                      <ul className="columns-3xs gap-1" aria-label="Inspector tabs">
+                        {draft.inspectorTabs.map((name, i) => (
+                          <li key={name} className="mb-1 flex break-inside-avoid items-center gap-2 rounded-md border border-border bg-surface py-0.5 pr-0.5 pl-2 text-xs">
+                            <span className="uppercase">{name}</span>
+                            <span className="ml-auto flex gap-0.5">
+                              <Button size="icon-sm" variant="ghost" aria-label="Move up" disabled={i === 0} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i - 1) })}><Icon name="arrow-up" size={12} /></Button>
+                              <Button size="icon-sm" variant="ghost" aria-label="Move down" disabled={i === draft.inspectorTabs.length - 1} onClick={() => patch({ inspectorTabs: move(draft.inspectorTabs, i, i + 1) })}><Icon name="arrow-down" size={12} /></Button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </CardContent>
+                  </Card>
+                </AutoGrid>
                 <Separator />
                 <SnippetsSection snippets={draft.snippets} onChange={(snippets) => patch({ snippets })} />
               </>
@@ -322,10 +345,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
                 <h2 className="text-[13px] font-semibold text-foreground">Advanced</h2>
                 <Card className="rounded-lg glass-card border-border/40 px-3 py-2 shadow-xs">
                   <CardContent className="flex flex-col gap-2 p-0">
-                    <div>
-                      <p className="text-xs font-semibold text-foreground tracking-tight">Backup tools</p>
-                      <p className="text-xs text-muted mt-0.5">Backup / Restore runs pg_dump, mysqldump and mongodump. Leave a field empty to use PATH, or point it at the program or its folder.</p>
-                    </div>
+                    <p className="text-xs font-semibold text-foreground tracking-tight">
+                      <WithTip tip="Backup / Restore runs pg_dump, mysqldump and mongodump. Leave a field empty to use PATH, or point it at the program or its folder." tipLabel="About backup tools">Backup tools</WithTip>
+                    </p>
                     <NativeToolPaths value={draft.nativeToolPaths} onChange={(nativeToolPaths) => patch({ nativeToolPaths })} />
                   </CardContent>
                 </Card>
