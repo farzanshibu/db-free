@@ -5,6 +5,7 @@ import { cn } from "@/lib/cn";
 import { Icon } from "@/lib/icons";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // WHAT:  One row of colour swatches plus "none" for a connection's colour tag.
 // HOW:   Swatches are the app's Button with a token fill; the chosen one gets a
@@ -30,21 +31,24 @@ export function ColorSwatches({ value, onChange }: { value: ConnectionColor | nu
           const meta = connectionColorMeta(color);
           const selected = value === color;
           return (
-            <Button
-              key={color}
-              variant="ghost"
-              size="sm"
-              role="radio"
-              aria-checked={selected}
-              aria-label={meta.label}
-              title={meta.label}
-              onClick={() => onChange(color)}
-              className={cn("size-6 rounded-full p-0", selected ? "ring-2 ring-ring" : "")}
-            >
-              <span aria-hidden className={cn("flex size-4 items-center justify-center rounded-full text-background", meta.fill)}>
-                {selected ? <Icon name="check" size={10} /> : null}
-              </span>
-            </Button>
+            <Tooltip key={color}>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  role="radio"
+                  aria-checked={selected}
+                  aria-label={meta.label}
+                  onClick={() => onChange(color)}
+                  className={cn("size-6 rounded-full p-0", selected ? "ring-2 ring-ring" : "")}
+                >
+                  <span aria-hidden className={cn("flex size-4 items-center justify-center rounded-full text-background", meta.fill)}>
+                    {selected ? <Icon name="check" size={10} /> : null}
+                  </span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{meta.label}</TooltipContent>
+            </Tooltip>
           );
         })}
       </div>

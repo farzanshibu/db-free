@@ -4,10 +4,10 @@ import type { AuthSecrets, AwsAccess, AzureAdMode, ConnectionAuth, ConnectionInp
 import { AUTH_METHODS, authMethodsFor, blankAwsAccess, defaultAuth, hasAuthChoice, regionOptions, sourceOfKind, sslForMethod, type AuthMethod, type AwsSourceKind } from "@/lib/cloudAuth";
 import { engineMeta, fieldLabels } from "@/lib/engines";
 import { IconButton } from "@/components/global/Button";
-import { AppSelect, Field, type Option } from "@/components/global/Field";
-import { Label } from "@/components/ui/label";
+import { Disclosure } from "@/components/global/Disclosure";
+import { AppSelect, Field, FieldLabel, type Option } from "@/components/global/Field";
+import { AutoGrid } from "@/components/global/Layout";
 import { Textarea } from "@/components/ui/textarea";
-import { Icon } from "@/lib/icons";
 
 // WHAT:  The "how does this connection sign in" part of the connection form: a
 //        method picker for engines that offer more than a password, and the
@@ -61,8 +61,7 @@ export function AuthSection({ input, editing, patch }: AuthSectionProps) {
 
   return (
     <div className="flex flex-col gap-3">
-      <AppSelect label="Authentication" value={auth.method} options={options} onChange={choose} />
-      {auth.method === "password" ? null : <p className="-mt-3 text-xs text-muted">{AUTH_METHODS[auth.method].hint}</p>}
+      <AppSelect label="Authentication" value={auth.method} options={options} onChange={choose} tip={auth.method === "password" ? undefined : AUTH_METHODS[auth.method].hint} />
       <MethodFields auth={auth} setAuth={setAuth} {...shared} />
     </div>
   );
@@ -98,11 +97,11 @@ interface SecretInputProps extends SecretProps {
   field: SecretKey;
   placeholder?: string | undefined;
   optional?: boolean;
-  description?: string | undefined;
+  tip?: string | undefined;
 }
 
 // WHAT:  null = untouched (keeps the stored secret), "" = remove it, text = replace it.
-function SecretInput({ label, field, placeholder, optional = false, description, input, editing, patch, reveal, onToggleReveal }: SecretInputProps) {
+function SecretInput({ label, field, placeholder, optional = false, tip, input, editing, patch, reveal, onToggleReveal }: SecretInputProps) {
   const current = input.authSecrets[field];
   const typed = current ?? "";
   const removing = current === "";
@@ -115,7 +114,7 @@ function SecretInput({ label, field, placeholder, optional = false, description,
       value={typed}
       onChange={(value) => { set(value === "" ? null : value); }}
       placeholder={removing ? "will be removed when you save" : stored && typed === "" ? "•••••••• (unchanged)" : placeholder}
-      description={description}
+      tip={tip}
       optional={optional}
       mono
       suffix={
@@ -145,20 +144,27 @@ function AwsAccessFields({ access, onChange, withKeys = true, ...secrets }: Secr
   const sources = withKeys ? AWS_SOURCES : AWS_SOURCES.filter((option) => option.value !== "access_keys");
   return (
     <>
-      <AppSelect label="AWS credentials" value={source.source} options={sources} onChange={(kind) => { onChange({ ...access, source: sourceOfKind(kind, source) }); }} />
-      {source.source === "default_chain" ? (
-        <p className="-mt-3 text-xs text-muted">
-          Reads AWS_ACCESS_KEY_ID, then the shared profile (AWS_PROFILE or default, including IAM Identity Center after <span className="font-mono">aws sso login</span> and credential_process), then web identity and container credentials.
-        </p>
-      ) : null}
+      <AppSelect
+        label="AWS credentials"
+        value={source.source}
+        options={sources}
+        onChange={(kind) => { onChange({ ...access, source: sourceOfKind(kind, source) }); }}
+        tip={
+          source.source === "default_chain" ? (
+            <>
+              Reads AWS_ACCESS_KEY_ID, then the shared profile (AWS_PROFILE or default, including IAM Identity Center after <span className="font-mono">aws sso login</span> and credential_process), then web identity and container credentials.
+            </>
+          ) : undefined
+        }
+      />
       {source.source === "profile" ? (
-        <Field label="Profile name" value={source.name} onChange={(name) => { onChange({ ...access, source: { source: "profile", name } }); }} placeholder="default" description="From ~/.aws/credentials and ~/.aws/config." mono />
+        <Field label="Profile name" value={source.name} onChange={(name) => { onChange({ ...access, source: { source: "profile", name } }); }} placeholder="default" tip="From ~/.aws/credentials and ~/.aws/config." mono />
       ) : null}
       {source.source === "access_keys" ? (
         <>
           <Field label="Access key ID" value={source.accessKeyId} onChange={(accessKeyId) => { onChange({ ...access, source: { source: "access_keys", accessKeyId } }); }} placeholder="AKIA…" mono />
           <SecretInput {...secrets} label="Secret access key" field="awsSecretAccessKey" />
-          <SecretInput {...secrets} label="Session token" field="awsSessionToken" optional description="Only for temporary credentials." />
+          <SecretInput {...secrets} label="Session token" field="awsSessionToken" optional tip="Only for temporary credentials." />
         </>
       ) : null}
       <Field
@@ -170,10 +176,10 @@ function AwsAccessFields({ access, onChange, withKeys = true, ...secrets }: Secr
         mono
       />
       {(access.roleArn ?? "").trim() !== "" ? (
-        <div className="grid grid-cols-2 gap-2">
+        <AutoGrid min="xs">
           <Field label="Role session name" value={access.roleSessionName ?? ""} onChange={(roleSessionName) => { onChange({ ...access, roleSessionName: nullable(roleSessionName) }); }} placeholder="db-free" optional />
           <Field label="External ID" value={access.externalId ?? ""} onChange={(externalId) => { onChange({ ...access, externalId: nullable(externalId) }); }} optional mono />
-        </div>
+        </AutoGrid>
       ) : null}
     </>
   );
@@ -182,33 +188,34 @@ function AwsAccessFields({ access, onChange, withKeys = true, ...secrets }: Secr
 type RdsAuth = Extract<ConnectionAuth, { method: "aws_rds_iam" }>;
 
 function RdsFields({ auth, setAuth, ...secrets }: SecretProps & { auth: RdsAuth; setAuth: (next: ConnectionAuth) => void }) {
+  // Region and CA bundle are overrides most connections never set: they open
+  // themselves when they hold a value.
+  const overrides = (auth.region ?? "") !== "" || (auth.caBundle ?? "") !== "";
   return (
     <>
-      <Field
-        label="AWS region"
-        value={auth.region ?? ""}
-        onChange={(region) => { setAuth({ ...auth, region: nullable(region) }); }}
-        placeholder="read from the host name"
-        description="Needed only when the host is not an *.rds.amazonaws.com name (a proxy or custom domain)."
-        optional
-        mono
-      />
       <AwsAccessFields access={auth.credentials} onChange={(credentials) => { setAuth({ ...auth, credentials }); }} {...secrets} />
-      <div className="flex w-full flex-col gap-1.5">
-        <Label htmlFor="rds-ca-bundle">
-          CA bundle (PEM)
-          <span className="text-muted/70">(optional)</span>
-        </Label>
-        <Textarea
-          id="rds-ca-bundle"
-          rows={3}
-          value={auth.caBundle ?? ""}
-          onChange={(event) => { setAuth({ ...auth, caBundle: nullable(event.target.value) }); }}
-          placeholder="Leave empty to use the bundled Amazon RDS global certificate authorities."
-          className="text-xs"
+      <Disclosure label="Advanced" count={2} defaultOpen={overrides} className="gap-3">
+        <Field
+          label="AWS region"
+          value={auth.region ?? ""}
+          onChange={(region) => { setAuth({ ...auth, region: nullable(region) }); }}
+          placeholder="read from the host name"
+          tip="Needed only when the host is not an *.rds.amazonaws.com name (a proxy or custom domain)."
+          optional
+          mono
         />
-        <p className="text-xs text-muted">Used to verify the server when the TLS mode is Verify CA or Verify full.</p>
-      </div>
+        <div className="flex w-full flex-col gap-1.5">
+          <FieldLabel htmlFor="rds-ca-bundle" label="CA bundle (PEM)" optional tip="Used to verify the server when the TLS mode is Verify CA or Verify full." />
+          <Textarea
+            id="rds-ca-bundle"
+            rows={3}
+            value={auth.caBundle ?? ""}
+            onChange={(event) => { setAuth({ ...auth, caBundle: nullable(event.target.value) }); }}
+            placeholder="Leave empty to use the bundled Amazon RDS global certificate authorities."
+            className="text-xs"
+          />
+        </div>
+      </Disclosure>
     </>
   );
 }
@@ -236,13 +243,20 @@ function AzureFields({ auth, setAuth, ...secrets }: SecretProps & { auth: AzureA
   );
   return (
     <>
-      <AppSelect label="Method" value={auth.mode} options={AZURE_MODES} onChange={(mode) => { setAuth({ ...auth, mode }); }} />
+      <AppSelect
+        label="Method"
+        value={auth.mode}
+        options={AZURE_MODES}
+        onChange={(mode) => { setAuth({ ...auth, mode }); }}
+        tip={
+          auth.mode === "default" ? (
+            <>
+              Tries AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET, then a managed identity, then <span className="font-mono">az login</span>. The client ID picks a user-assigned managed identity.
+            </>
+          ) : undefined
+        }
+      />
       {auth.mode === "default" || auth.mode === "managed_identity" ? client(true) : null}
-      {auth.mode === "default" ? (
-        <p className="-mt-3 text-xs text-muted">
-          Tries AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET, then a managed identity, then <span className="font-mono">az login</span>. The client ID picks a user-assigned managed identity.
-        </p>
-      ) : null}
       {auth.mode === "client_secret" ? (
         <>
           {tenant}
@@ -259,24 +273,26 @@ function AzureFields({ auth, setAuth, ...secrets }: SecretProps & { auth: AzureA
             value={auth.username ?? ""}
             onChange={(username) => { setAuth({ ...auth, username: nullable(username) }); }}
             placeholder="the database user"
-            description="The account that signs in. Leave empty to use the database user."
+            tip="The account that signs in. Leave empty to use the database user."
             optional
           />
           <SecretInput {...secrets} label="Account password" field="azurePassword" />
         </>
       ) : null}
       {auth.mode === "access_token" ? (
-        <SecretInput {...secrets} label="Access token" field="azureAccessToken" placeholder="eyJ…" description="Paste a token from az account get-access-token. It is not renewed: paste a new one when it expires." />
+        <SecretInput {...secrets} label="Access token" field="azureAccessToken" placeholder="eyJ…" tip="Paste a token from az account get-access-token. It is not renewed: paste a new one when it expires." />
       ) : null}
-      <Field
-        label="Token scope"
-        value={auth.scope ?? ""}
-        onChange={(scope) => { setAuth({ ...auth, scope: nullable(scope) }); }}
-        placeholder="chosen for the engine"
-        description="Only to override the default (ossrdbms-aad for PostgreSQL and MySQL, database.windows.net for SQL Server)."
-        optional
-        mono
-      />
+      <Disclosure label="Advanced" count={1} defaultOpen={(auth.scope ?? "") !== ""}>
+        <Field
+          label="Token scope"
+          value={auth.scope ?? ""}
+          onChange={(scope) => { setAuth({ ...auth, scope: nullable(scope) }); }}
+          placeholder="chosen for the engine"
+          tip="Only to override the default (ossrdbms-aad for PostgreSQL and MySQL, database.windows.net for SQL Server)."
+          optional
+          mono
+        />
+      </Disclosure>
     </>
   );
 }
@@ -295,12 +311,20 @@ type GcpAuth = Extract<ConnectionAuth, { method: "gcp_cloud_sql_iam" }>;
 function GcpFields({ auth, setAuth, ...secrets }: SecretProps & { auth: GcpAuth; setAuth: (next: ConnectionAuth) => void }) {
   return (
     <>
-      <AppSelect label="Google credentials" value={auth.mode} options={GCP_MODES} onChange={(mode) => { setAuth({ ...auth, mode }); }} />
-      {auth.mode === "adc" ? (
-        <p className="-mt-3 text-xs text-muted">
-          Uses GOOGLE_APPLICATION_CREDENTIALS, then <span className="font-mono">gcloud auth application-default login</span>, then the metadata server.
-        </p>
-      ) : (
+      <AppSelect
+        label="Google credentials"
+        value={auth.mode}
+        options={GCP_MODES}
+        onChange={(mode) => { setAuth({ ...auth, mode }); }}
+        tip={
+          auth.mode === "adc" ? (
+            <>
+              Uses GOOGLE_APPLICATION_CREDENTIALS, then <span className="font-mono">gcloud auth application-default login</span>, then the metadata server.
+            </>
+          ) : undefined
+        }
+      />
+      {auth.mode === "adc" ? null : (
         <SecretInput {...secrets} label="Service-account JSON key" field="gcpServiceAccountJson" placeholder="Paste the contents of the key file" />
       )}
       <Field
@@ -308,7 +332,7 @@ function GcpFields({ auth, setAuth, ...secrets }: SecretProps & { auth: GcpAuth;
         value={auth.impersonateServiceAccount ?? ""}
         onChange={(impersonateServiceAccount) => { setAuth({ ...auth, impersonateServiceAccount: nullable(impersonateServiceAccount) }); }}
         placeholder="db-access@project.iam.gserviceaccount.com"
-        description="Mint the token as this account (needs Service Account Token Creator on it)."
+        tip="Mint the token as this account (needs Service Account Token Creator on it)."
         optional
         mono
       />
@@ -362,6 +386,8 @@ function credentialChoice(auth: ConnectionAuth): KeysOrChain {
   return auth.credentials.source.source === "profile" ? "profile" : "chain";
 }
 
+const SIGNED_LOCALLY = "Requests are signed locally with SigV4; keys and tokens are stored sealed with AES-256-GCM and never leave the keychain unsealed.";
+
 function AwsForm({ input, editing, patch, reveal, onToggleReveal }: SecretProps) {
   const labels = fieldLabels(input.engine);
   const dynamo = input.engine === "dynamodb";
@@ -388,7 +414,7 @@ function AwsForm({ input, editing, patch, reveal, onToggleReveal }: SecretProps)
         placeholder={dynamo ? "http://localhost:8000 (DynamoDB Local)" : ""}
         optional={dynamo}
       />
-      {dynamo ? <AppSelect label="Credentials" value={choice} options={AWS_CREDENTIAL_CHOICES} onChange={chooseCredentials} /> : null}
+      {dynamo ? <AppSelect label="Credentials" value={choice} options={AWS_CREDENTIAL_CHOICES} onChange={chooseCredentials} tip={SIGNED_LOCALLY} /> : null}
       {choice === "keys" ? (
         <>
           <Field label={labels.username} value={input.username ?? ""} onChange={(username) => { patch({ username }); }} placeholder="AKIA…" mono />
@@ -399,9 +425,10 @@ function AwsForm({ input, editing, patch, reveal, onToggleReveal }: SecretProps)
             onChange={(password) => { patch({ password }); }}
             placeholder={editing && !input.password ? "•••••••• (unchanged)" : ""}
             mono
+            tip={SIGNED_LOCALLY}
             suffix={<IconButton icon={reveal ? "eye-off" : "eye"} label={reveal ? "Hide secret" : "Show secret"} onClick={onToggleReveal} />}
           />
-          <SecretInput {...secrets} label="Session token" field="awsSessionToken" optional description="Only for temporary credentials (STS, SSO)." />
+          <SecretInput {...secrets} label="Session token" field="awsSessionToken" optional tip="Only for temporary credentials (STS, SSO)." />
         </>
       ) : null}
       {input.auth.method === "aws_credentials" ? (
@@ -412,10 +439,6 @@ function AwsForm({ input, editing, patch, reveal, onToggleReveal }: SecretProps)
           onChange={(credentials) => { patch({ auth: { method: "aws_credentials", credentials } }); }}
         />
       ) : null}
-      <p className="-mt-3 flex items-center gap-1.5 text-xs text-muted">
-        <Icon name="lock" size={12} className="text-accent" />
-        Requests are signed locally with SigV4; keys and tokens are stored sealed with AES-256-GCM and never leave the keychain unsealed.
-      </p>
     </div>
   );
 }

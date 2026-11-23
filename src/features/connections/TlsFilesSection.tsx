@@ -2,6 +2,8 @@
 import type { ConnectionField, ConnectionFieldIssue, ConnectionInput } from "@/lib/bindings";
 import { tlsFileSupport } from "@/lib/engines";
 import { pickCertificateFile } from "@/lib/connectionFiles";
+import { useState } from "react";
+import { Disclosure } from "@/components/global/Disclosure";
 import { Field } from "@/components/global/Field";
 import { Button } from "@/components/ui/button";
 import { issueFor } from "./formHelpers";
@@ -28,8 +30,11 @@ type TlsKey = "caPath" | "certPath" | "keyPath";
 // WHERE: src-tauri/src/integrations/{postgres,mysql,mssql,mongodb}.rs
 export function TlsFilesSection({ input, patch, issues }: TlsFilesSectionProps) {
   const support = tlsFileSupport(input.engine);
-  if (support === "none") return null;
   const tls = input.extra.tls;
+  const [open, setOpen] = useState(tls.caPath !== null || tls.certPath !== null || tls.keyPath !== null);
+  if (support === "none") return null;
+  const hasIssue = issueFor(issues, "tls_ca_path") !== null || issueFor(issues, "tls_cert_path") !== null || issueFor(issues, "tls_key_path") !== null;
+  const count = support === "mutual" ? 3 : support === "bundle" ? 2 : 1;
   const set = (key: TlsKey, value: string) => {
     patch({ extra: { ...input.extra, tls: { ...tls, [key]: value.trim() === "" ? null : value } } });
   };
@@ -46,7 +51,7 @@ export function TlsFilesSection({ input, patch, issues }: TlsFilesSectionProps) 
         placeholder="/path/to/file.pem"
         optional
         mono
-        description={description}
+        tip={description}
         suffix={
           <Button variant="secondary" size="sm" onClick={() => void browse(key, title)} className="rounded-md">
             Browse…
@@ -58,17 +63,20 @@ export function TlsFilesSection({ input, patch, issues }: TlsFilesSectionProps) 
   );
 
   return (
-    <div className="flex flex-col gap-3 border-t border-border/40 pt-2.5">
-      <div>
-        <p className="text-xs font-medium text-foreground">Certificate files</p>
-        <p className="mt-0.5 text-xs text-muted">Optional. Pair a CA file with “Verify CA” or “Verify full” to check the server against it.</p>
-      </div>
+    <Disclosure
+      label="Certificate files"
+      count={count}
+      tip="Optional. Pair a CA file with “Verify CA” or “Verify full” to check the server against it."
+      open={open || hasIssue}
+      onOpenChange={setOpen}
+      className="gap-3"
+    >
       {row("caPath", "CA certificate", "Choose the CA certificate", "tls_ca_path", "The authority that signed the server's certificate (PEM).")}
       {support === "mutual"
         ? row("certPath", "Client certificate", "Choose the client certificate", "tls_cert_path", "Presented to servers that require mutual TLS (PEM).")
         : null}
       {support === "mutual" ? row("keyPath", "Client key", "Choose the client key", "tls_key_path", "The private key for the client certificate (PEM, unencrypted).") : null}
       {support === "bundle" ? row("certPath", "Client certificate and key", "Choose the client PEM", "tls_cert_path", "One PEM file holding the client certificate followed by its private key.") : null}
-    </div>
+    </Disclosure>
   );
 }

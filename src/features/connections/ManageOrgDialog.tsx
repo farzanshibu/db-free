@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { TAG_COLOR_ORDER, nextFreeColor, tagColorLabel, tagNameTaken, tagSolidStyle } from "./connectionTags";
 import { useConnectionOrg } from "./useConnectionOrg";
 
@@ -29,7 +30,7 @@ export function ManageOrgDialog({ open, onOpenChange }: { open: boolean; onOpenC
       <DialogContent className="sm:max-w-[520px]">
         <DialogHeader>
           <DialogTitle>Tags and folders</DialogTitle>
-          <DialogDescription>Group connections into folders, and label them with coloured tags. A connection can have several of each.</DialogDescription>
+          <DialogDescription>Folders and coloured tags; a connection can have several of each.</DialogDescription>
         </DialogHeader>
         <DialogBody className="flex min-h-[18rem] flex-col gap-2">
           <Segmented
@@ -61,21 +62,24 @@ function ColorSwatchGrid({ value, onChange }: { value: ConnectionTagColor; onCha
   return (
     <div role="radiogroup" aria-label="Tag colour" className="grid grid-cols-7 gap-1.5">
       {TAG_COLOR_ORDER.map((color) => (
-        <Button
-          key={color}
-          variant="ghost"
-          size="sm"
-          role="radio"
-          aria-checked={value === color}
-          aria-label={tagColorLabel(color)}
-          title={tagColorLabel(color)}
-          onClick={() => { onChange(color); }}
-          className={cn("size-6 min-w-6 rounded-full p-0", value === color ? "ring-2 ring-ring" : "")}
-        >
-          <span aria-hidden className="flex size-4 items-center justify-center rounded-full text-background" style={tagSolidStyle(color)}>
-            {value === color ? <Icon name="check" size={10} /> : null}
-          </span>
-        </Button>
+        <Tooltip key={color}>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="sm"
+              role="radio"
+              aria-checked={value === color}
+              aria-label={tagColorLabel(color)}
+              onClick={() => { onChange(color); }}
+              className={cn("size-6 min-w-6 rounded-full p-0", value === color ? "ring-2 ring-ring" : "")}
+            >
+              <span aria-hidden className="flex size-4 items-center justify-center rounded-full text-background" style={tagSolidStyle(color)}>
+                {value === color ? <Icon name="check" size={10} /> : null}
+              </span>
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{tagColorLabel(color)}</TooltipContent>
+        </Tooltip>
       ))}
     </div>
   );
@@ -84,11 +88,16 @@ function ColorSwatchGrid({ value, onChange }: { value: ConnectionTagColor; onCha
 function SwatchButton({ color, onChange }: { color: ConnectionTagColor; onChange: (color: ConnectionTagColor) => void }) {
   return (
     <Popover>
-      <PopoverTrigger asChild>
-        <Button variant="ghost" size="icon-sm" aria-label={`Colour: ${tagColorLabel(color)}`} title="Change colour" className="size-6 shrink-0 rounded-full p-0">
-          <span aria-hidden className="size-4 rounded-full" style={tagSolidStyle(color)} />
-        </Button>
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            <Button variant="ghost" size="icon-sm" aria-label={`Colour: ${tagColorLabel(color)}`} className="size-6 shrink-0 rounded-full p-0">
+              <span aria-hidden className="size-4 rounded-full" style={tagSolidStyle(color)} />
+            </Button>
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Change colour</TooltipContent>
+      </Tooltip>
       <PopoverContent className="w-auto p-2">
         <ColorSwatchGrid value={color} onChange={onChange} />
       </PopoverContent>

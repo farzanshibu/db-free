@@ -7,6 +7,7 @@ import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { Check, Toggle } from "@/components/global/Field";
+import { InfoTip, WithTip } from "@/components/global/InfoTip";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -93,7 +94,10 @@ function ExportBody({ onClose }: { onClose: () => void }) {
     <>
       <DialogHeader>
         <DialogTitle>Export connections</DialogTitle>
-        <DialogDescription>Saves the chosen connections to a db-free-connections-YYYY-MM-DD.json file that DB Free can import again.</DialogDescription>
+        <DialogDescription className="flex items-center gap-1">
+          Saves a .json file DB Free can import.
+          <InfoTip label="About the export file">Named db-free-connections-YYYY-MM-DD.json.</InfoTip>
+        </DialogDescription>
       </DialogHeader>
       <DialogBody className="flex flex-col gap-2">
         <div className="flex items-center justify-between">
@@ -122,7 +126,7 @@ function ExportBody({ onClose }: { onClose: () => void }) {
         </ul>
         </ScrollArea>
         </div>
-        <Toggle checked={includePasswords} onChange={setIncludePasswords} label="Include passwords" description="Off by default. When on, passwords (and SSH secrets) are written into the file in readable form." />
+        <Toggle checked={includePasswords} onChange={setIncludePasswords} label="Include passwords" tip="Off by default. When on, passwords (and SSH secrets) are written into the file in readable form." />
         {includePasswords ? (
           <Alert variant="warning">
             <AlertIndicator />
@@ -250,34 +254,36 @@ function ImportBody({ onClose }: { onClose: () => void }) {
     <>
       <DialogHeader>
         <DialogTitle>Import connections</DialogTitle>
-        <DialogDescription>Choose a DB Free or DB Pro export, or a Navicat connections file. The whole file is checked before anything is saved.</DialogDescription>
+        <DialogDescription className="flex items-center gap-1">
+          A DB Free export, a DB Pro file or a Navicat file.
+          <InfoTip label="About the import">The whole file is checked before anything is saved.</InfoTip>
+        </DialogDescription>
       </DialogHeader>
       <DialogBody className="flex flex-col gap-2">
-        <div className="grid gap-2 sm:grid-cols-2">
-          <div className="rounded-lg border border-border/50 p-2.5">
-            <p className="mb-1 flex items-center gap-2 text-xs font-medium text-foreground">
-              <Icon name="file" size={14} />
-              DB Free / DB Pro
-            </p>
-            <p className="text-xs text-muted">
-              A <span className="font-mono text-foreground">.json</span> export from DB Free, or a <span className="font-mono text-foreground">.dbpro</span> file.
-            </p>
-          </div>
-          <div className="rounded-lg border border-border/50 p-2.5">
-            <p className="mb-1 flex items-center gap-2 text-xs font-medium text-foreground">
-              <Icon name="xml" size={14} />
-              Navicat
-            </p>
-            <p className="text-xs text-muted">
-              A <span className="font-mono text-foreground">.ncx</span> file: MySQL, MariaDB, PostgreSQL, SQL Server, MongoDB, SQLite and Redis.
-            </p>
-          </div>
+        <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted" aria-label="Accepted files">
+          <span className="inline-flex items-center gap-1 rounded-md border border-border/50 px-1.5 py-0.5">
+            <Icon name="file" size={12} />
+            <span className="font-mono text-foreground">.json</span> DB Free
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md border border-border/50 px-1.5 py-0.5">
+            <Icon name="file" size={12} />
+            <span className="font-mono text-foreground">.dbpro</span> DB Pro
+          </span>
+          <span className="inline-flex items-center gap-1 rounded-md border border-border/50 px-1.5 py-0.5">
+            <Icon name="xml" size={12} />
+            <span className="font-mono text-foreground">.ncx</span> Navicat
+            <InfoTip label="About Navicat files">MySQL, MariaDB, PostgreSQL, SQL Server, MongoDB, SQLite and Redis connections.</InfoTip>
+          </span>
         </div>
         <Alert variant="warning">
           <AlertIndicator />
           <AlertContent>
-            <AlertTitle>Credentials stay safe</AlertTitle>
-            <AlertDescription>Navicat passwords, SSH passwords and private keys are not imported. Passwords in a file that includes them are sealed with this machine's key. Connections already saved (same engine, host, port, database and user) are skipped.</AlertDescription>
+            <AlertTitle>
+              <WithTip tip="Passwords in a file that includes them are sealed with this machine's key. Connections already saved (same engine, host, port, database and user) are skipped." tipLabel="About credentials on import">
+                Credentials stay safe
+              </WithTip>
+            </AlertTitle>
+            <AlertDescription>Navicat passwords, SSH passwords and private keys are not imported.</AlertDescription>
           </AlertContent>
         </Alert>
         {error !== null ? (

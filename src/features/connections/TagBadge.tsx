@@ -4,6 +4,7 @@ import { cn } from "@/lib/cn";
 import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { tagChipStyle } from "./connectionTags";
 
 interface TagBadgeProps {
@@ -24,9 +25,14 @@ export function TagBadge({ tag, onSelect, onRemove, className }: TagBadgeProps) 
   return (
     <span className="inline-flex items-center">
       {onSelect ? (
-        <Button variant="ghost" size="xs" onClick={onSelect} style={tagChipStyle(tag.color)} className={cn(pill, "h-5 min-w-0 rounded-full px-2 hover:brightness-125", onRemove ? "rounded-r-none border-r-0 pr-1.5" : "")} title={`Filter by ${tag.name}`}>
-          {label}
-        </Button>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="ghost" size="xs" onClick={onSelect} style={tagChipStyle(tag.color)} className={cn(pill, "h-5 min-w-0 rounded-full px-2 hover:brightness-125", onRemove ? "rounded-r-none border-r-0 pr-1.5" : "")}>
+              {label}
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Filter by {tag.name}</TooltipContent>
+        </Tooltip>
       ) : (
         <span style={tagChipStyle(tag.color)} className={cn(pill, onRemove ? "rounded-r-none border-r-0 pr-1.5" : "")}>
           {label}
