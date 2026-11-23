@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { JS_SNIPPETS } from "../snippets";
-import { ColumnList, type FormProps } from "./common";
+import { ColumnList, HowTip, type FormProps } from "./common";
 
 const MODES: readonly { value: RegexMode; label: string }[] = [
   { value: "extract", label: "Extract" },
@@ -65,16 +65,16 @@ export function RegexForm({ config, onChange, context }: FormProps<"regex">) {
         <Input id={`${listId}-source`} list={listId} className="font-mono" value={config.sourceField} placeholder="email" onChange={(event) => { onChange({ ...config, sourceField: event.target.value }); }} />
       </div>
       <Segmented value={config.mode} options={MODES} onChange={(mode) => { onChange({ ...config, mode }); }} label="Mode" />
-      <Field label="Pattern" mono value={config.pattern} placeholder={String.raw`(\w+)@example\.com`} onChange={(pattern) => { onChange({ ...config, pattern }); }} />
+      <Field label="Pattern" mono value={config.pattern} placeholder={String.raw`(\w+)@example\.com`} tip="Rust regex syntax: no look-around and no back-references. Without the All matches flag, Replace changes the first match only." onChange={(pattern) => { onChange({ ...config, pattern }); }} />
       <div className="flex flex-wrap gap-1" role="group" aria-label="Flags">
         {FLAGS.map(({ flag, label }) => (
-          <Button key={flag} size="xs" variant={config.flags.includes(flag) ? "primary" : "secondary"} aria-pressed={config.flags.includes(flag)} title={label} onClick={() => { toggleFlag(flag); }}>
+          <Button key={flag} size="xs" variant={config.flags.includes(flag) ? "primary" : "secondary"} aria-pressed={config.flags.includes(flag)} onClick={() => { toggleFlag(flag); }}>
             {flag} <span className="font-normal opacity-80">{label}</span>
           </Button>
         ))}
       </div>
       {config.mode === "replace" ? (
-        <Field label="Replacement" mono value={config.replacement} placeholder="$1" description="$1, $2 … are the capture groups, $& the whole match." onChange={(replacement) => { onChange({ ...config, replacement }); }} />
+        <Field label="Replacement" mono value={config.replacement} placeholder="$1" tip="$1, $2 … are the capture groups, $& the whole match." onChange={(replacement) => { onChange({ ...config, replacement }); }} />
       ) : null}
       <Field
         label="Write the result to"
@@ -107,7 +107,6 @@ export function RegexForm({ config, onChange, context }: FormProps<"regex">) {
           </p>
         )}
       </div>
-      <p className="text-[11px] leading-relaxed text-muted">Rust regex syntax: no look-around and no back-references. Without the All matches flag, Replace changes the first match only.</p>
     </div>
   );
 }
@@ -155,12 +154,12 @@ export function JavascriptForm({ config, onChange }: FormProps<"javascript">) {
           window.requestAnimationFrame(() => { target.setSelectionRange(start + 2, start + 2); });
         }}
       />
-      <p className="text-[11px] leading-relaxed text-muted">
+      <HowTip label="What the code gets">
         You get <code className="font-mono text-foreground">rows</code> (an array of objects), <code className="font-mono text-foreground">fields</code> (column names and types) and{" "}
         <code className="font-mono text-foreground">ctx.aborted</code> (true after Stop). Return an array to replace the rows, <code className="font-mono text-foreground">{"{ rows, fields }"}</code>{" "}
         to set the columns too, or nothing to pass the input through. <code className="font-mono text-foreground">await</code> and <code className="font-mono text-foreground">setTimeout</code> work; there is no{" "}
         <code className="font-mono text-foreground">fetch</code>, <code className="font-mono text-foreground">require</code> or file access.
-      </p>
+      </HowTip>
     </div>
   );
 }

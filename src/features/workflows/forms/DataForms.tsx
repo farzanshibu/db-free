@@ -1,7 +1,8 @@
 // SOT: workflow-query-form, workflow-http-form, workflow-read-file-form, workflow-connection-choice
-import { useEffect, useMemo } from "react";
+import { useEffect, useId, useMemo } from "react";
 import type { ConnectionSummary, FileFormat, HttpMethod } from "@/lib/bindings";
-import { AppSelect, Field, Toggle } from "@/components/global/Field";
+import { AppSelect, Field, FieldLabel, Toggle } from "@/components/global/Field";
+import { Disclosure } from "@/components/global/Disclosure";
 import { SqlEditor } from "@/features/editor/SqlEditor";
 import { buildCompletionSchema, mentionedTables } from "@/features/dashboards/completionSchema";
 import { useWorkspace } from "@/stores/workspace";
@@ -63,20 +64,20 @@ export function QueryForm({ config, onChange, context }: FormProps<"query">) {
           <code className="font-mono text-foreground">{"OFFSET {{i * 100}}"}</code>.
         </TemplateHint>
       </div>
-      <div className="flex flex-col gap-1 rounded-lg border border-border bg-surface-secondary/40 p-2">
+      <Disclosure label="Advanced" count={1} defaultOpen={config.allowDestructive}>
         <Toggle
           checked={config.allowDestructive}
           onChange={(allowDestructive) => { onChange({ ...config, allowDestructive }); }}
           label="Allow destructive statements"
-          description="Without this the node refuses DROP, TRUNCATE and DELETE / UPDATE without WHERE. Read-only connections refuse them regardless."
+          tip="Without this the node refuses DROP, TRUNCATE and DELETE / UPDATE without WHERE. Read-only connections refuse them regardless."
         />
-        {config.allowDestructive ? (
-          <p className="flex items-center gap-1.5 text-[11px] text-warning">
-            <Icon name="alert" size={12} />
-            This node can delete or overwrite data whenever the workflow runs, including from a schedule.
-          </p>
-        ) : null}
-      </div>
+      </Disclosure>
+      {config.allowDestructive ? (
+        <p className="flex items-center gap-1.5 text-[11px] text-warning">
+          <Icon name="alert" size={12} />
+          This node can delete or overwrite data whenever the workflow runs, including from a schedule.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -93,31 +94,32 @@ const METHODS: readonly { value: HttpMethod; label: string }[] = [
 // WHAT:  The HTTP node: a templated request whose JSON answer becomes rows.
 export function HttpForm({ config, onChange }: FormProps<"http">) {
   const hasBody = config.method !== "get" && config.method !== "head";
+  const bodyId = useId();
+  const headersId = useId();
   return (
     <div className="flex flex-col gap-2">
       <AppSelect label="Method" value={config.method} options={METHODS} onChange={(method) => { onChange({ ...config, method }); }} />
       <Field label="URL" mono value={config.url} placeholder="https://api.example.com/items?page={{i + 1}}" onChange={(url) => { onChange({ ...config, url }); }} />
-      <div className="flex flex-col gap-1.5">
-        <Label>Headers (JSON object)</Label>
-        <Textarea value={config.headers} rows={3} spellCheck={false} placeholder={'{"Authorization": "Bearer {{token}}"}'} onChange={(event) => { onChange({ ...config, headers: event.target.value }); }} />
-      </div>
       {hasBody ? (
         <div className="flex flex-col gap-1.5">
-          <Label>Body</Label>
-          <Textarea value={config.body} rows={5} spellCheck={false} placeholder={'{"name": "{{name}}"}'} onChange={(event) => { onChange({ ...config, body: event.target.value }); }} />
-          <p className="text-[11px] text-muted">
-            Set <code className="font-mono text-foreground">Content-Type</code> in the headers when you send a body.
-          </p>
+          <FieldLabel htmlFor={bodyId} label="Body" tip="Set Content-Type in the headers when you send a body." />
+          <Textarea id={bodyId} value={config.body} rows={5} spellCheck={false} placeholder={'{"name": "{{name}}"}'} onChange={(event) => { onChange({ ...config, body: event.target.value }); }} />
         </div>
       ) : null}
-      <Field label="Response path" optional mono value={config.responsePath} placeholder="data.results" description="Where the rows are in the JSON answer. Blank uses the whole response." onChange={(responsePath) => { onChange({ ...config, responsePath }); }} />
-      <Toggle
-        checked={config.allowPrivateNetwork}
-        onChange={(allowPrivateNetwork) => { onChange({ ...config, allowPrivateNetwork }); }}
-        label="Allow private network addresses"
-        description="Lets this node call localhost, private-network and cloud-metadata (169.254.169.254) addresses. Leave it off unless you wrote this workflow and need a local service."
-      />
+      <Field label="Response path" optional mono value={config.responsePath} placeholder="data.results" tip="Where the rows are in the JSON answer. Blank uses the whole response." onChange={(responsePath) => { onChange({ ...config, responsePath }); }} />
       <TemplateHint>The URL, the header values and the body can use placeholders from the first input row.</TemplateHint>
+      <Disclosure label="Advanced" count={2} defaultOpen={config.headers.trim().length > 0 || config.allowPrivateNetwork}>
+        <div className="flex flex-col gap-1.5">
+          <FieldLabel htmlFor={headersId} label="Headers" tip="A JSON object. Values accept placeholders." />
+          <Textarea id={headersId} value={config.headers} rows={3} spellCheck={false} placeholder={'{"Authorization": "Bearer {{token}}"}'} onChange={(event) => { onChange({ ...config, headers: event.target.value }); }} />
+        </div>
+        <Toggle
+          checked={config.allowPrivateNetwork}
+          onChange={(allowPrivateNetwork) => { onChange({ ...config, allowPrivateNetwork }); }}
+          label="Allow private network addresses"
+          tip="Lets this node call localhost, private-network and cloud-metadata (169.254.169.254) addresses. Leave it off unless you wrote this workflow and need a local service."
+        />
+      </Disclosure>
     </div>
   );
 }
@@ -136,7 +138,13 @@ export function ReadFileForm({ config, onChange }: FormProps<"read_file">) {
   };
   return (
     <div className="flex flex-col gap-2">
-      <AppSelect label="Format" value={config.format} options={READ_FORMATS} onChange={(format) => { onChange({ ...config, format }); }} />
+      <AppSelect
+        label="Format"
+        tip="CSV / TSV: the first row is the header; quoted fields may hold the delimiter, quotes and line breaks; an empty field is NULL. JSON: an array of objects, or one object. NDJSON: one object per line. The file is read again on every run."
+        value={config.format}
+        options={READ_FORMATS}
+        onChange={(format) => { onChange({ ...config, format }); }}
+      />
       <div className="flex items-end gap-2">
         <Field label="File" mono value={config.path} placeholder="/path/to/data.csv" onChange={(path) => { onChange({ ...config, path }); }} />
         <Button variant="secondary" size="md" onClick={() => void browse()}>
@@ -144,9 +152,6 @@ export function ReadFileForm({ config, onChange }: FormProps<"read_file">) {
           Browse
         </Button>
       </div>
-      <p className="text-[11px] leading-relaxed text-muted">
-        CSV / TSV: the first row is the header; quoted fields may hold the delimiter, quotes and line breaks; an empty field is NULL. JSON: an array of objects, or one object. NDJSON: one object per line. The file is read again on every run.
-      </p>
     </div>
   );
 }

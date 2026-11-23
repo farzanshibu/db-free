@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { summarizeSchedule } from "../model";
-import { TemplateHint, type FormProps } from "./common";
+import { HowTip, TemplateHint, type FormProps } from "./common";
 import { RuleEditor } from "./RuleEditor";
 
 const MODES: readonly { value: ScheduleMode; label: string }[] = [
@@ -95,10 +95,10 @@ export function ScheduleForm({ config, onChange }: FormProps<"schedule">) {
         </>
       )}
       <p className={cn("rounded-md bg-surface-secondary/60 px-2 py-1.5 text-xs text-foreground")}>{summarizeSchedule(config)}</p>
-      <p className="text-[11px] leading-relaxed text-muted">
-        Fires only while <span className="text-foreground">Schedules active</span> is on (toolbar), even with this tab closed. An interval is never shorter than 10 seconds. Each fire hands on one row,{" "}
-        <code className="font-mono text-foreground">{"{{firedAt}}"}</code>.
-      </p>
+      <HowTip label="Fires while Schedules active is on">
+        Fires only while Schedules active is on (toolbar), even with this tab closed. An interval is never shorter than 10 seconds. Each fire hands on one row,{" "}
+        <code className="font-mono">{"{{firedAt}}"}</code>.
+      </HowTip>
     </div>
   );
 }
@@ -108,7 +108,7 @@ export function FilterForm({ config, onChange, context }: FormProps<"filter">) {
   return (
     <div className="flex flex-col gap-2">
       <RuleEditor group={config.group} columns={context.columns} onChange={(group) => { onChange({ ...config, group }); }} />
-      <p className="text-[11px] text-muted">Keeps the rows that match. Numbers compare as numbers; everything else compares as text.</p>
+      <HowTip label="How rows match">Keeps the rows that match. Numbers compare as numbers; everything else compares as text.</HowTip>
     </div>
   );
 }
@@ -117,7 +117,7 @@ export function BranchForm({ config, onChange, context }: FormProps<"branch">) {
   return (
     <div className="flex flex-col gap-2">
       <RuleEditor group={config.group} columns={context.columns} onChange={(group) => { onChange({ ...config, group }); }} />
-      <p className="text-[11px] text-muted">Matching rows leave by the True handle, the rest by the False handle. A side with no rows is skipped, with everything after it.</p>
+      <HowTip label="True and False">Matching rows leave by the True handle, the rest by the False handle. A side with no rows is skipped, with everything after it.</HowTip>
     </div>
   );
 }
@@ -136,7 +136,7 @@ export function GateForm({ config, onChange }: FormProps<"row_count_gate">) {
     <div className="flex flex-col gap-2">
       <AppSelect label="Let rows through when the row count" value={config.op} options={GATE_OPS} onChange={(op) => { onChange({ ...config, op }); }} />
       <NumberInput label="Count" value={config.value} onChange={(next) => { onChange({ ...config, value: next ?? 0 }); }} />
-      <p className="text-[11px] text-muted">When the rule fails the branch stops here: nothing after the gate runs. Use it to skip notifications when a query found nothing.</p>
+      <HowTip label="When it stops">When the rule fails the branch stops here: nothing after the gate runs. Use it to skip notifications when a query found nothing.</HowTip>
     </div>
   );
 }
