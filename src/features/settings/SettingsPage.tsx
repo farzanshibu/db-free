@@ -8,6 +8,7 @@ import { NativeToolPaths } from "@/features/backup/NativeToolPaths";
 import { AppSelect, Field, Toggle } from "@/components/global/Field";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
+import { PageHeader } from "@/components/global/Layout";
 import { EDITOR_FONT_OPTIONS, UI_FONT_OPTIONS } from "@/lib/fonts";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -87,18 +88,14 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
 
   return (
     <div className="grid-bg relative flex h-full min-h-0 flex-1 flex-col">
-      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onClick={goConnections} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
-          <Icon name="chevron-left" size={14} />
-          Back
-        </Button>
-        <span className="text-[13px] font-semibold text-foreground tracking-tight" data-tauri-drag-region>
-          Preferences
-        </span>
-        <div className="drag-region h-full flex-1" data-tauri-drag-region />
-      </div>
+      <PageHeader
+        title="Settings"
+        onBack={goConnections}
+        tip="Changes are drafted until you press Save in the bar that appears at the bottom. AI settings save on their own."
+        meta={SETTINGS_SECTIONS.find((s) => s.id === section)?.label}
+      />
       <div className="flex min-h-0 flex-1">
-        <nav className="w-48 shrink-0 space-y-0.5 px-2 py-2.5 glass-sidebar" aria-label="Settings sections">
+        <nav className="w-44 shrink-0 space-y-0.5 px-2 py-2.5 glass-sidebar" aria-label="Settings sections">
           {SETTINGS_SECTIONS.map((s) => (
             <Button
               key={s.id}
@@ -116,7 +113,15 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
           ))}
         </nav>
         <ScrollArea className="min-h-0 flex-1">
-          <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3 px-5 py-3">
+          {/* WHAT:  The section body uses the whole width: setting rows flow into
+                     as many ≥26rem columns as fit (2 on a laptop, 3 on a wide
+                     screen); headings, intros, lists and whole-section
+                     components span every column.
+              WHY:   A centred 720px column left most of a wide window empty
+                     and put each control a long eye-trip from its label.
+              HOW:   Rows carry data-slot="settings-row" (SettingsRow); any
+                     other direct child is col-span-full. */}
+          <div className="grid w-full grid-cols-[repeat(auto-fill,minmax(26rem,1fr))] content-start gap-2 px-4 py-3 pb-16 [&>*:not([data-slot=settings-row])]:col-span-full">
             {section === "general" ? (
               <>
                 <h2 className="text-[13px] font-semibold text-foreground">General</h2>

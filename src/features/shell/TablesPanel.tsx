@@ -11,8 +11,10 @@ import { buildRows, isFocusable, reorderIds, schemaScope, SORT_MODES, tagMemberC
 import { tableKey, useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
 import { AppSelect, Segmented } from "@/components/global/Field";
+import { InfoTip } from "@/components/global/InfoTip";
+import { ToolbarActions, type ToolbarAction } from "@/components/global/Toolbar";
 import { Button } from "@/components/ui/button";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchInput } from "@/components/ui/input";
 import { Separator } from "@/components/ui/separator";
@@ -564,43 +566,21 @@ function TablesPanelBody({ connection }: { connection: ConnectionSummary }) {
           HOW:   Container queries, so the breakpoints follow the sidebar's own
                  width rather than the window's: the connection name drops first,
                  then its engine logo, and the three occasional actions fold into
-                 an overflow menu — Refresh and Search stay reachable at every
-                 width. */}
+                 "⋯" (ToolbarActions, priority "wide") — Refresh and Search stay
+                 reachable at every width. */}
       <div className="@container drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-1.5 overflow-hidden border-b border-border/40" data-tauri-drag-region>
         <ConnectionSwitcher caption={collectionNoun(engine)} />
         <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
-        <span className="flex shrink-0 items-center gap-0.5">
-          <IconButton icon="refresh" label="Refresh schema" onClick={() => void loadCatalog(id, true)} />
-          <span className="hidden items-center gap-0.5 @[24rem]:flex">
-            <IconButton icon="plus" label="New query" onClick={() => openQuery(id)} />
-            <IconButton icon="view" label="ER diagram" disabled={!supportsErd(engine)} onClick={() => openErd(id, schemaFilter)} />
-            <IconButton icon="table" label={`New ${noun}`} disabled={!createAllowed} onClick={newTable} />
-          </span>
-          <span className="flex @[24rem]:hidden">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon-sm" aria-label="More actions" className="rounded-md">
-                  <Icon name="more" size={15} />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem onSelect={() => { openQuery(id); }}>
-                  <Icon name="plus" size={13} className="text-muted" />
-                  New query
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!supportsErd(engine)} onSelect={() => { openErd(id, schemaFilter); }}>
-                  <Icon name="view" size={13} className="text-muted" />
-                  ER diagram
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled={!createAllowed} onSelect={newTable}>
-                  <Icon name="table" size={13} className="text-muted" />
-                  New {noun}
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </span>
-          {serverSearch ? null : <IconButton icon="search" label="Search tables" active={searchOpen} onClick={() => setSearchOpen((v) => !v)} />}
-        </span>
+        <ToolbarActions
+          foldBelow="sm"
+          actions={[
+            { id: "refresh", icon: "refresh", label: "Refresh schema", onSelect: () => void loadCatalog(id, true) },
+            { id: "new-query", icon: "plus", label: "New query", shortcut: "new-query", priority: "wide", onSelect: () => openQuery(id) },
+            { id: "erd", icon: "view", label: "ER diagram", shortcut: "erd", priority: "wide", disabled: !supportsErd(engine), onSelect: () => openErd(id, schemaFilter) },
+            { id: "new-table", icon: "table", label: `New ${noun}`, priority: "wide", disabled: !createAllowed, onSelect: newTable },
+            ...(serverSearch ? [] : ([{ id: "search", icon: "search", label: "Search tables", active: searchOpen, onSelect: () => setSearchOpen((v) => !v) }] satisfies ToolbarAction[])),
+          ]}
+        />
       </div>
 
       <div className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-muted">
@@ -639,7 +619,10 @@ function TablesPanelBody({ connection }: { connection: ConnectionSummary }) {
       )}
 
       {tagMode && tagState?.tags.length === 0 && needle === "" ? (
-        <p className="px-2.5 pb-1.5 text-[11px] leading-snug text-muted">No tags yet. Right-click a table and choose Tag table, or press the tag button to make one.</p>
+        <p className="flex items-center gap-1 px-2.5 pb-1.5 text-[11px] text-muted">
+          No tags yet
+          <InfoTip label="About tags">Right-click a table and choose Tag table, or press the tag button to make one.</InfoTip>
+        </p>
       ) : null}
 
       {searchOpen && !serverSearch ? (
@@ -667,7 +650,14 @@ function TablesPanelBody({ connection }: { connection: ConnectionSummary }) {
         </ScrollArea>
       ) : rows.length === 0 ? (
         <ScrollArea className="min-h-0 flex-1 px-1.5 py-1">
-          <p className="px-2.5 py-2 text-xs text-muted">{needle !== "" ? `No ${noun}s match.` : `No ${noun}s in this database yet. Use New ${noun} above, or create one from a query tab and refresh.`}</p>
+          {needle !== "" ? (
+            <p className="px-2.5 py-2 text-xs text-muted">No {noun}s match.</p>
+          ) : (
+            <p className="flex items-center gap-1 px-2.5 py-2 text-xs text-muted">
+              No {noun}s yet
+              <InfoTip label={`About creating ${noun}s`}>Use New {noun} in the header (or its ⋯ menu), or create one from a query tab and refresh.</InfoTip>
+            </p>
+          )}
         </ScrollArea>
       ) : (
         <TableTreeList

@@ -7,7 +7,8 @@ import { ipc } from "@/lib/ipc";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { Button } from "@/components/ui/button";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import { EmptyState } from "@/components/global/EmptyState";
+import { Page, PageHeader } from "@/components/global/Layout";
 import { PROJECT_URL, runShellAction } from "./shellActions";
 import { useUpdates } from "./useUpdates";
 
@@ -59,54 +60,52 @@ export function WhatsNewPage() {
 
   const hasContent = CHANGELOG !== null || (available !== null && notes !== null);
   return (
-    <div className="grid-bg relative flex h-full min-h-0 flex-1 flex-col">
-      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header" data-tauri-drag-region>
-        <Button variant="ghost" size="sm" onClick={goBack} className="rounded-lg text-muted hover:bg-surface-secondary/70 hover:text-foreground liquid-hover">
-          <Icon name="chevron-left" size={14} />
-          Back
-        </Button>
-        <span className="text-[13px] font-semibold tracking-tight text-foreground" data-tauri-drag-region>
-          What&apos;s new
-        </span>
-        {info ? <span className="text-xs text-muted">You are on {info.version}</span> : null}
-        <div className="drag-region h-full flex-1" data-tauri-drag-region />
-        <Button variant="secondary" size="sm" onClick={() => runShellAction("check-updates")}>
-          <Icon name="refresh" size={13} />
-          Check for updates
-        </Button>
-      </div>
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="selectable mx-auto w-full max-w-[720px] px-5 py-3">
-          {available !== null && notes !== null ? (
-            <section className="mb-4 rounded-lg glass-card px-3 py-2">
-              <h3 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
-                <Icon name="sparkles" size={14} className="text-accent" />
-                Version {available} is ready to install
-              </h3>
-              <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
-                {notes}
-              </ReactMarkdown>
-            </section>
-          ) : null}
-          {CHANGELOG !== null ? (
-            <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
-              {CHANGELOG}
-            </ReactMarkdown>
-          ) : null}
-          {!hasContent ? (
-            <div className="flex flex-col items-start gap-2 py-6">
-              <p className="text-[13px] text-foreground">This build does not carry a changelog.</p>
-              <p className="text-xs text-muted">Release notes are published with every release on GitHub. If an update is available, its notes appear here once it has been found.</p>
-              <span className="flex gap-2">
-                <Button size="sm" variant="secondary" onClick={() => { openLink(`${PROJECT_URL}/releases`); }}>
-                  <Icon name="globe" size={13} />
-                  Open the releases page
-                </Button>
-              </span>
-            </div>
-          ) : null}
-        </div>
-      </ScrollArea>
-    </div>
+    <Page
+      width="readable"
+      bodyClassName="selectable gap-0"
+      header={
+        <PageHeader
+          title="What's new"
+          onBack={goBack}
+          meta={info ? info.version : undefined}
+          actions={
+            <Button variant="secondary" size="sm" onClick={() => runShellAction("check-updates")}>
+              <Icon name="refresh" size={13} />
+              Check for updates
+            </Button>
+          }
+        />
+      }
+    >
+      {available !== null && notes !== null ? (
+        <section className="mb-4 rounded-lg glass-card px-3 py-2">
+          <h3 className="flex items-center gap-2 text-[13px] font-semibold text-foreground">
+            <Icon name="sparkles" size={14} className="text-accent" />
+            Version {available} is ready to install
+          </h3>
+          <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+            {notes}
+          </ReactMarkdown>
+        </section>
+      ) : null}
+      {CHANGELOG !== null ? (
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={COMPONENTS}>
+          {CHANGELOG}
+        </ReactMarkdown>
+      ) : null}
+      {!hasContent ? (
+        <EmptyState
+          icon="sparkles"
+          title="No changelog in this build"
+          tip="Release notes are published with every release on GitHub. When an update is found, its notes appear here."
+          action={
+            <Button size="sm" variant="secondary" onClick={() => { openLink(`${PROJECT_URL}/releases`); }}>
+              <Icon name="globe" size={13} />
+              Releases page
+            </Button>
+          }
+        />
+      ) : null}
+    </Page>
   );
 }
