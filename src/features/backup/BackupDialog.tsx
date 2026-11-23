@@ -9,13 +9,17 @@ import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/stores/workspace";
 import { useBackupDialog } from "@/features/backup/useBackupDialog";
 import { AppSelect, Field, Segmented, Toggle } from "@/components/global/Field";
+import { Disclosure } from "@/components/global/Disclosure";
 import { EngineIcon } from "@/components/global/EngineIcon";
+import { InfoTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Spinner } from "@/components/ui/spinner";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 type Mode = "backup" | "restore";
 type Content = "all" | "schema" | "data";
@@ -98,7 +102,7 @@ export function BackupDialog() {
     // A run in flight must be stopped with Cancel, not abandoned by Escape:
     // the tool would keep writing with nobody watching.
     <Dialog open onOpenChange={(open) => { if (!open && !running) close(); }}>
-      <DialogContent className="sm:max-w-[700px]" showCloseButton={!running}>
+      <DialogContent className="sm:max-w-[min(92vw,820px)]" showCloseButton={!running}>
         <BackupBody key={connection.id} connection={connection} running={running} setRunning={setRunning} />
       </DialogContent>
     </Dialog>
@@ -324,8 +328,7 @@ function BackupBody({ connection, running, setRunning }: { connection: Connectio
                 <AlertContent className="gap-2">
                   <AlertTitle>This overwrites data in {target}</AlertTitle>
                   <AlertDescription>
-                    Restoring into <span className="font-semibold text-danger">{connection.name}</span> ({target}) replaces what is there with the contents of the backup. It cannot be undone
-                    from here — take a backup first if you may need the current data.
+                    Restoring into <span className="font-semibold text-danger">{connection.name}</span> replaces its contents and cannot be undone; take a backup first.
                   </AlertDescription>
                   {connection.readOnly ? null : <Toggle checked={confirmed} onChange={setConfirmed} label={`I understand — overwrite ${target}`} />}
                   {connection.readOnly ? <AlertDescription className="text-danger">This connection is read-only, so restoring is blocked.</AlertDescription> : null}
@@ -370,12 +373,16 @@ function ToolList({ tools, onSettings }: { tools: NativeToolStatus[]; onSettings
           <Icon name={t.path !== null ? "check" : "alert"} size={13} className={cn("shrink-0", t.path !== null ? "text-success" : "text-warning")} />
           <span className="shrink-0 font-mono font-semibold text-foreground">{t.tool}</span>
           {t.path !== null ? (
-            <span className="min-w-0 truncate font-mono text-[11px] text-muted" title={t.path}>
-              {t.version ?? t.path}
-            </span>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span className="min-w-0 truncate font-mono text-[11px] text-muted">{t.version ?? t.path}</span>
+              </TooltipTrigger>
+              <TooltipContent className="font-mono">{t.path}</TooltipContent>
+            </Tooltip>
           ) : (
-            <span className="min-w-0 truncate text-muted">
-              not found — install {t.package} or set its path in Settings → Advanced
+            <span className="flex min-w-0 items-center gap-1 text-muted">
+              not found
+              <InfoTip label={`About ${t.tool}`}>Install {t.package}, or set its path in Settings → Advanced.</InfoTip>
             </span>
           )}
           {t.overridden ? (
@@ -436,6 +443,9 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
   }
 
   if (method === "pg_dump") {
+    const toggles = 1 + (mode === "restore" || options.format === "plain" ? 1 : 0) + (mode === "restore" ? 1 : 0);
+    // Filters and pg flags are expert options: closed unless one is set.
+    const changed = schemasText.trim() !== "" || tablesText.trim() !== "" || options.noOwner || options.clean || !options.singleTransaction;
     return (
       <div className="flex flex-col gap-2">
         {mode === "backup" ? (
@@ -445,26 +455,30 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
             options={formats.map((f) => ({ value: f, label: FORMAT_META[f].label }))}
             onChange={(format) => patch({ format })}
             disabled={disabled}
+            tip={FORMAT_META[options.format].hint}
           />
         ) : (
-          <>
-            <p className="text-xs text-muted">The format is detected from the file: archives go to pg_restore, SQL scripts to psql.</p>
-            <Toggle checked={options.format === "directory"} onChange={(dir) => patch({ format: dir ? "directory" : "custom" })} label="The backup is a directory (-Fd)" />
-          </>
+          <Toggle
+            checked={options.format === "directory"}
+            onChange={(dir) => patch({ format: dir ? "directory" : "custom" })}
+            label="The backup is a directory (-Fd)"
+            tip="Otherwise the format is detected from the file: archives go to pg_restore, SQL scripts to psql."
+          />
         )}
-        {mode === "backup" ? <p className="-mt-1.5 text-xs text-muted">{FORMAT_META[options.format].hint}</p> : null}
         {contentPicker}
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Schemas" optional value={schemasText} onChange={setSchemasText} placeholder="public, sales" mono disabled={disabled} />
-          <Field label="Tables" optional value={tablesText} onChange={setTablesText} placeholder="public.orders, public.items" mono disabled={disabled} />
-        </div>
-        <div className="grid grid-cols-2 gap-2">
-          <Toggle checked={options.noOwner} onChange={(noOwner) => patch({ noOwner })} label="No owner (--no-owner)" />
-          {mode === "restore" || options.format === "plain" ? (
-            <Toggle checked={options.clean} onChange={(clean) => patch({ clean })} label="Drop objects first (--clean)" />
-          ) : null}
-          {mode === "restore" ? <Toggle checked={options.singleTransaction} onChange={(singleTransaction) => patch({ singleTransaction })} label="Single transaction" /> : null}
-        </div>
+        <Disclosure label="Advanced" count={2 + toggles} defaultOpen={changed} className="gap-2">
+          <AutoGrid min="md">
+            <Field label="Schemas" optional value={schemasText} onChange={setSchemasText} placeholder="public, sales" mono disabled={disabled} />
+            <Field label="Tables" optional value={tablesText} onChange={setTablesText} placeholder="public.orders, public.items" mono disabled={disabled} />
+          </AutoGrid>
+          <AutoGrid min="sm">
+            <Toggle checked={options.noOwner} onChange={(noOwner) => patch({ noOwner })} label="No owner (--no-owner)" />
+            {mode === "restore" || options.format === "plain" ? (
+              <Toggle checked={options.clean} onChange={(clean) => patch({ clean })} label="Drop objects first (--clean)" />
+            ) : null}
+            {mode === "restore" ? <Toggle checked={options.singleTransaction} onChange={(singleTransaction) => patch({ singleTransaction })} label="Single transaction" /> : null}
+          </AutoGrid>
+        </Disclosure>
       </div>
     );
   }
@@ -473,15 +487,18 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
     if (mode === "restore") {
       return <p className="text-xs text-muted">The SQL file is streamed into the mysql client against this connection&apos;s database.</p>;
     }
+    const changed = tablesText.trim() !== "" || !options.singleTransaction || !options.routines || !options.triggers;
     return (
       <div className="flex flex-col gap-2">
         {contentPicker}
-        <Field label="Tables" optional value={tablesText} onChange={setTablesText} placeholder="orders, items" mono disabled={disabled} description="Needs a database on the connection; empty dumps every table." />
-        <div className="grid grid-cols-2 gap-2">
-          <Toggle checked={options.singleTransaction} onChange={(singleTransaction) => patch({ singleTransaction })} label="Single transaction (InnoDB snapshot)" />
-          <Toggle checked={options.routines} onChange={(routines) => patch({ routines })} label="Routines" />
-          <Toggle checked={options.triggers} onChange={(triggers) => patch({ triggers })} label="Triggers" />
-        </div>
+        <Disclosure label="Advanced" count={4} defaultOpen={changed} className="gap-2">
+          <Field label="Tables" optional value={tablesText} onChange={setTablesText} placeholder="orders, items" mono disabled={disabled} tip="Needs a database on the connection; empty dumps every table." />
+          <AutoGrid min="sm">
+            <Toggle checked={options.singleTransaction} onChange={(singleTransaction) => patch({ singleTransaction })} label="Single transaction (InnoDB snapshot)" />
+            <Toggle checked={options.routines} onChange={(routines) => patch({ routines })} label="Routines" />
+            <Toggle checked={options.triggers} onChange={(triggers) => patch({ triggers })} label="Triggers" />
+          </AutoGrid>
+        </Disclosure>
       </div>
     );
   }
@@ -489,7 +506,7 @@ function MethodOptions({ method, mode, formats, options, content, patch, schemas
   // mongodump
   return mode === "backup" ? (
     <div className="flex flex-col gap-2">
-      <Field label="Collection" optional value={tablesText} onChange={setTablesText} placeholder="users" mono disabled={disabled} description="One collection, or empty for the whole database." />
+      <Field label="Collection" optional value={tablesText} onChange={setTablesText} placeholder="users" mono disabled={disabled} tip="One collection, or empty for the whole database." />
       <Toggle checked={options.gzip} onChange={(gzip) => patch({ gzip })} label="Gzip the archive" />
     </div>
   ) : (
