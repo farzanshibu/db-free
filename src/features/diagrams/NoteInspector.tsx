@@ -75,7 +75,7 @@ export function NoteInspector({ note, edit, onClose }: NoteInspectorProps) {
       </LabeledRow>
       <Toggle
         label="Hide when exporting"
-        description="Leaves this note out of PNG and SVG exports."
+        tip="Leaves this note out of PNG and SVG exports."
         checked={note.hideOnExport}
         onChange={(hideOnExport) => {
           patch({ hideOnExport });

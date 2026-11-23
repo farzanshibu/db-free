@@ -1,4 +1,5 @@
 // SOT: diagram-auto-layout, layered-layout, compact-layout, diagram-layout
+import type { IconName } from "@/lib/icons";
 import type { Point } from "./metrics";
 
 // WHAT:  Places table cards: top to bottom, left to right, or packed compactly.
@@ -15,6 +16,13 @@ import type { Point } from "./metrics";
 // WHERE: src/features/diagrams/ErdTab.tsx, DesignerTab.tsx
 
 export type LayoutDirection = "TB" | "LR" | "compact";
+
+/// The choices of the "Auto layout" menu on both diagram toolbars.
+export const LAYOUT_CHOICES: readonly { id: LayoutDirection; label: string; icon: IconName }[] = [
+  { id: "TB", label: "Top to bottom", icon: "rows" },
+  { id: "LR", label: "Left to right", icon: "columns" },
+  { id: "compact", label: "Compact", icon: "grid" },
+];
 
 export interface LayoutNode {
   id: string;

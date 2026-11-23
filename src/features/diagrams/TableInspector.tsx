@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import type { ConnectionColor, DiagramBody, DiagramColumn, DiagramTable } from "@/lib/bindings";
 import { AppSelect, Field, type Option } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
+import { AutoGrid } from "@/components/global/Layout";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Icon } from "@/lib/icons";
@@ -94,7 +95,7 @@ export function TableInspector({ table, body, catalog, connectionId, diagramName
         </>
       }
     >
-      <div className="grid grid-cols-2 gap-2">
+      <AutoGrid min="xs">
         <Field
           label="Name"
           mono
@@ -115,7 +116,7 @@ export function TableInspector({ table, body, catalog, connectionId, diagramName
             edit((b) => updateTable(b, table.id, { schema: schema === "" ? null : schema }));
           }}
         />
-      </div>
+      </AutoGrid>
       <LabeledRow label="Header colour">
         <ColorSwatches
           value={table.color}
@@ -232,7 +233,8 @@ export function TableInspector({ table, body, catalog, connectionId, diagramName
                     }}
                   />
                 </div>
-                <div className="grid grid-cols-2 gap-1.5">
+                {/* Side by side while the panel has room; stacked when it is narrow. */}
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(7rem,1fr))] gap-1.5">
                   <Input
                     value={column.defaultValue ?? ""}
                     placeholder="Default"
@@ -268,6 +270,7 @@ export function TableInspector({ table, body, catalog, connectionId, diagramName
 
       <Section
         title="Relations"
+        tip="Drag from one table's edge to another's, or add a foreign key here."
         action={
           <Button
             size="xs"
@@ -317,7 +320,7 @@ export function TableInspector({ table, body, catalog, connectionId, diagramName
           </div>
         ) : null}
         {related.length === 0 && !draft ? (
-          <p className="text-xs text-muted">Drag from one table&apos;s edge to another&apos;s, or use Foreign key above.</p>
+          <p className="text-xs text-muted">No relations yet.</p>
         ) : related.length === 0 ? null : (
           <ul className="flex flex-col gap-1">
             {related.map((rel) => {
