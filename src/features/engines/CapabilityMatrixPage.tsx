@@ -7,12 +7,13 @@ import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { EngineIcon } from "@/components/global/EngineIcon";
 import { AppSelect, Check } from "@/components/global/Field";
+import { Page, PageHeader } from "@/components/global/Layout";
 import { cn } from "@/lib/cn";
 import { keysOf } from "@/lib/records";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SearchInput } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 interface Row {
   id: string;
@@ -67,21 +68,34 @@ export function CapabilityMatrixPage() {
   const categoryOptions: { value: EngineKind | "all"; label: string }[] = [{ value: "all", label: "All categories" }, ...CATEGORIES.map((c) => ({ value: c.kind, label: c.label }))];
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="drag-region flex app-titlebar app-pad-x shrink-0 items-center gap-2 border-b border-border/40 glass-header " data-tauri-drag-region>
-        <Button size="sm" variant="ghost" aria-label="Back to connections" onClick={goConnections} className="size-6 min-w-6 rounded-md text-muted">
-          <Icon name="arrow-left" size={14} />
-        </Button>
-        <Icon name="grid" size={14} className="text-accent" />
-        <span className="text-[13px] font-semibold tracking-tight text-foreground">Engine capabilities</span>
-        <Badge size="sm" variant="soft" className="font-mono text-[10px]">
-          {engines.length} engines · {visibleRows.length} features
-        </Badge>
-        <div className="drag-region h-full min-w-4 flex-1" data-tauri-drag-region />
-        <AppSelect ariaLabel="Category" value={category} options={categoryOptions} size="sm" className="w-52" onChange={setCategory} />
-        <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Engine…" className="w-48 rounded-md text-xs glass-input" />
-        <Check label="Hide empty rows" checked={hideEmpty} onChange={setHideEmpty} />
-      </div>
+    <Page
+      scroll={false}
+      header={
+        <PageHeader
+          title="Engine capabilities"
+          onBack={goConnections}
+          backLabel="Connections"
+          tip="Which features each engine's adapter supports: a check is yes, a dot is no. Hover an engine for its full name and feature count."
+          meta={
+            <Badge size="sm" variant="soft" className="font-mono text-[10px]">
+              {engines.length} engines · {visibleRows.length} features
+            </Badge>
+          }
+          actions={
+            <>
+              <AppSelect ariaLabel="Category" value={category} options={categoryOptions} size="sm" className="w-52" onChange={setCategory} />
+              <div className="w-48 min-w-0">
+                <SearchInput value={search} onChange={setSearch} aria-label="Search engines" placeholder="Engine…" className="w-full rounded-md text-xs glass-input" />
+              </div>
+              <label className="flex items-center gap-1.5 text-xs text-muted">
+                <Check label="Hide empty rows" checked={hideEmpty} onChange={setHideEmpty} />
+                Hide empty
+              </label>
+            </>
+          }
+        />
+      }
+    >
       <ScrollArea orientation="both" className="min-h-0 flex-1">
         <table className="min-w-max border-separate border-spacing-0 text-xs">
           <thead className="sticky top-0 z-20">
@@ -89,11 +103,18 @@ export function CapabilityMatrixPage() {
               <th className="sticky left-0 z-30 border-b border-r border-border/40 bg-background px-2.5 py-1.5 text-left font-medium text-muted">Feature</th>
               {engines.map((engine) => (
                 <th key={engine} className="border-b border-border/40 bg-background px-1 py-1.5 align-bottom">
-                  <span className="flex flex-col items-center gap-1 px-1 py-1" title={`${engineMeta(engine).label} · ${engineMeta(engine).hint} · ${totals[engine]} features`}>
-                    <EngineIcon engine={engine} size={16} />
-                    <span className="w-14 truncate text-[9px] font-medium text-muted">{engineMeta(engine).label}</span>
-                    <span className="font-mono text-[9px] text-muted/70">{totals[engine]}</span>
-                  </span>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="flex flex-col items-center gap-1 rounded-sm px-1 py-1 outline-none focus-visible:ring-2 focus-visible:ring-ring/50" tabIndex={0}>
+                        <EngineIcon engine={engine} size={16} />
+                        <span className="w-14 truncate text-[9px] font-medium text-muted">{engineMeta(engine).label}</span>
+                        <span className="font-mono text-[9px] text-muted/70">{totals[engine]}</span>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {engineMeta(engine).label} · {engineMeta(engine).hint} · {totals[engine]} features
+                    </TooltipContent>
+                  </Tooltip>
                 </th>
               ))}
             </tr>
@@ -108,7 +129,7 @@ export function CapabilityMatrixPage() {
           </tbody>
         </table>
       </ScrollArea>
-    </div>
+    </Page>
   );
 }
 
@@ -127,8 +148,12 @@ function RowGroup({ row, engines, newSection }: { row: Row; engines: readonly En
         {engines.map((engine) => {
           const has = row.has(engine);
           return (
-            <td key={engine} className={cn("border-b border-separator px-1 py-1 text-center group-hover:bg-surface-secondary/40", has ? "text-success" : "text-muted/30")} title={`${engineMeta(engine).label}: ${has ? "yes" : "no"}`}>
-              {has ? <Icon name="check" size={12} /> : "·"}
+            // One cell per engine × feature (thousands): a Tooltip each would be
+            // heavy, so the answer is spelled out for screen readers and the
+            // sticky header names the column.
+            <td key={engine} className={cn("border-b border-separator px-1 py-1 text-center group-hover:bg-surface-secondary/40", has ? "text-success" : "text-muted/30")}>
+              {has ? <Icon name="check" size={12} /> : <span aria-hidden="true">·</span>}
+              <span className="sr-only">{`${engineMeta(engine).label}: ${has ? "yes" : "no"}`}</span>
             </td>
           );
         })}
