@@ -25,7 +25,7 @@ export function ConnectionPicker({ label, value, onChange }: { label: string; va
   const live = useLiveConnections();
   const options: Option<string>[] = live.map((c) => ({ value: c.id, label: c.name, leading: <EngineIcon engine={c.engine} size={14} /> }));
   if (!options.some((o) => o.value === value)) options.unshift({ value, label: "Not connected" });
-  return <AppSelect ariaLabel={label} value={value} options={options} onChange={onChange} size="sm" className="w-48" />;
+  return <AppSelect ariaLabel={label} value={value} options={options} onChange={onChange} size="sm" className="w-48 min-w-28 shrink" />;
 }
 
 // WHAT:  Catalog of one side, loaded when missing.
@@ -44,7 +44,7 @@ export function SchemaPicker({ label, connectionId, value, onChange }: { label: 
   const names = (catalog?.schemas ?? []).map((s) => s.name);
   const current = value ?? names[0] ?? "";
   const options = names.length > 0 ? names.map((n) => ({ value: n, label: n })) : [{ value: current, label: current.length > 0 ? current : "—" }];
-  return <AppSelect ariaLabel={label} value={current} options={options} onChange={onChange} size="sm" icon="folder" className="w-40" disabled={names.length <= 1} />;
+  return <AppSelect ariaLabel={label} value={current} options={options} onChange={onChange} size="sm" icon="folder" className="w-40 min-w-24 shrink" disabled={names.length <= 1} />;
 }
 
 // WHAT:  A table (or view) of the picked schema; None selected shows "Choose a table…".

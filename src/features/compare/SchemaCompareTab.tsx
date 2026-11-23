@@ -6,6 +6,7 @@ import { useWorkspace } from "@/stores/workspace";
 import { EmptyState } from "@/components/global/EmptyState";
 import { Segmented } from "@/components/global/Field";
 import { SplitLayout } from "@/components/global/Layout";
+import { OverflowMenu } from "@/components/global/Toolbar";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
@@ -92,18 +93,33 @@ export function SchemaCompareTab({ connectionId, schema }: { connectionId: strin
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex app-toolbar shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Left</span>
+      {/* One row at every width: the side labels go first, then the direction
+          toggle folds into "⋯", then the pickers shrink. */}
+      <div className="@container flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface">
+        <span className="hidden text-[11px] font-semibold uppercase tracking-wider text-muted @6xl:inline">Left</span>
         <ConnectionPicker label="Left connection" value={leftId} onChange={(id) => { setLeftId(id); setLeftSchema(null); }} />
         <SchemaPicker label="Left schema" connectionId={leftId} value={leftSchema} onChange={setLeftSchema} />
-        <DirectionToggle value={direction} onChange={setDirection} />
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted">Right</span>
+        <span className="hidden shrink-0 @4xl:flex">
+          <DirectionToggle value={direction} onChange={setDirection} />
+        </span>
+        <span className="hidden text-[11px] font-semibold uppercase tracking-wider text-muted @6xl:inline">Right</span>
         <ConnectionPicker label="Right connection" value={rightId} onChange={(id) => { setRightId(id); setRightSchema(null); }} />
         <SchemaPicker label="Right schema" connectionId={rightId} value={rightSchema} onChange={setRightSchema} />
-        <Button size="sm" pending={busy} onClick={() => void compare()} className="ml-auto">
-          <Icon name="git-branch" size={13} />
-          Compare
-        </Button>
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <span className="flex @4xl:hidden">
+            <OverflowMenu
+              label="Script direction"
+              items={[
+                { id: "left_to_right", label: "Left → Right", icon: "git-branch", active: direction === "left_to_right", onSelect: () => setDirection("left_to_right") },
+                { id: "right_to_left", label: "Right → Left", icon: "git-branch", active: direction === "right_to_left", onSelect: () => setDirection("right_to_left") },
+              ]}
+            />
+          </span>
+          <Button size="sm" pending={busy} onClick={() => void compare()}>
+            <Icon name="git-branch" size={13} />
+            Compare
+          </Button>
+        </span>
       </div>
 
       {result === null ? (

@@ -147,7 +147,9 @@ export function AppSelect<T extends string>({ value, options, onChange, label, t
               : "",
           )}
         >
-          <span className="flex min-w-0 flex-1 items-center gap-1">
+          {/* Radix's SelectValue drops `className`, so the span around it lets
+              the value shrink and truncate when a toolbar squeezes the select. */}
+          <span className="flex min-w-0 flex-1 items-center gap-1 [&>span:last-child]:min-w-0 [&>span:last-child]:truncate">
             {icon === undefined && current?.leading ? (
               <span className="flex shrink-0 items-center">{current.leading}</span>
             ) : leading !== undefined ? (
@@ -155,7 +157,7 @@ export function AppSelect<T extends string>({ value, options, onChange, label, t
             ) : null}
             {/* The trigger shows the label alone: `SelectValue` would re-render
                 the whole item, drawing a second copy of an option's logo. */}
-            <SelectValue className="truncate">
+            <SelectValue>
               <span className={cn("truncate text-left", plain ? "max-w-[150px]" : "")}>{current?.label ?? ""}</span>
             </SelectValue>
           </span>
