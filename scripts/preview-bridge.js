@@ -210,7 +210,6 @@
   var responses = {
     list_connections: connections,
     get_settings: settings,
-    save_settings: null,
     list_saved_queries: [
       { id: "q1", connectionId: "c1", name: "Recent orders", sql: "select *\nfrom orders\norder by created_at desc\nlimit 50", tags: ["ops"], createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
       { id: "q2", connectionId: "c1", name: "Top customers", sql: "select full_name, lifetime_value\nfrom customers\norder by lifetime_value desc\nlimit 20", tags: [], createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" },
@@ -276,6 +275,12 @@
           } }],
           totalRows: 25, elapsedMs: 12,
         });
+      }
+      if (cmd === "save_settings") {
+        // The store reads the saved settings back, so a change (theme, density…) sticks.
+        settings = clone(req.settings);
+        responses.get_settings = settings;
+        return Promise.resolve(clone(settings));
       }
       if (cmd === "active_sessions") return Promise.resolve(sessions.slice());
       if (cmd === "list_documents") {
