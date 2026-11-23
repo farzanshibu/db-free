@@ -92,10 +92,9 @@ function SettingsBody({ initial }: { initial: AppSettings }) {
         title="Settings"
         onBack={goConnections}
         tip="Changes are drafted until you press Save in the bar that appears at the bottom. AI settings save on their own."
-        meta={SETTINGS_SECTIONS.find((s) => s.id === section)?.label}
       />
       <div className="flex min-h-0 flex-1">
-        <nav className="w-44 shrink-0 space-y-0.5 px-2 py-2.5 glass-sidebar" aria-label="Settings sections">
+        <nav className="w-48 shrink-0 space-y-0.5 px-2 py-2.5 glass-sidebar" aria-label="Settings sections">
           {SETTINGS_SECTIONS.map((s) => (
             <Button
               key={s.id}

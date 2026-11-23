@@ -55,7 +55,7 @@ function SplitView({ node }: { node: Extract<PaneNode, { kind: "split" }> }) {
       <div className="flex min-h-0 min-w-0" style={{ flex: `${String(ratio)} 1 0%` }}>
         <PaneTree node={node.first} />
       </div>
-      <Resizer direction={row ? "horizontal" : "vertical"} onResize={onResize} className="shrink-0" />
+      <Resizer direction={row ? "horizontal" : "vertical"} label="Resize panes" onResize={onResize} className="shrink-0" />
       <div className="flex min-h-0 min-w-0" style={{ flex: `${String(1 - ratio)} 1 0%` }}>
         <PaneTree node={node.second} />
       </div>
