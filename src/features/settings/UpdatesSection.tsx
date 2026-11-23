@@ -2,6 +2,8 @@
 import { useWorkspace } from "@/stores/workspace";
 import { Icon } from "@/lib/icons";
 import { Toggle } from "@/components/global/Field";
+import { WithTip } from "@/components/global/InfoTip";
+import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { runShellAction } from "@/features/shell/shellActions";
 import { useUpdates } from "@/features/shell/useUpdates";
@@ -30,8 +32,11 @@ export function UpdatesSection({ checkOnLaunch, onCheckOnLaunch }: { checkOnLaun
 
   return (
     <>
-      <h2 className="text-[13px] font-semibold text-foreground">Updates</h2>
-      <p className="text-xs text-muted">Signed builds are published with each release; the app verifies the signature before installing.</p>
+      <h2 className="text-[13px] font-semibold text-foreground">
+        <WithTip tip="Signed builds are published with each release; the app verifies the signature before installing." tipLabel="About updates">
+          Updates
+        </WithTip>
+      </h2>
       <SettingsRow title="Check for updates" body="Looks for a newer release and downloads it, so installing is just a restart.">
         <Button size="sm" variant="secondary" pending={busy} onClick={() => void check(false)}>
           <Icon name="refresh" size={13} />
@@ -42,7 +47,7 @@ export function UpdatesSection({ checkOnLaunch, onCheckOnLaunch }: { checkOnLaun
         <Toggle checked={checkOnLaunch} onChange={onCheckOnLaunch} label="" />
       </SettingsRow>
       {phase === "downloading" ? (
-        <SettingsRow title="Downloading the update" body={percent !== null ? `${String(percent)}% done.` : "Starting the download…"}>
+        <SettingsRow title={percent !== null ? `Downloading the update · ${String(percent)}%` : "Starting the download…"} body="The update installs when you choose Install and restart.">
           <Icon name="download" size={14} className="text-accent" />
         </SettingsRow>
       ) : null}
@@ -60,9 +65,14 @@ export function UpdatesSection({ checkOnLaunch, onCheckOnLaunch }: { checkOnLaun
         </SettingsRow>
       ) : null}
       {phase === "error" && error !== null ? (
-        <SettingsRow title="The last check failed" body={error}>
-          <Icon name="alert" size={14} className="text-warning" />
-        </SettingsRow>
+        // An error stays on screen, not in a tip: it is what the person came to read.
+        <Alert variant="warning" className="rounded-lg">
+          <AlertIndicator />
+          <AlertContent>
+            <AlertTitle className="text-xs font-semibold">The last check failed</AlertTitle>
+            <AlertDescription className="selectable text-xs">{error}</AlertDescription>
+          </AlertContent>
+        </Alert>
       ) : null}
       {progress && busy ? (
         <div className="h-1 w-full overflow-hidden rounded-full bg-surface-secondary">

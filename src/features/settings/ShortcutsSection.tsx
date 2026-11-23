@@ -21,6 +21,10 @@ import { Alert, AlertContent, AlertDescription, AlertIndicator, AlertTitle } fro
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Kbd, KbdGroup } from "@/components/ui/kbd";
+import { SearchInput } from "@/components/ui/input";
+import { IconButton } from "@/components/global/Button";
+import { WithTip } from "@/components/global/InfoTip";
+import { AutoGrid } from "@/components/global/Layout";
 
 /// Keys the app handles but that are not rebindable (native to a widget).
 const FIXED: readonly { keys: string; action: string }[] = [
@@ -62,19 +66,35 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
   }, [bindings, onChange, recording]);
 
   const conflictCount = new Set([...conflicts.keys()].map((a) => keymap[a])).size;
+  const [query, setQuery] = useState("");
+  const needle = query.trim().toLowerCase();
+  const matches = (text: string) => needle.length === 0 || text.toLowerCase().includes(needle);
+  const fixed = FIXED.filter((s) => matches(s.action) || matches(s.keys));
+  const groups = SHORTCUT_GROUPS.map((group) => ({
+    group,
+    actions: SHORTCUT_ACTIONS.filter((a) => SHORTCUTS[a].group === group && (matches(SHORTCUTS[a].label) || matches(group))),
+  })).filter((g) => g.actions.length > 0);
+  const shown = fixed.length + groups.length;
 
   return (
     <>
       <div className="flex items-center gap-2">
-        <h2 className="text-[13px] font-semibold text-foreground">Shortcuts</h2>
-        <Button size="sm" variant="ghost" className="ml-auto" disabled={bindings.length === 0} onClick={() => onChange([])}>
+        <h2 className="text-[13px] font-semibold text-foreground">
+          <WithTip
+            tip="Click Record, then press the new chord. Esc cancels; the cross unbinds. Actions in different areas (SQL editor, data grid) may share a chord. Changes apply when you save."
+            tipLabel="About shortcuts"
+          >
+            Shortcuts
+          </WithTip>
+        </h2>
+        <div className="ml-auto w-56 min-w-0">
+          <SearchInput value={query} onChange={setQuery} aria-label="Search shortcuts" placeholder="Search…" className="glass-input w-full rounded-md text-xs" />
+        </div>
+        <Button size="sm" variant="ghost" disabled={bindings.length === 0} onClick={() => onChange([])}>
           <Icon name="refresh" size={12} />
           Reset all
         </Button>
       </div>
-      <p className="text-xs text-muted">
-        Click Record, then press the new chord. Esc cancels; the cross unbinds. Actions in different areas (SQL editor, data grid) may share a chord. Changes apply when you save.
-      </p>
       {conflictCount > 0 ? (
         <Alert variant="warning" className="rounded-lg">
           <AlertIndicator />
@@ -84,9 +104,10 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
           </AlertContent>
         </Alert>
       ) : null}
-      {SHORTCUT_GROUPS.map((group) => {
-        const actions = SHORTCUT_ACTIONS.filter((a) => SHORTCUTS[a].group === group);
-        if (actions.length === 0) return null;
+      {/* WHAT:  Groups flow into as many columns as fit, so the whole keymap
+          is one screen on a wide window instead of a long single column. */}
+      <AutoGrid min="lg" className="items-start gap-3">
+      {groups.map(({ group, actions }) => {
         return (
           <section key={group} className="flex flex-col gap-1.5">
             <h3 className="text-[11px] font-semibold tracking-wider text-muted uppercase">{group}</h3>
@@ -134,12 +155,8 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
                     <Button size="sm" variant={live ? "soft" : "secondary"} onClick={() => setRecording(live ? null : action)} aria-pressed={live}>
                       {live ? "Cancel" : "Record"}
                     </Button>
-                    <Button size="icon-sm" variant="ghost" aria-label={`Unbind ${SHORTCUTS[action].label}`} title="Unbind" disabled={chord.length === 0} onClick={() => onChange(withBinding(bindings, action, ""))}>
-                      <Icon name="x" size={12} />
-                    </Button>
-                    <Button size="icon-sm" variant="ghost" aria-label={`Reset ${SHORTCUTS[action].label}`} title="Reset to default" disabled={isDefault} onClick={() => onChange(withBinding(bindings, action, null))}>
-                      <Icon name="refresh" size={12} />
-                    </Button>
+                    <IconButton icon="x" size={12} label={`Unbind ${SHORTCUTS[action].label}`} disabled={chord.length === 0} onClick={() => onChange(withBinding(bindings, action, ""))} />
+                    <IconButton icon="refresh" size={12} label={`Reset ${SHORTCUTS[action].label} to default`} disabled={isDefault} onClick={() => onChange(withBinding(bindings, action, null))} />
                   </li>
                 );
               })}
@@ -147,10 +164,11 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
           </section>
         );
       })}
+      {fixed.length > 0 ? (
       <section className="flex flex-col gap-1.5">
         <h3 className="text-[11px] font-semibold tracking-wider text-muted uppercase">Fixed</h3>
         <ul className="divide-y divide-separator rounded-md border border-border bg-surface">
-          {FIXED.map((s) => (
+          {fixed.map((s) => (
             <li key={s.keys} className="flex items-center px-2.5 py-1 text-xs">
               <span className="text-foreground">{s.action}</span>
               <span className="ml-auto font-mono text-xs text-muted">{s.keys}</span>
@@ -158,6 +176,9 @@ export function ShortcutsSection({ bindings, onChange }: { bindings: readonly Ke
           ))}
         </ul>
       </section>
+      ) : null}
+      </AutoGrid>
+      {shown === 0 ? <p className="text-xs text-muted">No shortcut matches “{query.trim()}”.</p> : null}
     </>
   );
 }
