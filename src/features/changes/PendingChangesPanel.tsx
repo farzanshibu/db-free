@@ -1,5 +1,5 @@
 // SOT: pending-changes-panel, review-mode-ui, commit-flow, visual-diff, grouped-row-edits, highlighted-pending-sql, statement-comments, ddl-pending-change
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ChangePreview, SqlToken, StagedChange, Value } from "@/lib/bindings";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatCell } from "@/lib/format";
@@ -8,10 +8,8 @@ import { tableKey, useWorkspace } from "@/stores/workspace";
 import { useShortcut } from "@/stores/useShortcut";
 import { Segmented } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
-import { Resizer } from "@/components/global/Resizer";
 import { EmptyState } from "@/components/global/EmptyState";
 import { WithTip } from "@/components/global/InfoTip";
-import { readStored, writeStored } from "@/lib/storage";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Alert, AlertContent, AlertDescription, AlertIndicator } from "@/components/ui/alert";
@@ -31,10 +29,6 @@ import { HighlightedSql } from "./sqlHighlight";
 // Stable empty list: a selector must return the same reference for unchanged state.
 const EMPTY_CHANGES: StagedChange[] = [];
 
-const WIDTH_KEY = "db-free:changes-panel-width";
-const DEFAULT_WIDTH = 360;
-const clampWidth = (value: number) => Math.min(750, Math.max(280, Math.round(value)));
-
 // WHAT:  Right-hand "Pending Changes" drawer: visual diff per row (edits to one row
 //        share a card), the exact SQL with highlighting, a comment and Copy per
 //        statement, Commit All (⌘S) and Clear All.
@@ -44,6 +38,8 @@ const clampWidth = (value: number) => Math.min(750, Math.max(280, Math.round(val
 // HOW:   Statements are the preview's, one per staged change in order; DDL changes
 //        (a rename, an index drop, a Redis `DEL`) are cards of their own and a
 //        destructive one — or a destructive statement the block spots — asks first.
+//        App.tsx hosts it as a SplitLayout panel (width remembered under
+//        db-free:changes-panel-width), so it only fills the space it is given.
 // WHERE: src-tauri/src/services/changes.rs, src/features/changes/commitPending.ts
 export function PendingChangesPanel({ connectionId }: { connectionId: string }) {
   const changes = useWorkspace((s) => s.pendingChanges[connectionId] ?? EMPTY_CHANGES);
@@ -60,26 +56,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
   const preview = changes.length === 0 || loadedPreview?.statements.length !== changes.length ? null : loadedPreview;
   const [committing, setCommitting] = useState(false);
   const [confirm, setConfirm] = useState<string[] | null>(null);
-  // WHAT:  The panel's width, resizable and remembered — SplitLayout's rules
-  //        (clamped, saved when a drag or key step ends, arrow keys on the
-  //        labelled handle). App.tsx mounts this panel beside the pane area, so
-  //        it carries the behaviour itself rather than wrapping its host.
-  const [width, setWidth] = useState<number>(() => {
-    const saved = Number(readStored(WIDTH_KEY));
-    return clampWidth(Number.isFinite(saved) && saved > 0 ? saved : DEFAULT_WIDTH);
-  });
   const groups = useMemo(() => groupChanges(changes), [changes]);
-
-  // Dragging left (negative delta) widens the panel: it sits on the right.
-  const handleResize = useCallback((delta: number) => {
-    setWidth((prev) => clampWidth(prev - delta));
-  }, []);
-  const handleResizeEnd = useCallback(() => {
-    setWidth((current) => {
-      writeStored(WIDTH_KEY, String(current));
-      return current;
-    });
-  }, []);
 
   useEffect(() => {
     const token = { cancelled: false };
@@ -127,8 +104,7 @@ export function PendingChangesPanel({ connectionId }: { connectionId: string }) 
   };
 
   return (
-    <aside className="relative flex shrink-0 flex-col glass-sidebar select-none" style={{ width }}>
-      <Resizer direction="horizontal" label="Resize pending changes" onResize={handleResize} onDragEnd={handleResizeEnd} className="absolute -left-1 top-0 bottom-0" />
+    <aside className="flex min-h-0 flex-1 flex-col glass-sidebar select-none">
       <div className="flex app-toolbar shrink-0 items-center gap-2 border-b border-border/40 glass-header">
         <WithTip tip="Review mode: edits, inserts and deletes wait here and commit together. Switch to Direct mode in Settings → Editor." tipLabel="About pending changes">
           <span className="text-[13px] font-semibold text-foreground tracking-tight">Pending Changes</span>
