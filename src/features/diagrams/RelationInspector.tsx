@@ -3,6 +3,8 @@ import type { ConnectionColor, DiagramBody, DiagramRelation, DiagramSide, Diagra
 import { AppSelect, Field, Segmented, type Option } from "@/components/global/Field";
 import { Button } from "@/components/ui/button";
 import { IconButton } from "@/components/global/Button";
+import { Disclosure } from "@/components/global/Disclosure";
+import { WithTip } from "@/components/global/InfoTip";
 import { Icon } from "@/lib/icons";
 import { ColorSwatches } from "./ColorSwatches";
 import { linksOf, removeRelations, setRelationLinks, swapRelation, updateRelation } from "./designerModel";
@@ -100,6 +102,7 @@ export function RelationInspector({ relation, body, edit, onClose }: RelationIns
 
       <Section
         title="Columns"
+        tip={`The left column references the right one: ${from?.name ?? "?"} → ${to?.name ?? "?"}.`}
         action={
           <Button
             size="xs"
@@ -145,7 +148,6 @@ export function RelationInspector({ relation, body, edit, onClose }: RelationIns
               />
             </div>
           ))}
-          <p className="text-[11px] text-muted">The left column references the right one: {from?.name ?? "?"} → {to?.name ?? "?"}.</p>
         </div>
       </Section>
 
@@ -203,32 +205,33 @@ export function RelationInspector({ relation, body, edit, onClose }: RelationIns
             }}
           />
         </LabeledRow>
-        <div className="grid grid-cols-2 gap-2">
-          <AppSelect
-            label="Leaves from"
-            size="sm"
-            value={relation.fromSide ?? "auto"}
-            options={SIDE_OPTIONS}
-            onChange={(side) => {
-              patch({ fromSide: side === "auto" ? null : side });
-            }}
-          />
-          <AppSelect
-            label="Arrives at"
-            size="sm"
-            value={relation.toSide ?? "auto"}
-            options={SIDE_OPTIONS}
-            onChange={(side) => {
-              patch({ toSide: side === "auto" ? null : side });
-            }}
-          />
-        </div>
+        {/* Rarely changed: the sides follow the cards automatically. Open when one is set. */}
+        <Disclosure label="Advanced" count={2} defaultOpen={relation.fromSide !== null || relation.toSide !== null}>
+          <div className="grid grid-cols-2 gap-2">
+            <AppSelect
+              label="Leaves from"
+              size="sm"
+              value={relation.fromSide ?? "auto"}
+              options={SIDE_OPTIONS}
+              onChange={(side) => {
+                patch({ fromSide: side === "auto" ? null : side });
+              }}
+            />
+            <AppSelect
+              label="Arrives at"
+              size="sm"
+              value={relation.toSide ?? "auto"}
+              options={SIDE_OPTIONS}
+              onChange={(side) => {
+                patch({ toSide: side === "auto" ? null : side });
+              }}
+            />
+          </div>
+        </Disclosure>
         <div className="flex items-center justify-between gap-2">
-          <p className="text-[11px] text-muted">
-            {relation.waypoints.length === 0
-              ? "Double-click the line to add a bend."
-              : `${relation.waypoints.length} bend point${relation.waypoints.length === 1 ? "" : "s"}.`}
-          </p>
+          <WithTip tip="Double-click the line to add a bend. Drag a bend to move it; double-click it to remove it." tipLabel="About bends" className="text-[11px] text-muted">
+            {relation.waypoints.length === 0 ? "No bends" : `${relation.waypoints.length} bend point${relation.waypoints.length === 1 ? "" : "s"}`}
+          </WithTip>
           {relation.waypoints.length > 0 ? (
             <Button
               size="xs"

@@ -158,12 +158,12 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
         </Button>
         <Button size="sm" variant="soft" disabled={result === null || busy} onClick={() => void openScript()}>
           <Icon name="terminal" size={13} />
-          Open sync script in query tab
+          Open sync script
         </Button>
       </div>
 
       {result === null || view === null ? (
-        <EmptyState icon="exchange" title="Compare the rows of two tables" body="Pick a table on each side (the same or another connection), check the key the rows are matched by, then Compare. Only connected connections are listed." />
+        <EmptyState icon="exchange" title="Compare two tables" tip="Pick a table on each side (the same or another connection), check the key the rows are matched by, then Compare. Only connected connections are listed." />
       ) : (
         <>
           <div className="flex shrink-0 flex-wrap items-center gap-2 px-2.5 py-1.5 text-xs">
@@ -197,7 +197,7 @@ export function DataCompareTab({ connectionId, table }: { connectionId: string; 
           ) : null}
           <div className="min-h-0 flex-1">
             {view.rows.length === 0 ? (
-              <EmptyState icon="check" title={filter === "all" ? "The tables match" : "No rows in this filter"} body={filter === "all" ? `${formatCount(result.identical)} rows are identical on both sides.` : "Pick another filter to see the other differences."} />
+              <EmptyState icon="check" title={filter === "all" ? "The tables match" : "No rows in this filter"} body={filter === "all" ? `${formatCount(result.identical)} identical rows.` : undefined} />
             ) : (
               <DataGrid
                 columns={view.columns}

@@ -76,7 +76,7 @@ function EditForm({ profile, connectionId, loaded, onClose }: { profile: DdlProf
     <DdlDialog
       connectionId={connectionId}
       title={`Edit ${noun}`}
-      description={`${qualifiedLabel(loaded.table)} — change the structure; the ALTER statements are shown below before they run.`}
+      description={`${qualifiedLabel(loaded.table)}: ALTER statements previewed before they run.`}
       wide={hasColumns(profile)}
       runner={runner}
       ready={ready}

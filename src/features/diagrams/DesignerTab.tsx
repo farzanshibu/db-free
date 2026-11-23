@@ -21,6 +21,9 @@ import { normalizeError } from "@/lib/ipc";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { useResolvedTheme } from "@/stores/useTheme";
 import { IconButton } from "@/components/global/Button";
+import { InfoTip, WithTip } from "@/components/global/InfoTip";
+import { SplitLayout } from "@/components/global/Layout";
+import { OverflowMenu, ToolbarActions, type ToolbarAction } from "@/components/global/Toolbar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -62,24 +65,13 @@ import { SqlDialog } from "./SqlPreview";
 import { TableInspector, type Edit } from "./TableInspector";
 import { TableNode, columnOfHandle, sideOfHandle } from "./TableNode";
 import { TABLE_WIDTH, snap, type Point } from "./metrics";
-import { ToolbarMenu, type ToolbarMenuItem } from "./ToolbarMenu";
 import { VersionsMenu } from "./VersionsMenu";
-import type { LayoutDirection } from "./layout";
+import { LAYOUT_CHOICES, type LayoutDirection } from "./layout";
 import { useAutosave } from "./useAutosave";
 
 const NODE_TYPES = { table: TableNode, note: NoteNode };
 const EDGE_TYPES = { relation: RelationEdge };
 const DELETE_KEYS = ["Backspace", "Delete"];
-
-const LAYOUT_ITEMS: readonly ToolbarMenuItem[] = [
-  { id: "TB", label: "Top to bottom", icon: "rows" },
-  { id: "LR", label: "Left to right", icon: "columns" },
-  { id: "compact", label: "Compact", icon: "grid" },
-];
-
-function isLayoutDirection(id: string): id is LayoutDirection {
-  return id === "TB" || id === "LR" || id === "compact";
-}
 
 interface MenuTarget {
   kind: "table" | "note" | "relation";
@@ -373,19 +365,48 @@ function Designer({ doc }: { doc: Document }) {
   };
 
   const hasSelection = selectedTables.length + selectedNotes.length > 0;
-  const exportItems: ToolbarMenuItem[] = [
-    { id: "png", label: "PNG image", icon: "download", section: "Whole diagram", disabled: isEmpty(body) },
-    { id: "svg", label: "SVG image", icon: "download", disabled: isEmpty(body) },
-    { id: "png-selection", label: "PNG image", icon: "download", section: "Selection", disabled: !hasSelection },
-    { id: "svg-selection", label: "SVG image", icon: "download", disabled: !hasSelection },
+  const empty = isEmpty(body);
+  const exportItems: ToolbarAction[] = [
+    { id: "png", label: "PNG image", icon: "download", group: "whole", disabled: exporting || empty, onSelect: () => void runExport("png", false) },
+    { id: "svg", label: "SVG image", icon: "download", group: "whole", disabled: exporting || empty, onSelect: () => void runExport("svg", false) },
+    { id: "png-selection", label: "Selection as PNG", icon: "download", group: "selection", disabled: exporting || !hasSelection, onSelect: () => void runExport("png", true) },
+    { id: "svg-selection", label: "Selection as SVG", icon: "download", group: "selection", disabled: exporting || !hasSelection, onSelect: () => void runExport("svg", true) },
   ];
-
-  const gridItems: ToolbarMenuItem[] = GRID_SIZES.map((size, i) => ({
-    id: String(size),
-    label: size === 0 ? "Off" : `${size}px`,
-    selected: size === grid,
-    ...(i === 0 ? { section: "Snap to grid" } : {}),
+  const layoutItems: ToolbarAction[] = LAYOUT_CHOICES.map((choice) => ({
+    ...choice,
+    onSelect: () => {
+      layout(choice.id);
+    },
   }));
+
+  // WHAT:  The view toggles: shown as buttons while the toolbar is wide, folded
+  //        into its "⋯" when narrow; the snap sizes always live in "⋯".
+  const viewActions: ToolbarAction[] = [
+    {
+      id: "notes",
+      label: notesShown ? "Hide notes" : "Show notes",
+      icon: notesShown ? "eye" : "eye-off",
+      active: !notesShown,
+      priority: "wide",
+      group: "view",
+      onSelect: () => {
+        edit((b) => ({ ...b, notesVisible: !notesVisibleOf(b) }));
+      },
+    },
+    ...GRID_SIZES.map(
+      (size): ToolbarAction => ({
+        id: `grid-${String(size)}`,
+        label: size === 0 ? "Snap to grid: off" : `Snap to grid: ${String(size)}px`,
+        icon: "grid",
+        active: size === grid,
+        priority: "menu",
+        group: "grid",
+        onSelect: () => {
+          edit((b) => ({ ...b, gridSize: size }));
+        },
+      }),
+    ),
+  ];
 
   const onNodeContextMenu: NodeMouseHandler<DesignerNode> = (event, node) => {
     event.preventDefault();
@@ -430,9 +451,35 @@ function Designer({ doc }: { doc: Document }) {
             ? `Saved ${autosave.savedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
             : "Saved";
 
+  // The panel for whatever is selected, in a resizable side panel beside the canvas.
+  const inspector =
+    relation ? (
+      <RelationInspector key={relation.id} relation={relation} body={body} edit={edit} onClose={clearSelection} />
+    ) : table ? (
+      <TableInspector
+        key={table.id}
+        table={table}
+        body={body}
+        catalog={catalog}
+        connectionId={connectionId}
+        diagramName={typedName}
+        edit={edit}
+        onSelectRelation={selectEdge}
+        onDuplicate={() => {
+          duplicate(new Set([table.id]));
+        }}
+        onDelete={() => {
+          deleteSelection(new Set([table.id]), new Set());
+        }}
+        onClose={clearSelection}
+      />
+    ) : note ? (
+      <NoteInspector key={note.id} note={note} edit={edit} onClose={clearSelection} />
+    ) : null;
+
   return (
     <div className="relative flex h-full min-h-0 flex-col">
-      <div className="flex app-toolbar shrink-0 items-center gap-1 border-b border-border bg-surface">
+      <div className="@container flex app-toolbar shrink-0 items-center gap-1 border-b border-border bg-surface">
         <Input
           value={typedName}
           onChange={(event) => {
@@ -440,37 +487,12 @@ function Designer({ doc }: { doc: Document }) {
             nameRef.current = event.target.value;
             autosave.touch();
           }}
-          className="h-6 w-48 rounded-md bg-transparent text-xs text-foreground"
+          className="h-6 w-32 rounded-md bg-transparent text-xs text-foreground @3xl:w-48"
           aria-label="Diagram name"
         />
         <IconButton icon="plus" label="Add table" onClick={addTable} />
         <IconButton icon="note" label="Add sticky note" onClick={addNote} />
-        <span className="mx-1 h-5 w-px bg-separator" />
-        <ToolbarMenu
-          icon="sort"
-          label="Auto layout"
-          items={LAYOUT_ITEMS}
-          onSelect={(id) => {
-            if (isLayoutDirection(id)) layout(id);
-          }}
-        />
-        <ToolbarMenu
-          icon="grid"
-          label="Snap to grid"
-          items={gridItems}
-          active={grid > 0}
-          onSelect={(id) => {
-            edit((b) => ({ ...b, gridSize: Number(id) }));
-          }}
-        />
-        <IconButton
-          icon={notesShown ? "eye" : "eye-off"}
-          label={notesShown ? "Hide notes" : "Show notes"}
-          active={!notesShown}
-          onClick={() => {
-            edit((b) => ({ ...b, notesVisible: !notesVisibleOf(b) }));
-          }}
-        />
+        <OverflowMenu icon="sort" label="Auto layout" align="start" items={layoutItems} />
         {focus ? (
           <Button
             size="sm"
@@ -483,22 +505,13 @@ function Designer({ doc }: { doc: Document }) {
             Clear focus
           </Button>
         ) : null}
-        <span className="mx-1 h-5 w-px bg-separator" />
-        <span className="text-xs text-muted">{describe(body)}</span>
-        <div className="ml-auto flex items-center gap-1">
-          <span className={cn("mr-1 text-[11px]", autosave.state === "error" ? "text-danger" : "text-muted")} aria-live="polite">
+        <span className="mx-1 hidden h-5 w-px bg-separator @3xl:block" />
+        <span className="hidden min-w-0 truncate text-xs text-muted @3xl:inline">{describe(body)}</span>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <span className={cn("mr-1 text-[11px] whitespace-nowrap", autosave.state === "error" ? "text-danger" : "text-muted")} aria-live="polite">
             {status}
           </span>
-          <ToolbarMenu
-            icon="download"
-            label="Export image"
-            items={exportItems}
-            disabled={exporting}
-            onSelect={(id) => {
-              const format: ExportFormat = id.startsWith("png") ? "png" : "svg";
-              void runExport(format, id.endsWith("selection"));
-            }}
-          />
+          <OverflowMenu icon="download" label="Export image" items={exportItems} />
           <VersionsMenu
             documentId={doc.id}
             settle={() => autosave.flush({ version: true })}
@@ -517,11 +530,22 @@ function Designer({ doc }: { doc: Document }) {
               SQL
             </Button>
           </SqlDialog>
+          <ToolbarActions actions={viewActions} foldBelow="2xl" menuLabel="View options" />
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1">
-        <div ref={wrapper} className="relative min-w-0 flex-1">
+      <SplitLayout
+        side="right"
+        panel={inspector}
+        collapsed={inspector === null}
+        defaultSize={288}
+        min={240}
+        max={560}
+        storageKey="db-free:diagrams-inspector-width"
+        resizeLabel="Resize inspector"
+        className="min-h-0 flex-1"
+      >
+        <div ref={wrapper} className="relative min-h-0 min-w-0 flex-1">
           <EdgeActionsContext value={edgeActions}>
           <NoteActionsContext value={noteActions}>
           <ReactFlow
@@ -615,25 +639,29 @@ function Designer({ doc }: { doc: Document }) {
               </Panel>
             ) : null}
             {selectedEdge !== null ? (
-              <Panel position="bottom-center" className="rounded-md border border-border bg-surface/90 px-2 py-1 text-[11px] text-muted backdrop-blur">
-                Double-click the line to add a bend. Drag a bend to move it; double-click it to remove it.
+              <Panel position="bottom-center" className="flex items-center gap-1 rounded-md border border-border bg-surface/90 px-2 py-1 text-[11px] text-muted backdrop-blur">
+                Double-click to add a bend
+                <InfoTip label="About bends">Drag a bend to move it; double-click it to remove it.</InfoTip>
               </Panel>
             ) : null}
           </ReactFlow>
           </NoteActionsContext>
           </EdgeActionsContext>
-          {isEmpty(body) ? (
+          {empty ? (
             <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-3">
               <div className="pointer-events-auto flex w-[360px] max-w-full flex-col gap-2 rounded-lg border border-border bg-surface/95 p-3 shadow-md backdrop-blur">
-                <p className="text-[13px] font-medium text-foreground">Start your schema</p>
-                <p className="text-xs leading-relaxed text-muted">Add a table, then drag from the edge of one table to another to relate them.</p>
+                <WithTip tip="Add a table, then drag from the edge of one table to another to relate them." tipLabel="About the designer">
+                  <p className="text-[13px] font-medium text-foreground">Start your schema</p>
+                </WithTip>
                 <Button size="sm" variant="secondary" className="self-start" onClick={addTable}>
                   <Icon name="plus" size={13} />
                   Add a table
                 </Button>
                 {canAskAi ? (
                   <div className="flex flex-col gap-2 border-t border-border pt-2">
-                    <p className="text-xs text-muted">Or describe it and let the assistant design it.</p>
+                    <WithTip tip="Describe the tables you need and the assistant designs them in this diagram." tipLabel="About AI design">
+                      <p className="text-xs text-muted">Or describe it</p>
+                    </WithTip>
                     <Textarea
                       value={prompt}
                       rows={2}
@@ -660,31 +688,7 @@ function Designer({ doc }: { doc: Document }) {
             </div>
           ) : null}
         </div>
-
-        {relation ? (
-          <RelationInspector relation={relation} body={body} edit={edit} onClose={clearSelection} />
-        ) : table ? (
-          <TableInspector
-            key={table.id}
-            table={table}
-            body={body}
-            catalog={catalog}
-            connectionId={connectionId}
-            diagramName={typedName}
-            edit={edit}
-            onSelectRelation={selectEdge}
-            onDuplicate={() => {
-              duplicate(new Set([table.id]));
-            }}
-            onDelete={() => {
-              deleteSelection(new Set([table.id]), new Set());
-            }}
-            onClose={clearSelection}
-          />
-        ) : note ? (
-          <NoteInspector key={note.id} note={note} edit={edit} onClose={clearSelection} />
-        ) : null}
-      </div>
+      </SplitLayout>
 
       {menu ? (
         <NodeMenu

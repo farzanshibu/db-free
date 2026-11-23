@@ -4,9 +4,11 @@ import type { DdlProfile } from "@/lib/bindings";
 import { Button } from "@/components/ui/button";
 import { AppSelect, Check, Field, type Option } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/cn";
 import { Icon } from "@/lib/icons";
 import { columnLocks } from "../ddlRules";
+import { LockTip } from "./LockTip";
 import {
   DEFAULT_KINDS,
   allowsAutoIncrement,
@@ -70,7 +72,23 @@ function SizeInput({ label, value, onChange, disabled }: { label: string; value:
 }
 
 function Locked({ reason, children }: { reason: string | null; children: ReactNode }) {
-  return <span className="flex min-w-0 items-center" title={reason ?? undefined}>{children}</span>;
+  return (
+    <LockTip reason={reason} className="flex min-w-0 items-center">
+      {children}
+    </LockTip>
+  );
+}
+
+// A header abbreviation with its full name in a tooltip.
+function Abbr({ short, full }: { short: string; full: string }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span className="cursor-help">{short}</span>
+      </TooltipTrigger>
+      <TooltipContent>{full}</TooltipContent>
+    </Tooltip>
+  );
 }
 
 export function ColumnGrid({ profile, columns, onChange, issues, edit }: ColumnGridProps) {
@@ -103,11 +121,11 @@ export function ColumnGrid({ profile, columns, onChange, issues, edit }: ColumnG
         <span>Type</span>
         <span>Size</span>
         <span>Default</span>
-        <span title="Primary key">PK</span>
-        <span title="Allows NULL">Null</span>
-        <span title="Unique">Uniq</span>
-        <span title="Auto-increment">Auto</span>
-        <span title="Unsigned">Uns</span>
+        <Abbr short="PK" full="Primary key" />
+        <Abbr short="Null" full="Allows NULL" />
+        <Abbr short="Uniq" full="Unique" />
+        <Abbr short="Auto" full="Auto-increment" />
+        <Abbr short="Uns" full="Unsigned" />
         <span />
       </div>
       {columns.map((column, index) => {
@@ -231,9 +249,9 @@ export function ColumnGrid({ profile, columns, onChange, issues, edit }: ColumnG
                   ) : column.originalName === null ? (
                     <IconButton icon="trash" label="Remove column" onClick={() => { onChange(columns.filter((c) => c.key !== column.key)); }} />
                   ) : (
-                    <span title={locks.remove ?? undefined}>
+                    <LockTip reason={locks.remove}>
                       <IconButton icon="trash" label="Drop column" disabled={locks.remove !== null || live <= 1} onClick={() => { patch(column.key, { removed: true }); }} />
-                    </span>
+                    </LockTip>
                   )
                 ) : (
                   <>

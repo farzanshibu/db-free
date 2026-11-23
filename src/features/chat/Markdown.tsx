@@ -221,7 +221,7 @@ function CodeCard({ code, label, tag }: { code: string; label: string; tag: stri
       ) : null}
 
       <Dialog open={confirm !== null} onOpenChange={(open) => { if (!open) setConfirm(null); }}>
-        <DialogContent className="sm:max-w-[520px]">
+        <DialogContent className="sm:max-w-[min(92vw,720px)]">
           <DialogHeader>
             <DialogTitle>Run destructive statements?</DialogTitle>
           </DialogHeader>

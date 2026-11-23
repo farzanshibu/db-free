@@ -5,15 +5,17 @@ import { formatCount, formatMs } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { useWorkspace } from "@/stores/workspace";
-import { AppSelect, Field, Toggle } from "@/components/global/Field";
+import { AppSelect, Field, FieldLabel, Toggle } from "@/components/global/Field";
 import { IconButton } from "@/components/global/Button";
+import { Disclosure } from "@/components/global/Disclosure";
+import { InfoTip } from "@/components/global/InfoTip";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { SqlEditor } from "@/features/editor/SqlEditor";
 import { templateVariablesFromTokens } from "@/features/editor/completion";
 import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { tileAppearance } from "./appearance";
 import { rowsOf } from "./cells";
 import { buildCompletionSchema, mentionedTables } from "./completionSchema";
@@ -61,6 +63,16 @@ const CONDITIONAL: readonly WidgetKind[] = ["metric", "text", "image", "gif"];
 const BACKGROUNDS: readonly WidgetKind[] = ["metric", "text", "image", "gif"];
 const NO_TINT: readonly WidgetKind[] = ["table", "text", "image", "gif"];
 
+/// What each kind reads from its result, shown in a tip beside the type picker.
+const KIND_TIPS: Partial<Record<WidgetKind, string>> = {
+  sankey: "The first three columns are read as source, target and value. Each row is a flow from source to target; duplicate pairs are summed.",
+  map: "Return lat and lon columns plus an optional label column. Drag to pan; Ctrl or ⌘ with the wheel, or the buttons, to zoom.",
+  table: "Any SELECT, e.g. SELECT * FROM table LIMIT 100.",
+  text: "Use {{column_name}} to insert a value, or arithmetic like {{round(won / total * 100, 1)}}.",
+  image: "Use {{column_name}} to build the URL from query values.",
+  gif: "Use {{column_name}} to build the URL from query values.",
+};
+
 const CURRENCY_OPTIONS = CURRENCY_CODES.map((code) => ({ value: code, label: `${code} (${currencySymbol(code)})` }));
 
 /// The tile without its position, as text: what "has this been edited" compares.
@@ -98,6 +110,12 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
       {children}
     </div>
   );
+}
+
+/// Chart formatting (legend, value format, axis labels): closed unless one of
+/// them is already set away from its default.
+function hasFormatting(w: Widget): boolean {
+  return w.legendMode !== "auto" || w.valueFormat !== "number" || w.xLabel !== null || w.yLabel !== null;
 }
 
 function Row({ label, children }: { label: string; children: ReactNode }) {
@@ -167,12 +185,17 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
   const showTint = !NO_TINT.includes(draft.kind);
   const tintLabel = draft.kind === "sankey" ? "Flow colour" : draft.kind === "line" || draft.kind === "area" ? "Line colour" : "Colour";
   const pending = isNew || dirty;
+  const kindTip = KIND_TIPS[draft.kind];
+  // A table tile has no options of its own; its only help is the kind tip.
+  const hasOptions = draft.kind !== "table";
+  const tokens = variableTokens(variables).map((t) => `{{${t.token}}}`);
 
   return (
     <>
       <div className="flex items-center gap-2 border-b border-border/40 px-2.5 py-1.5">
         <Field label="" value={draft.title} onChange={(title) => { patch({ title }); }} placeholder="Tile title" className="[&_label]:hidden" />
         <AppSelect ariaLabel="Tile type" value={draft.kind} options={WIDGET_KINDS} onChange={(kind) => { patch({ kind }); }} className="w-40 shrink-0" />
+        {kindTip !== undefined ? <InfoTip label="About this tile type" side="bottom" align="end">{kindTip}</InfoTip> : null}
         <IconButton icon="x" label="Close panel" onClick={onClose} />
       </div>
       <ScrollArea className="min-h-0 flex-1">
@@ -188,7 +211,7 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
           </div>
         </div>
 
-        <Section title="Options">
+        {hasOptions ? <Section title="Options">
           {showTint ? (
             <Row label={tintLabel}>
               <TileColorPicker kind="tint" label={tintLabel} value={draft.tint} onChange={(tint) => { patch({ tint }); }} />
@@ -207,12 +230,12 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
                 {draft.format === "currency" ? <AppSelect ariaLabel="Currency" size="sm" className="w-36" value={draft.currency} options={CURRENCY_OPTIONS} onChange={(currency) => { patch({ currency }); }} /> : null}
                 <span className="font-mono text-[11px] text-muted">{draft.format === "currency" ? currencyExample(draft.currency) : ""}</span>
               </Row>
-              <Toggle checked={draft.showChange} onChange={(showChange) => { patch(showChange ? { showChange } : { showChange, colorByChange: false }); }} label="Show change" description="Compares the first number with the second column's number, or the last row with the one before." />
-              <Toggle checked={draft.colorByChange} onChange={(colorByChange) => { patch({ colorByChange }); }} label="Colour by change" description={draft.showChange ? "Green when up, red when down." : "Turn on Show change first."} />
+              <Toggle checked={draft.showChange} onChange={(showChange) => { patch(showChange ? { showChange } : { showChange, colorByChange: false }); }} label="Show change" tip="Compares the first number with the second column's number, or the last row with the one before." />
+              <Toggle checked={draft.colorByChange} onChange={(colorByChange) => { patch({ colorByChange }); }} label="Colour by change" tip="Green when up, red when down." {...(draft.showChange ? {} : { description: "Turn on Show change first." })} />
             </>
           ) : null}
           {draft.kind === "sparkline" ? <Toggle checked={draft.showChange} onChange={(showChange) => { patch({ showChange }); }} label="Show change" /> : null}
-          {draft.kind === "area" ? <Toggle checked={draft.stacked} onChange={(stacked) => { patch({ stacked }); }} label="Stacked" description="Series add up instead of overlapping." /> : null}
+          {draft.kind === "area" ? <Toggle checked={draft.stacked} onChange={(stacked) => { patch({ stacked }); }} label="Stacked" tip="Series add up instead of overlapping." /> : null}
           {draft.kind === "bar" ? <Toggle checked={draft.horizontal} onChange={(horizontal) => { patch({ horizontal }); }} label="Horizontal" /> : null}
           {draft.kind === "map" ? <Toggle checked={draft.pulse} onChange={(pulse) => { patch({ pulse }); }} label="Pulse" /> : null}
           {draft.kind === "progress" ? (
@@ -222,17 +245,10 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
               <Field label="Max" type="number" value={draft.maxValue === null ? "" : String(draft.maxValue)} onChange={(v) => { patch({ maxValue: v.trim().length > 0 && Number.isFinite(Number(v)) ? Number(v) : null }); }} placeholder="from 2nd column" className="w-36" />
             </>
           ) : null}
-          {draft.kind === "line" || draft.kind === "area" || draft.kind === "bar" ? (
-            <div className="flex items-end gap-2">
-              <Field label="X label" value={draft.xLabel ?? ""} onChange={(v) => { patch({ xLabel: v.length > 0 ? v : null }); }} placeholder="e.g. Month" />
-              <Field label="Y label" value={draft.yLabel ?? ""} onChange={(v) => { patch({ yLabel: v.length > 0 ? v : null }); }} placeholder="e.g. Revenue" />
-            </div>
-          ) : null}
           {draft.kind === "text" ? (
             <div className="flex flex-col gap-1.5">
-              <Label htmlFor="tile-text">Content</Label>
+              <FieldLabel htmlFor="tile-text" label="Content" tip={KIND_TIPS.text} />
               <Textarea id="tile-text" ref={textarea} value={draft.text ?? ""} placeholder="Content to display" className="min-h-16 text-xs" onChange={(event) => { patch({ text: event.target.value }); }} />
-              <p className="text-muted">Use {"{{column_name}}"} to insert a value, or arithmetic like {"{{round(won / total * 100, 1)}}"}.</p>
               {columnNames.length > 0 ? (
                 <div className="flex flex-wrap items-center gap-1">
                   <span className="text-[10px] text-muted">Columns</span>
@@ -246,15 +262,13 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
             </div>
           ) : null}
           {draft.kind === "image" || draft.kind === "gif" ? (
-            <Field label={draft.kind === "gif" ? "GIF URL" : "Image URL"} value={draft.url ?? ""} onChange={(v) => { patch({ url: v }); }} placeholder="https://example.com/image.png" description="Use {{column_name}} to build the URL from query values." mono />
+            <Field label={draft.kind === "gif" ? "GIF URL" : "Image URL"} value={draft.url ?? ""} onChange={(v) => { patch({ url: v }); }} placeholder="https://example.com/image.png" tip={KIND_TIPS.image} mono />
           ) : null}
-          {draft.kind === "sankey" ? <p className="text-muted">The first three columns are read as source, target, and value. Each row is a flow from source to target; duplicate pairs are summed.</p> : null}
-          {draft.kind === "map" ? <p className="text-muted">Return lat and lon columns plus an optional label column. Drag to pan; Ctrl or ⌘ with the wheel, or the buttons, to zoom.</p> : null}
-          {draft.kind === "table" ? <p className="font-mono text-muted">SELECT * FROM table LIMIT 100</p> : null}
-        </Section>
+        </Section> : null}
 
         {isChart ? (
-          <Section title="Presentation">
+          <div className="border-b border-border px-2.5 py-1.5 text-xs">
+            <Disclosure label="Formatting" count={draft.kind === "pie" ? 2 : 4} defaultOpen={hasFormatting(draft)} tip="Legend, value format and axis labels.">
             <Row label="Legend">
               <AppSelect ariaLabel="Legend" size="sm" className="w-36" value={draft.legendMode} options={LEGEND_MODES} onChange={(legendMode) => { patch({ legendMode }); }} />
             </Row>
@@ -267,7 +281,14 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
                 <AppSelect ariaLabel="Currency" size="sm" className="w-36" value={draft.currency} options={CURRENCY_OPTIONS} onChange={(currency) => { patch({ currency }); }} />
               </Row>
             ) : null}
-          </Section>
+            {draft.kind === "line" || draft.kind === "area" || draft.kind === "bar" ? (
+              <div className="flex items-end gap-2">
+                <Field label="X label" value={draft.xLabel ?? ""} onChange={(v) => { patch({ xLabel: v.length > 0 ? v : null }); }} placeholder="e.g. Month" />
+                <Field label="Y label" value={draft.yLabel ?? ""} onChange={(v) => { patch({ yLabel: v.length > 0 ? v : null }); }} placeholder="e.g. Revenue" />
+              </div>
+            ) : null}
+            </Disclosure>
+          </div>
         ) : null}
 
         <div className="flex h-60 shrink-0 flex-col border-b border-border">
@@ -279,7 +300,16 @@ export function TileInspector({ dashboardId, widget, isNew, connectionId, engine
               <Icon name="play" size={12} />
               Run Query
             </Button>
-            {variables.length > 0 ? <span className="truncate text-[11px] text-muted" title={variableTokens(variables).map((t) => `{{${t.token}}}`).join("  ")}>Variables: {variableTokens(variables).slice(0, 3).map((t) => `{{${t.token}}}`).join(" ")}{variableTokens(variables).length > 3 ? " …" : ""}</span> : null}
+            {variables.length > 0 ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span tabIndex={0} className="truncate rounded-sm text-[11px] text-muted outline-none focus-visible:ring-2 focus-visible:ring-ring/50">
+                    Variables: {tokens.slice(0, 3).join(" ")}{tokens.length > 3 ? " …" : ""}
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-72 font-mono">{tokens.join("  ")}</TooltipContent>
+              </Tooltip>
+            ) : null}
             {rows ? <span className="ml-auto shrink-0 text-[11px] text-muted">{formatCount(rows.rows.length)} row{rows.rows.length === 1 ? "" : "s"}, {formatMs(outcome?.elapsedMs ?? 0)}</span> : null}
           </div>
           {shown?.error ? <p className="border-t border-border px-2.5 py-1 text-[11px] break-words text-danger">{shown.error}</p> : null}

@@ -149,7 +149,7 @@ export function SlippyMap({ points, tint, pulse, basemap, hint }: { points: read
           onError={(event) => { event.currentTarget.style.visibility = "hidden"; }}
         />
       ))}
-      {markers.map(({ index, p, at }) => (
+      {markers.map(({ index, at }) => (
         <span
           key={index}
           className="absolute"
@@ -158,7 +158,7 @@ export function SlippyMap({ points, tint, pulse, basemap, hint }: { points: read
           onPointerLeave={() => { setHover((h) => (h === index ? null : h)); }}
         >
           {pulse ? <span className="absolute inset-0 -m-1.5 animate-ping rounded-full opacity-40" style={{ background: tint }} /> : null}
-          <span className="relative block size-3 rounded-full border-2" style={{ background: tint, borderColor: "var(--surface)" }} title={p.label.length > 0 ? p.label : `${p.lat.toFixed(3)}, ${p.lon.toFixed(3)}`} />
+          <span className="relative block size-3 rounded-full border-2" style={{ background: tint, borderColor: "var(--surface)" }} />
         </span>
       ))}
       {hovered ? (

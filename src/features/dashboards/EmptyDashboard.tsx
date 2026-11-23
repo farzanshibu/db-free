@@ -1,6 +1,7 @@
 // SOT: empty-dashboard-state, dashboard-ai-prompt-box
 import { useState } from "react";
 import { Icon } from "@/lib/icons";
+import { WithTip } from "@/components/global/InfoTip";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 
@@ -28,10 +29,9 @@ export function EmptyDashboard({ canAsk, onAsk }: { canAsk: boolean; onAsk: (pro
         <div className="absolute inset-1.5 rounded-md border border-dashed border-muted/50" />
         <div className="absolute right-3 bottom-2.5 size-2.5 rounded-full bg-accent/70" />
       </div>
-      <div className="flex flex-col gap-1">
-        <p className="text-xs font-medium text-foreground">Click and drag on the grid to add a tile</p>
-        <p className="text-xs text-muted">Give it a SQL query and pick a chart type.</p>
-      </div>
+      <WithTip tip="Click and drag on the grid (or use Add tile) to draw a tile, then give it a SQL query and pick a chart type." tipLabel="About adding tiles">
+        <p className="text-xs font-medium text-foreground">Drag on the grid to add a tile</p>
+      </WithTip>
       {canAsk ? (
         <div className="relative w-full">
           <Textarea

@@ -8,6 +8,7 @@ import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { useLibrary } from "@/stores/library";
 import { IconButton } from "@/components/global/Button";
 import { useContextMenu, type MenuEntry } from "@/components/global/ContextMenu";
+import { EmptyState } from "@/components/global/EmptyState";
 import { Segmented } from "@/components/global/Field";
 import { Icon, type IconName } from "@/lib/icons";
 import { cn } from "@/lib/cn";
@@ -18,10 +19,10 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { ConfirmDeleteDialog, ConnectionPickerDialog, MoveToFolderDialog, NameDialog } from "./LibraryDialogs";
 import { LibraryTreeView, type ItemRowContext } from "./LibraryTree";
 
-const META: Record<DocumentKind, { title: string; singular: string; icon: IconName; empty: string }> = {
-  dashboard: { title: "Dashboards", singular: "dashboard", icon: "columns", empty: "No dashboards yet. Create one to chart query results." },
-  workflow: { title: "Workflows", singular: "workflow", icon: "play", empty: "No workflows yet. Chain SQL steps and run them in order." },
-  diagram: { title: "Schema Diagrams", singular: "diagram", icon: "view", empty: "No diagrams yet. Design tables and relations on a canvas." },
+const META: Record<DocumentKind, { title: string; singular: string; icon: IconName; empty: string; emptyTip: string }> = {
+  dashboard: { title: "Dashboards", singular: "dashboard", icon: "columns", empty: "No dashboards", emptyTip: "A dashboard charts query results as tiles." },
+  workflow: { title: "Workflows", singular: "workflow", icon: "play", empty: "No workflows", emptyTip: "A workflow chains SQL steps and runs them in order." },
+  diagram: { title: "Schema Diagrams", singular: "diagram", icon: "view", empty: "No diagrams", emptyTip: "A diagram designs tables and relations on a canvas." },
 };
 
 function emptyBody(kind: DocumentKind): DocumentBody {
@@ -239,9 +240,20 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
       </div>
       <ScrollArea className="min-h-0 flex-1 px-1.5 py-1">
         {empty ? (
-          <p className="px-2.5 py-1.5 text-xs text-muted">{meta.empty}</p>
+          <EmptyState
+            size="inline"
+            icon={meta.icon}
+            title={meta.empty}
+            tip={meta.emptyTip}
+            action={
+              <Button size="sm" variant="secondary" onClick={() => void create(null)}>
+                <Icon name="plus" size={12} />
+                New {meta.singular}
+              </Button>
+            }
+          />
         ) : tree.count === 0 && tree.folders.length === 0 ? (
-          <p className="px-2.5 py-1.5 text-xs text-muted">Nothing for this connection yet. Switch to “All” to see every {meta.singular}.</p>
+          <p className="px-2.5 py-1.5 text-xs text-muted">None on this connection; pick “All”.</p>
         ) : null}
         <LibraryTreeView
           tree={tree}
@@ -296,7 +308,7 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
       {dialog?.kind === "delete-folder" ? (
         <ConfirmDeleteDialog
           title={`Delete folder “${dialog.folder.name}”?`}
-          body={`The folder is removed; everything inside it moves up one level. No ${meta.singular} is deleted.`}
+          body={`Its contents move up one level; no ${meta.singular} is deleted.`}
           confirmLabel="Delete folder"
           onConfirm={() => library.getState().deleteFolder(dialog.folder.id)}
           onClose={() => setDialog(null)}
@@ -327,7 +339,7 @@ export function DocumentsPanel({ kind }: { kind: DocumentKind }) {
       {dialog?.kind === "copy" ? (
         <ConnectionPickerDialog
           title={`Copy “${dialog.doc.name}” to a connection`}
-          description={`A copy of this ${meta.singular} is made on the connection you pick. The original stays where it is.`}
+          description="The original stays where it is."
           exclude={dialog.doc.connectionId}
           onPick={async (targetConnectionId) => {
             const copy = await ipc("duplicate_document", { id: dialog.doc.id, targetConnectionId });

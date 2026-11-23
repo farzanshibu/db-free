@@ -1,11 +1,12 @@
 // SOT: pubsub-tab, channel-list, publish-form
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ipc, normalizeError } from "@/lib/ipc";
 import { formatCell } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
-import { Field } from "@/components/global/Field";
+import { Field, FieldLabel } from "@/components/global/Field";
+import { InfoTip } from "@/components/global/InfoTip";
 import { EmptyState } from "@/components/global/EmptyState";
 import { ObjectRow, useObjects } from "@/features/objects/ObjectList";
 import { ToolBody, ToolShell } from "./ToolShell";
@@ -24,6 +25,7 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
   const invalidateObjects = useWorkspace((s) => s.invalidateObjects);
   const [refreshKey, setRefreshKey] = useState(0);
   const { objects, error: listError, loading } = useObjects(connectionId, "channel", null, true, refreshKey);
+  const messageId = useId();
   const [channel, setChannel] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -66,8 +68,8 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
           <>
             <Field label="Channel" value={channel} onChange={setChannel} placeholder="events:orders" mono />
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted">Message</span>
-              <Textarea aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} spellCheck={false} className="min-h-24 font-mono text-xs" placeholder='{"order": 42, "status": "paid"}' />
+              <FieldLabel htmlFor={messageId} label="Message" />
+              <Textarea id={messageId} aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} spellCheck={false} className="min-h-24 font-mono text-xs" placeholder='{"order": 42, "status": "paid"}' />
             </div>
             <Button onClick={() => void publish()} disabled={running}>
               {running ? <Spinner size="sm" /> : <Icon name="send" size={13} />}
@@ -90,14 +92,17 @@ export function PubSubTab({ connectionId }: { connectionId: string }) {
       >
         <div className="flex h-full min-h-0 flex-col">
           <div className="flex h-7 shrink-0 items-center gap-2 border-b border-border/40 px-2.5 text-[11px] text-muted">
-            Active channels {loading ? <Spinner size="sm" /> : null}
-            <span className="ml-auto">Subscribers are counted server-side; a channel appears once someone subscribes.</span>
+            Active channels
+            <InfoTip label="About active channels" side="bottom">
+              Subscribers are counted server-side; a channel appears once someone subscribes.
+            </InfoTip>
+            {loading ? <Spinner size="sm" /> : null}
           </div>
           <ScrollArea className="min-h-0 flex-1 p-2">
             {listError !== null ? (
               <EmptyState icon="alert" title="Could not list channels" body={listError} />
             ) : objects !== null && objects.length === 0 ? (
-              <EmptyState icon="rss" title="No active channels" body="Nothing is subscribed right now. Publish anyway: Redis delivers to whoever is listening." />
+              <EmptyState icon="rss" size="inline" title="No active channels" tip="Nothing is subscribed right now. Publish anyway: Redis delivers to whoever is listening." />
             ) : (
               (objects ?? []).map((o) => <ObjectRow key={o.reference.name} connectionId={connectionId} object={o} onSelect={(ref) => setChannel(ref.name)} />)
             )}

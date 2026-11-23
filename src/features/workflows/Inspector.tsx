@@ -6,6 +6,7 @@ import { Icon } from "@/lib/icons";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { BranchForm, DelayForm, FilterForm, GateForm, NoteForm, RepeatForm, ScheduleForm } from "./forms/FlowForms";
 import { HttpForm, QueryForm, ReadFileForm } from "./forms/DataForms";
 import { EmailForm, NotificationForm, SlackForm } from "./forms/NotifyForms";
@@ -42,7 +43,7 @@ export function Inspector({ node, workflowConnectionId, columns, update, preview
   const context: FormContext = { node, workflowConnectionId, columns, runNode: onRun };
 
   return (
-    <aside className="flex w-[360px] shrink-0 flex-col border-l border-border bg-surface" aria-label={`${spec.label} settings`}>
+    <aside className="flex h-full min-h-0 flex-col border-l border-border bg-surface" aria-label={`${spec.label} settings`}>
       <div className="flex flex-col gap-2 border-b border-border px-2.5 py-1.5">
         <div className="flex items-center gap-2">
           <span className="flex size-7 shrink-0 items-center justify-center rounded-md" style={{ background: `color-mix(in oklch, var(--color-conn-${spec.color}) 20%, transparent)`, color: `var(--color-conn-${spec.color})` }}>
@@ -64,18 +65,22 @@ export function Inspector({ node, workflowConnectionId, columns, update, preview
                 Stop
               </Button>
             ) : (
-              <Button
-                size="sm"
-                onClick={() => {
-                  setTab("output");
-                  onRun();
-                }}
-              >
-                <Icon name="play" size={12} />
-                Run node
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      setTab("output");
+                      onRun();
+                    }}
+                  >
+                    <Icon name="play" size={12} />
+                    Run node
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Runs this node and everything before it.</TooltipContent>
+              </Tooltip>
             )}
-            <span className="text-[11px] text-muted">Runs this node and everything before it.</span>
           </div>
         ) : null}
         <Segmented
@@ -99,7 +104,7 @@ export function Inspector({ node, workflowConnectionId, columns, update, preview
                   checked={node.continueOnError}
                   onChange={(continueOnError) => { onChange({ ...node, continueOnError }); }}
                   label="Keep going if this node fails"
-                  description="The run carries on with an empty result from this node. The failure is still reported."
+                  tip="The run carries on with an empty result from this node. The failure is still reported."
                 />
               ) : null}
             </>

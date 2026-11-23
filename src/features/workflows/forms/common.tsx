@@ -2,6 +2,7 @@
 import { useId, type ReactNode } from "react";
 import type { NodeSecret, WorkflowNode } from "@/lib/bindings";
 import { Icon } from "@/lib/icons";
+import { InfoTip } from "@/components/global/InfoTip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -35,16 +36,34 @@ export function Section({ title, children }: { title: string; children: ReactNod
   );
 }
 
-// WHAT:  The placeholder syntax, as a short reminder under a templated field.
+// WHAT:  A short label under a node form with how the node behaves in a tip.
+// WHY:   The refresh keeps each form to its fields; the paragraph that used to
+//        sit under them (matching rules, what the code receives…) is one hover away.
+export function HowTip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <p className="flex items-center gap-1 text-[11px] text-muted">
+      {label}
+      <InfoTip label={`About ${label.toLowerCase()}`}>{children}</InfoTip>
+    </p>
+  );
+}
+
+// WHAT:  The placeholder syntax, as a one-word reminder under a templated field
+//        with the detail in a tip.
+// WHY:   Every templated form used to carry a paragraph of syntax; the refresh
+//        keeps the form to its fields and puts the "how" one hover away.
 export function TemplateHint({ children }: { children?: ReactNode }) {
   return (
-    <p className="text-[11px] leading-relaxed text-muted">
-      {children ?? (
-        <>
-          Use <code className="font-mono text-foreground">{"{{column}}"}</code> for a value from the first input row,{" "}
-          <code className="font-mono text-foreground">{"{{rows.table}}"}</code> for all of them.
-        </>
-      )}
+    <p className="flex items-center gap-1 text-[11px] text-muted">
+      <code className="font-mono">{"{{…}}"}</code>
+      Placeholders
+      <InfoTip label="About placeholders">
+        {children ?? (
+          <>
+            Use <code className="font-mono">{"{{column}}"}</code> for a value from the first input row, <code className="font-mono">{"{{rows.table}}"}</code> for all of them.
+          </>
+        )}
+      </InfoTip>
     </p>
   );
 }

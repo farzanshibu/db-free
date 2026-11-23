@@ -5,12 +5,15 @@ import type { Document, NodeConfig, WorkflowBody, WorkflowEdge, WorkflowNode, Wo
 import { ipc, normalizeError } from "@/lib/ipc";
 import { useWorkspace } from "@/stores/workspace";
 import { AppSelect } from "@/components/global/Field";
-import { IconButton } from "@/components/global/Button";
+import { isMac } from "@/components/global/Kbd";
+import { SplitLayout } from "@/components/global/Layout";
+import { ToolbarActions } from "@/components/global/Toolbar";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { EmptyCanvas } from "./EmptyCanvas";
 import { connectionOptions } from "./forms/DataForms";
 import { Inspector } from "./Inspector";
@@ -323,12 +326,38 @@ function WorkflowEditor({ doc }: { doc: Document }) {
         }
       }}
     >
-      <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex app-toolbar shrink-0 flex-wrap items-center gap-2 border-b border-border bg-surface">
+      <SplitLayout
+        side="right"
+        defaultSize={360}
+        min={300}
+        max={720}
+        storageKey="db-free:workflows-inspector-width"
+        collapsed={selected === null}
+        resizeLabel="Resize node panel"
+        panel={
+          selected !== null ? (
+            <Inspector
+              key={selected.id}
+              node={selected}
+              workflowConnectionId={state.connectionId}
+              columns={inputColumns}
+              update={view.nodes[selected.id] ?? null}
+              previews={view.outputs[selected.id] ?? []}
+              running={view.running}
+              onChange={patchNode}
+              onRun={() => void run(selected.id)}
+              onStop={stop}
+              onDelete={() => { deleteItems([selected.id], []); }}
+            />
+          ) : null
+        }
+      >
+      <div className="flex h-full min-w-0 flex-1 flex-col">
+        <div className="@container flex app-toolbar shrink-0 items-center gap-2 border-b border-border bg-surface whitespace-nowrap">
           <Input
             value={state.name}
             onChange={(event) => { update((s) => ({ ...s, name: event.target.value })); }}
-            className="h-6 w-48 rounded-md bg-transparent text-xs text-foreground"
+            className="h-6 w-28 min-w-0 shrink rounded-md bg-transparent text-xs text-foreground @2xl:w-48"
             aria-label="Workflow name"
           />
           <AppSelect
@@ -337,7 +366,7 @@ function WorkflowEditor({ doc }: { doc: Document }) {
             options={connectionOptions(connections, "").map((o) => (o.value === "" ? { value: "", label: "Pick a connection" } : o))}
             onChange={(connectionId) => { update((s) => ({ ...s, connectionId })); }}
             size="sm"
-            className="w-44"
+            className="w-32 min-w-0 shrink @2xl:w-44"
             icon="database"
           />
           <NodePicker onPick={(kind) => void addNode(kind)} />
@@ -352,27 +381,41 @@ function WorkflowEditor({ doc }: { doc: Document }) {
               Run all
             </Button>
           )}
-          {view.running ? <Badge variant="soft">Running…</Badge> : null}
-          <div className="ml-auto flex items-center gap-1.5">
+          {view.running ? <Badge variant="soft" className="hidden @xl:inline-flex">Running…</Badge> : null}
+          <div className="ml-auto flex shrink-0 items-center gap-1.5">
             {hasSchedule ? (
-              <Button
-                size="sm"
-                variant={state.schedulesActive ? "soft" : "secondary"}
-                aria-pressed={state.schedulesActive}
-                title={state.schedulesActive ? "Scheduled fires run, even with this tab closed. Click to pause." : "Scheduled fires are ignored. Click to activate."}
-                onClick={toggleSchedules}
-              >
-                <span className={cn("size-1.5 rounded-full", state.schedulesActive ? "bg-success" : "bg-muted/60")} />
-                Schedules {state.schedulesActive ? "active" : "paused"}
-              </Button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant={state.schedulesActive ? "soft" : "secondary"}
+                    aria-pressed={state.schedulesActive}
+                    aria-label={`Schedules ${state.schedulesActive ? "active" : "paused"}`}
+                    onClick={toggleSchedules}
+                  >
+                    <span className={cn("size-1.5 rounded-full", state.schedulesActive ? "bg-success" : "bg-muted/60")} />
+                    <span className="hidden @3xl:inline">Schedules {state.schedulesActive ? "active" : "paused"}</span>
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{state.schedulesActive ? "Scheduled fires run, even with this tab closed. Click to pause." : "Scheduled fires are ignored. Click to activate."}</TooltipContent>
+              </Tooltip>
             ) : null}
-            <IconButton icon="layers" label="Tidy up layout" disabled={nodeCount < 2} onClick={tidy} />
-            <span className="px-1 text-[11px] text-muted" aria-live="polite">
+            <ToolbarActions
+              foldBelow="xl"
+              menuLabel="More workflow actions"
+              actions={[{ id: "tidy", label: "Tidy up layout", icon: "layers", disabled: nodeCount < 2, priority: "wide", onSelect: tidy }]}
+            />
+            <span className="sr-only px-1 text-[11px] text-muted @2xl:not-sr-only" aria-live="polite">
               {saveStatus}
             </span>
-            <Button size="sm" variant="secondary" disabled={!state.dirty || saving} onClick={() => void saveRef.current()}>
-              Save
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="sm" variant="secondary" disabled={!state.dirty || saving} onClick={() => void saveRef.current()}>
+                  Save{state.dirty ? <span className="@2xl:hidden"> *</span> : null}
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>{saveStatus} · {isMac() ? "⌘S" : "Ctrl+S"}</TooltipContent>
+            </Tooltip>
           </div>
         </div>
         <div className="relative min-h-0 flex-1">
@@ -398,21 +441,7 @@ function WorkflowEditor({ doc }: { doc: Document }) {
           ) : null}
         </div>
       </div>
-      {selected !== null ? (
-        <Inspector
-          key={selected.id}
-          node={selected}
-          workflowConnectionId={state.connectionId}
-          columns={inputColumns}
-          update={view.nodes[selected.id] ?? null}
-          previews={view.outputs[selected.id] ?? []}
-          running={view.running}
-          onChange={patchNode}
-          onRun={() => void run(selected.id)}
-          onStop={stop}
-          onDelete={() => { deleteItems([selected.id], []); }}
-        />
-      ) : null}
+      </SplitLayout>
     </div>
   );
 }

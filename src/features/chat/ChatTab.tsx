@@ -14,6 +14,8 @@ import { engineMeta } from "@/lib/engines";
 import { readStored, writeStored } from "@/lib/storage";
 import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
+import { InfoTip, WithTip } from "@/components/global/InfoTip";
+import { SplitLayout } from "@/components/global/Layout";
 import { Icon } from "@/lib/icons";
 import { cn } from "@/lib/cn";
 import { Markdown, type CodeRunner } from "./Markdown";
@@ -51,6 +53,7 @@ import { Message, MessageContent } from "@/components/ui/message";
 import { PromptInput, PromptInputBody, PromptInputSubmit, PromptInputToolbar } from "@/components/ui/prompt-input";
 import { Spinner } from "@/components/ui/spinner";
 import { Suggestion, Suggestions } from "@/components/ui/suggestion";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 // WHAT:  Conversation with the connected database, driven by the agent loop.
 // WHY:   The old chat sent the whole schema with every message, waited in
@@ -149,6 +152,7 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
   const [stored, setStored] = useState<ModelChoice | null>(() => storedChoice(settings));
   const [poll, setPoll] = useState<{ chatId: string; ticks: number }>({ chatId: "", ticks: 0 });
   const [welcome, setWelcome] = useState<boolean>(() => shouldWelcome(settings));
+  const [historyOpen, setHistoryOpen] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   // The listener is registered once and reads the live run through this ref, so
@@ -654,6 +658,26 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
               Stop
             </Button>
           ) : null}
+          <IconButton
+            icon="history"
+            label="Chat history"
+            active={historyOpen}
+            onClick={() => { setHistoryOpen((open) => !open); }}
+            size={14}
+          />
+          <IconButton icon="plus" label="New chat" disabled={busy || messages.length === 0} onClick={newChat} size={14} />
+        </div>
+      </div>
+
+      <SplitLayout
+        side="left"
+        defaultSize={260}
+        min={200}
+        max={420}
+        storageKey="db-free:chat-history-width"
+        resizeLabel="Resize chat history"
+        collapsed={!historyOpen}
+        panel={
           <ChatHistory
             chats={chats}
             activeId={chatId}
@@ -662,266 +686,284 @@ export function ChatTab({ connectionId }: { connectionId: string }) {
             onNew={newChat}
             onRename={renameChat}
             onDelete={deleteChat}
+            onClose={() => { setHistoryOpen(false); }}
           />
-          <IconButton icon="plus" label="New chat" disabled={busy || messages.length === 0} onClick={newChat} size={14} />
-        </div>
-      </div>
-
-      {!aiConfigured ? (
-        <div className="p-2.5">
-          <Alert variant="warning" className="rounded-lg border-warning/30 glass-modal">
-            <AlertIndicator />
-            <AlertContent>
-              <AlertTitle className="text-xs font-semibold">
-                {dataAccess === "off" ? "The assistant is turned off" : "No AI provider configured"}
-              </AlertTitle>
-              <AlertDescription className="text-xs text-muted">
-                {dataAccess === "off"
-                  ? "Turn it on in Settings → AI to chat with this database."
-                  : "Add a provider and key in Settings to chat with this database."}
-              </AlertDescription>
-            </AlertContent>
-            <Button
-              size="sm"
-              variant="secondary"
-              onClick={() => { goSettingsSection("ai"); }}
-              className="ml-auto glass-pill text-xs"
-            >
-              Open Settings
-            </Button>
-          </Alert>
-        </div>
-      ) : null}
-
-      {/* Thread */}
-      <Conversation>
-        {restoring ? (
-          <div className="flex flex-1 items-center justify-center p-4">
-            <Spinner size="sm" />
-          </div>
-        ) : messages.length === 0 ? (
-          <ConversationEmptyState
-            icon={
-              <div className="flex size-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
-                <Icon name="sparkles" size={18} />
-              </div>
-            }
-            title={`${greeting()} — ask about ${connection.name}`}
-            description={
-              dataAccess === "schema"
-                ? `I can read the schema and write ${meta.commandLanguage} for you to run. I never see your rows, and I ask before saving anything.`
-                : `I can read the schema, sample rows, run ${meta.commandLanguage} and draw charts. I look things up rather than guessing, and I ask before changing anything.`
-            }
-          >
-            <Suggestions className="mt-5">
-              {suggestions.length > 0
-                ? suggestions.map((suggestion) => (
-                    <Suggestion
-                      key={suggestion.label}
-                      suggestion={suggestion.label}
-                      onSelect={() => { void send(suggestion.prompt, [suggestion.mention]); }}
-                    />
-                  ))
-                : GENERIC_STARTERS.map((starter) => (
-                    <Suggestion key={starter.label} suggestion={starter.label} onSelect={() => { void send(starter.prompt, []); }} />
-                  ))}
-            </Suggestions>
-            <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
-              {(
-                [
-                  { label: "Build a dashboard", icon: "chart-bar", prompt: emptyDashboardPrompt() },
-                  { label: "Create a workflow", icon: "flow", prompt: emptyWorkflowPrompt() },
-                  { label: "Draw a diagram", icon: "chart-relationship", prompt: emptyDiagramPrompt() },
-                ] as const
-              ).map((starter) => (
-                <Button
-                  key={starter.label}
-                  size="sm"
-                  variant="tertiary"
-                  className="gap-1.5 rounded-md px-2 text-[11px]"
-                  disabled={!aiConfigured}
-                  onClick={() => { void send(starter.prompt, []); }}
-                >
-                  <Icon name={starter.icon} size={12} />
-                  {starter.label}
-                </Button>
-              ))}
-              {tables.length > 3 ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  className="gap-1.5 rounded-md px-2 text-[11px] text-muted"
-                  onClick={() => { setSeed((s) => s + 1); }}
-                >
-                  <Icon name="refresh" size={11} />
-                  More ideas
-                </Button>
-              ) : null}
-            </div>
-          </ConversationEmptyState>
-        ) : (
-          <ConversationContent>
-            {messages.map((message) =>
-              message.kind === "user" ? (
-                <Message key={message.id} from="user">
-                  <MessageContent from="user">
-                    <UserText text={message.text} mentions={message.mentions} />
-                  </MessageContent>
-                </Message>
-              ) : (
-                <Message key={message.id} from="assistant">
-                  <MessageContent from="assistant" variant="flat">
-                    <ToolTrace calls={message.calls} />
-
-                    {message.thinking.length > 0 && message.text.length === 0 ? (
-                      <p className="mb-1.5 text-[11px] text-muted italic">{message.thinking.slice(-300)}</p>
-                    ) : null}
-
-                    {message.text.length > 0 ? (
-                      <Markdown
-                        text={message.text}
-                        language={meta.commandLanguage}
-                        streaming={message.streaming}
-                        onCopy={copy}
-                        onOpen={runInEditor}
-                        {...(runner !== undefined ? { runner } : {})}
-                      />
-                    ) : message.streaming && message.calls.length === 0 ? (
-                      <div className="flex items-center gap-2 text-muted">
-                        <div className="flex size-5 animate-pulse items-center justify-center rounded bg-accent/15 text-accent">
-                          <Icon name="sparkles" size={11} />
-                        </div>
-                        <span className="animate-pulse text-xs">Thinking…</span>
-                      </div>
-                    ) : null}
-
-                    {message.artifacts.map((artifact) => (
-                      <ArtifactView
-                        key={artifact.id}
-                        artifact={artifact}
-                        language={meta.commandLanguage}
-                        engine={connection.engine}
-                        connectionId={connection.id}
-                        onOpen={runInEditor}
-                      />
-                    ))}
-
-                    {permission !== null && message.runId === runId ? (
-                      <PermissionPrompt request={permission} onDecide={decide} />
-                    ) : null}
-
-                    {message.error !== null ? (
-                      <div className="mt-1.5 rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">
-                        {message.error}
-                      </div>
-                    ) : null}
-
-                    {stopNote(message.stop, message.steps) !== null ? (
-                      <p className="mt-1 text-[10.5px] text-muted">{stopNote(message.stop, message.steps)}</p>
-                    ) : null}
-
-                    {message.stop === "max_steps" && !message.streaming && !busy && message.id === messages.at(-1)?.id ? (
-                      <div className="mt-1 flex items-center gap-1.5">
-                        <Button size="sm" variant="soft" disabled={!aiConfigured || restoring} onClick={() => { void continueRun(); }}>
-                          <Icon name="play" size={11} />
-                          Continue
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="text-muted"
-                          onClick={() => { goSettingsSection("ai"); }}
-                        >
-                          Change the limit ({settings?.ai.maxSteps ?? 12} steps)
-                        </Button>
-                      </div>
-                    ) : null}
-
-                    {!message.streaming && message.model !== null ? (
-                      <p className="mt-1 font-mono text-[10px] text-muted/70">{message.model}</p>
-                    ) : null}
-                  </MessageContent>
-                </Message>
-              ),
-            )}
-            {waiting ? (
-              <div className="flex items-center gap-2 px-1 text-[11px] text-muted">
-                <Spinner size="sm" />
-                Waiting for the answer…
-              </div>
-            ) : null}
-            <div ref={endRef} />
-          </ConversationContent>
-        )}
-      </Conversation>
-
-      {/* Composer */}
-      <div className="shrink-0 border-t border-border/40 px-2.5 py-1.5 glass-header sm:px-3">
-        {mentions.length > 0 ? (
-          <div className="mx-auto mb-1.5 flex w-full max-w-3xl flex-wrap items-center gap-1">
-            <span className="text-[10px] text-muted">Referencing</span>
-            {mentions.map((mention) => (
-              <span
-                key={`${mention.kind}:${mention.id}`}
-                title={MENTION_KIND_LABEL[mention.kind]}
-                className="flex items-center gap-1 rounded-md bg-accent/12 px-1.5 py-0.5 font-mono text-[10.5px] text-accent"
+        }
+      >
+        {!aiConfigured ? (
+          <div className="p-2.5">
+            <Alert variant="warning" className="rounded-lg border-warning/30 glass-modal">
+              <AlertIndicator />
+              <AlertContent>
+                <AlertTitle className="text-xs font-semibold">
+                  {dataAccess === "off" ? "The assistant is turned off" : "No AI provider configured"}
+                </AlertTitle>
+                <AlertDescription className="text-xs text-muted">
+                  {dataAccess === "off"
+                    ? "Turn it on in Settings → AI to chat with this database."
+                    : "Add a provider and key in Settings to chat with this database."}
+                </AlertDescription>
+              </AlertContent>
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => { goSettingsSection("ai"); }}
+                className="ml-auto glass-pill text-xs"
               >
-                @{mention.label}
-                <button
-                  type="button"
-                  aria-label={`Stop referencing ${mention.label}`}
-                  className="rounded text-accent/70 hover:text-accent"
-                  onClick={() => {
-                    setMentions((current) => current.filter((m) => !(m.kind === mention.kind && m.id === mention.id)));
-                    setInput((current) => current.split(`@${mention.label}`).join(mention.label));
-                  }}
-                >
-                  <Icon name="x" size={9} />
-                </button>
-              </span>
-            ))}
+                Open Settings
+              </Button>
+            </Alert>
           </div>
         ) : null}
-        <PromptInput
-          onSubmit={(event) => {
-            event.preventDefault();
-            submit();
-          }}
-        >
-          <PromptInputBody>
-            <MentionInput
-              value={input}
-              onChange={setInput}
-              mentions={mentions}
-              onMentionsChange={setMentions}
-              candidates={candidates}
-              placeholder={placeholder}
-              disabled={!aiConfigured || busy}
-            />
-            <PromptInputToolbar className={cn("justify-between", !aiConfigured && "opacity-60")}>
-              {profiles !== undefined && profiles.length > 0 ? (
-                <ModelPicker
-                  profiles={profiles}
-                  value={choice}
-                  onChange={(next) => {
-                    setStored(next);
-                    rememberChoice(next);
-                  }}
-                  disabled={busy || !aiConfigured}
-                />
-              ) : (
-                <span />
+
+        {/* Thread */}
+        <Conversation>
+          {restoring ? (
+            <div className="flex flex-1 items-center justify-center p-4">
+              <Spinner size="sm" />
+            </div>
+          ) : messages.length === 0 ? (
+            <ConversationEmptyState
+              icon={
+                <div className="flex size-9 items-center justify-center rounded-lg bg-accent/15 text-accent">
+                  <Icon name="sparkles" size={18} />
+                </div>
+              }
+              title={`${greeting()} — ask about ${connection.name}`}
+              className="max-w-none w-full px-4"
+              description={
+                <WithTip
+                  tipLabel="What the assistant can do"
+                  tip={
+                    dataAccess === "schema"
+                      ? `I can read the schema and write ${meta.commandLanguage} for you to run. I never see your rows, and I ask before saving anything.`
+                      : `I can read the schema, sample rows, run ${meta.commandLanguage} and draw charts. I look things up rather than guessing, and I ask before changing anything.`
+                  }
+                >
+                  {dataAccess === "schema" ? "Schema only · asks before saving" : "Asks before changing anything"}
+                </WithTip>
+              }
+            >
+              <Suggestions className="mt-5 sm:grid-cols-[repeat(auto-fill,minmax(16rem,1fr))]">
+                {suggestions.length > 0
+                  ? suggestions.map((suggestion) => (
+                      <Suggestion
+                        key={suggestion.label}
+                        suggestion={suggestion.label}
+                        onSelect={() => { void send(suggestion.prompt, [suggestion.mention]); }}
+                      />
+                    ))
+                  : GENERIC_STARTERS.map((starter) => (
+                      <Suggestion key={starter.label} suggestion={starter.label} onSelect={() => { void send(starter.prompt, []); }} />
+                    ))}
+              </Suggestions>
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-1.5">
+                {(
+                  [
+                    { label: "Build a dashboard", icon: "chart-bar", prompt: emptyDashboardPrompt() },
+                    { label: "Create a workflow", icon: "flow", prompt: emptyWorkflowPrompt() },
+                    { label: "Draw a diagram", icon: "chart-relationship", prompt: emptyDiagramPrompt() },
+                  ] as const
+                ).map((starter) => (
+                  <Button
+                    key={starter.label}
+                    size="sm"
+                    variant="tertiary"
+                    className="gap-1.5 rounded-md px-2 text-[11px]"
+                    disabled={!aiConfigured}
+                    onClick={() => { void send(starter.prompt, []); }}
+                  >
+                    <Icon name={starter.icon} size={12} />
+                    {starter.label}
+                  </Button>
+                ))}
+                {tables.length > 3 ? (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="gap-1.5 rounded-md px-2 text-[11px] text-muted"
+                    onClick={() => { setSeed((s) => s + 1); }}
+                  >
+                    <Icon name="refresh" size={11} />
+                    More ideas
+                  </Button>
+                ) : null}
+              </div>
+            </ConversationEmptyState>
+          ) : (
+            <ConversationContent className="max-w-none px-4 sm:px-4">
+              {messages.map((message) =>
+                message.kind === "user" ? (
+                  <Message key={message.id} from="user">
+                    <MessageContent from="user" className="max-w-[min(85%,80ch)]">
+                      <UserText text={message.text} mentions={message.mentions} />
+                    </MessageContent>
+                  </Message>
+                ) : (
+                  <Message key={message.id} from="assistant">
+                    <MessageContent from="assistant" variant="flat">
+                      <ToolTrace calls={message.calls} />
+
+                      {message.thinking.length > 0 && message.text.length === 0 ? (
+                        <p className="mb-1.5 text-[11px] text-muted italic">{message.thinking.slice(-300)}</p>
+                      ) : null}
+
+                      {message.text.length > 0 ? (
+                        <div className="max-w-[80ch]">
+                          <Markdown
+                            text={message.text}
+                            language={meta.commandLanguage}
+                            streaming={message.streaming}
+                            onCopy={copy}
+                            onOpen={runInEditor}
+                            {...(runner !== undefined ? { runner } : {})}
+                          />
+                        </div>
+                      ) : message.streaming && message.calls.length === 0 ? (
+                        <div className="flex items-center gap-2 text-muted">
+                          <div className="flex size-5 animate-pulse items-center justify-center rounded bg-accent/15 text-accent">
+                            <Icon name="sparkles" size={11} />
+                          </div>
+                          <span className="animate-pulse text-xs">Thinking…</span>
+                        </div>
+                      ) : null}
+
+                      {message.artifacts.map((artifact) => (
+                        <ArtifactView
+                          key={artifact.id}
+                          artifact={artifact}
+                          language={meta.commandLanguage}
+                          engine={connection.engine}
+                          connectionId={connection.id}
+                          onOpen={runInEditor}
+                        />
+                      ))}
+
+                      {permission !== null && message.runId === runId ? (
+                        <PermissionPrompt request={permission} onDecide={decide} />
+                      ) : null}
+
+                      {message.error !== null ? (
+                        <div className="mt-1.5 rounded-lg border border-danger/30 bg-danger/10 p-2 text-[11px] text-danger">
+                          {message.error}
+                        </div>
+                      ) : null}
+
+                      {stopNote(message.stop, message.steps) !== null ? (
+                        <p className="mt-1 text-[10.5px] text-muted">{stopNote(message.stop, message.steps)}</p>
+                      ) : null}
+
+                      {message.stop === "max_steps" && !message.streaming && !busy && message.id === messages.at(-1)?.id ? (
+                        <div className="mt-1 flex items-center gap-1.5">
+                          <Button size="sm" variant="soft" disabled={!aiConfigured || restoring} onClick={() => { void continueRun(); }}>
+                            <Icon name="play" size={11} />
+                            Continue
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-muted"
+                            onClick={() => { goSettingsSection("ai"); }}
+                          >
+                            Change the limit ({settings?.ai.maxSteps ?? 12} steps)
+                          </Button>
+                        </div>
+                      ) : null}
+
+                      {!message.streaming && message.model !== null ? (
+                        <p className="mt-1 font-mono text-[10px] text-muted/70">{message.model}</p>
+                      ) : null}
+                    </MessageContent>
+                  </Message>
+                ),
               )}
-              <span className="hidden text-[10px] text-muted sm:inline">Type @ to point at a table, query or dashboard</span>
-            </PromptInputToolbar>
-          </PromptInputBody>
-          <PromptInputSubmit
-            status={busy ? "streaming" : "ready"}
-            onStop={stop}
-            disabled={!aiConfigured || restoring || input.trim().length === 0}
-          />
-        </PromptInput>
-      </div>
+              {waiting ? (
+                <div className="flex items-center gap-2 px-1 text-[11px] text-muted">
+                  <Spinner size="sm" />
+                  Waiting for the answer…
+                </div>
+              ) : null}
+              <div ref={endRef} />
+            </ConversationContent>
+          )}
+        </Conversation>
+
+        {/* Composer */}
+        <div className="shrink-0 border-t border-border/40 px-4 py-1.5 glass-header">
+          {mentions.length > 0 ? (
+            <div className="mb-1.5 flex w-full flex-wrap items-center gap-1">
+              <span className="text-[10px] text-muted">Referencing</span>
+              {mentions.map((mention) => (
+                <span
+                  key={`${mention.kind}:${mention.id}`}
+                  className="flex items-center gap-1 rounded-md bg-accent/12 px-1.5 py-0.5 font-mono text-[10.5px] text-accent"
+                >
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span>@{mention.label}</span>
+                    </TooltipTrigger>
+                    <TooltipContent>{MENTION_KIND_LABEL[mention.kind]}</TooltipContent>
+                  </Tooltip>
+                  <button
+                    type="button"
+                    aria-label={`Stop referencing ${mention.label}`}
+                    className="rounded text-accent/70 hover:text-accent"
+                    onClick={() => {
+                      setMentions((current) => current.filter((m) => !(m.kind === mention.kind && m.id === mention.id)));
+                      setInput((current) => current.split(`@${mention.label}`).join(mention.label));
+                    }}
+                  >
+                    <Icon name="x" size={9} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : null}
+          <PromptInput
+            className="max-w-none"
+            onSubmit={(event) => {
+              event.preventDefault();
+              submit();
+            }}
+          >
+            <PromptInputBody>
+              <MentionInput
+                value={input}
+                onChange={setInput}
+                mentions={mentions}
+                onMentionsChange={setMentions}
+                candidates={candidates}
+                placeholder={placeholder}
+                disabled={!aiConfigured || busy}
+              />
+              <PromptInputToolbar className={cn("justify-between", !aiConfigured && "opacity-60")}>
+                {profiles !== undefined && profiles.length > 0 ? (
+                  <ModelPicker
+                    profiles={profiles}
+                    value={choice}
+                    onChange={(next) => {
+                      setStored(next);
+                      rememberChoice(next);
+                    }}
+                    disabled={busy || !aiConfigured}
+                  />
+                ) : (
+                  <span />
+                )}
+                <InfoTip label="About mentions" side="top" align="end">
+                  Type @ to point at a table, query or dashboard.
+                </InfoTip>
+              </PromptInputToolbar>
+            </PromptInputBody>
+            <PromptInputSubmit
+              status={busy ? "streaming" : "ready"}
+              onStop={stop}
+              disabled={!aiConfigured || restoring || input.trim().length === 0}
+            />
+          </PromptInput>
+        </div>
+
+      </SplitLayout>
 
       {welcome && settings !== null ? (
         <AiWelcomeDialog

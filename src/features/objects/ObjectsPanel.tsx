@@ -6,6 +6,7 @@ import { Icon } from "@/lib/icons";
 import { useActiveConnection, useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
 import { AppSelect } from "@/components/global/Field";
+import { EmptyState } from "@/components/global/EmptyState";
 import { ConnectionSwitcher } from "@/features/shell/ConnectionSwitcher";
 import { KindNode } from "./ObjectList";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -82,7 +83,12 @@ export function ObjectsPanel() {
             <Skeleton className="h-4 w-5/6 rounded-md" />
           </div>
         ) : sections.length === 0 ? (
-          <p className="px-2.5 py-2 text-xs text-muted">This engine exposes no browsable objects beyond its {kinds.length === 0 ? "data" : "server state (see Server admin)"}.</p>
+          <EmptyState
+            size="inline"
+            icon="layers"
+            title="No objects"
+            tip={`This engine exposes no browsable objects beyond its ${kinds.length === 0 ? "data" : "server state (see Server admin)"}.`}
+          />
         ) : (
           sections.map((section) => (
             <div key={section.id} className="mb-1.5">

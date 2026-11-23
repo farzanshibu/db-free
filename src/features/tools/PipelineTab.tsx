@@ -10,6 +10,7 @@ import { useWorkspace } from "@/stores/workspace";
 import { IconButton } from "@/components/global/Button";
 import { AppSelect, NumberInput } from "@/components/global/Field";
 import { EmptyState } from "@/components/global/EmptyState";
+import { SplitLayout } from "@/components/global/Layout";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { isRows } from "@/features/dashboards/charts";
 import { ToolShell, useCollectionOptions } from "./ToolShell";
@@ -141,60 +142,77 @@ export function PipelineTab({ connectionId }: { connectionId: string }) {
         </>
       }
     >
-      <div className="flex h-full min-h-0">
-        <aside className="flex w-[340px] shrink-0 flex-col border-r border-border/40">
-          <div className="flex items-end gap-2 p-2.5">
-            <div className="min-w-0 flex-1">
-              <AppSelect label="Collection" value={current} options={options} onChange={setCollection} />
+      <SplitLayout
+        side="left"
+        defaultSize={340}
+        min={260}
+        max={640}
+        storageKey="db-free:pipeline-stages-width"
+        resizeLabel="Resize stages panel"
+        panelClassName="border-r border-border/40"
+        panel={
+          <>
+            <div className="flex items-end gap-2 p-2.5">
+              <div className="min-w-0 flex-1">
+                <AppSelect label="Collection" value={current} options={options} onChange={setCollection} />
+              </div>
+              <div className="w-24">
+                <NumberInput label="Batch" integer value={batch} onChange={setBatch} />
+              </div>
             </div>
-            <div className="w-24">
-              <NumberInput label="Batch" integer value={batch} onChange={setBatch} />
-            </div>
-          </div>
-          <ScrollArea className="min-h-0 flex-1 px-2.5">
-            <ol className="flex flex-col gap-2 pb-1.5">
-              {stages.map((stage, i) => (
-                <li key={stage.id} className={cn("rounded-lg glass-card border-border/40 p-2", stage.enabled ? "" : "opacity-50")}>
-                  <div className="mb-1.5 flex items-center gap-1">
-                    <Badge size="sm" variant="soft" className="h-5 min-w-5 px-1 font-mono text-[10px]">
-                      {i + 1}
-                    </Badge>
-                    <div className="w-36">
-                      <AppSelect ariaLabel="Stage operator" size="sm" value={stage.op} options={OPERATORS.map((o) => ({ value: o.value, label: o.label }))} onChange={(op) => update(stage.id, { op, body: stage.body.trim().length === 0 ? (OPERATORS.find((o) => o.value === op)?.template ?? "{}") : stage.body })} />
+            <ScrollArea className="min-h-0 flex-1 px-2.5">
+              <ol className="flex flex-col gap-2 pb-1.5">
+                {stages.map((stage, i) => (
+                  <li key={stage.id} className={cn("rounded-lg glass-card border-border/40 p-2", stage.enabled ? "" : "opacity-50")}>
+                    <div className="mb-1.5 flex items-center gap-1">
+                      <Badge size="sm" variant="soft" className="h-5 min-w-5 px-1 font-mono text-[10px]">
+                        {i + 1}
+                      </Badge>
+                      <div className="w-36">
+                        <AppSelect ariaLabel="Stage operator" size="sm" value={stage.op} options={OPERATORS.map((o) => ({ value: o.value, label: o.label }))} onChange={(op) => update(stage.id, { op, body: stage.body.trim().length === 0 ? (OPERATORS.find((o) => o.value === op)?.template ?? "{}") : stage.body })} />
+                      </div>
+                      <span className="ml-auto flex items-center">
+                        <IconButton icon="arrow-up" label="Move up" disabled={i === 0} onClick={() => move(i, -1)} size={12} className="size-6 min-w-6" />
+                        <IconButton icon="arrow-down" label="Move down" disabled={i === stages.length - 1} onClick={() => move(i, 1)} size={12} className="size-6 min-w-6" />
+                        <IconButton icon={stage.enabled ? "eye" : "eye-off"} label={stage.enabled ? "Disable stage" : "Enable stage"} onClick={() => update(stage.id, { enabled: !stage.enabled })} size={12} className="size-6 min-w-6" />
+                        <IconButton icon="trash" label="Remove stage" onClick={() => setStages((s) => s.filter((st) => st.id !== stage.id))} size={12} className="size-6 min-w-6" />
+                      </span>
                     </div>
-                    <span className="ml-auto flex items-center">
-                      <IconButton icon="arrow-up" label="Move up" disabled={i === 0} onClick={() => move(i, -1)} size={12} className="size-6 min-w-6" />
-                      <IconButton icon="arrow-down" label="Move down" disabled={i === stages.length - 1} onClick={() => move(i, 1)} size={12} className="size-6 min-w-6" />
-                      <IconButton icon={stage.enabled ? "eye" : "eye-off"} label={stage.enabled ? "Disable stage" : "Enable stage"} onClick={() => update(stage.id, { enabled: !stage.enabled })} size={12} className="size-6 min-w-6" />
-                      <IconButton icon="trash" label="Remove stage" onClick={() => setStages((s) => s.filter((st) => st.id !== stage.id))} size={12} className="size-6 min-w-6" />
-                    </span>
-                  </div>
-                  <Textarea aria-label={`${stage.op} body`} value={stage.body} onChange={(e) => update(stage.id, { body: e.target.value })} spellCheck={false} className={cn("min-h-14 font-mono text-xs", parseJson(stage.body) === undefined ? "border-danger" : "")} />
-                </li>
-              ))}
-            </ol>
-          </ScrollArea>
-          <div className="flex items-center gap-2 border-t border-border/40 p-2.5">
-            <div className="w-40">
-              <AppSelect ariaLabel="Add stage" size="sm" value="$match" options={OPERATORS.map((o) => ({ value: o.value, label: `+ ${o.label}` }))} onChange={(op) => setStages((s) => [...s, newStage(op)])} />
+                    <Textarea aria-label={`${stage.op} body`} value={stage.body} onChange={(e) => update(stage.id, { body: e.target.value })} spellCheck={false} className={cn("min-h-14 font-mono text-xs", parseJson(stage.body) === undefined ? "border-danger" : "")} />
+                  </li>
+                ))}
+              </ol>
+            </ScrollArea>
+            <div className="flex items-center gap-2 border-t border-border/40 p-2.5">
+              <div className="w-40">
+                <AppSelect ariaLabel="Add stage" size="sm" value="$match" options={OPERATORS.map((o) => ({ value: o.value, label: `+ ${o.label}` }))} onChange={(op) => setStages((s) => [...s, newStage(op)])} />
+              </div>
+              <Button className="ml-auto" onClick={() => void run()} disabled={running || current.length === 0}>
+                {running ? <Spinner size="sm" /> : <Icon name="play" size={13} />}
+                Run
+              </Button>
             </div>
-            <Button className="ml-auto" onClick={() => void run()} disabled={running || current.length === 0}>
-              {running ? <Spinner size="sm" /> : <Icon name="play" size={13} />}
-              Run
-            </Button>
-          </div>
-          {error !== null ? <p className="px-2.5 pb-1.5 text-xs text-danger">{error}</p> : null}
-        </aside>
-        <div className="min-h-0 min-w-0 flex-1">
-          {result === null ? (
-            <EmptyState icon="flow" title="Pipeline builder" body="Add stages, edit their JSON bodies and run. Disabled stages are skipped, so you can preview the pipeline step by step." />
-          ) : result.columns.length === 0 || result.rows.length === 0 ? (
-            <EmptyState title="No documents" body="The pipeline produced nothing." />
-          ) : (
-            <DataGrid columns={result.columns.map((c) => ({ name: c.name, typeName: c.typeName }))} rowCount={result.rows.length} getRow={(i) => result.rows[i]} rowHeight={DENSITIES[density].rowHeight} />
-          )}
-        </div>
-      </div>
+            {error !== null ? <p className="px-2.5 pb-1.5 text-xs text-danger">{error}</p> : null}
+          </>
+        }
+      >
+        {result === null ? (
+          <EmptyState
+            icon="flow"
+            title="Pipeline builder"
+            tip="Add stages, edit their JSON bodies and run. Disabled stages are skipped, so you can preview the pipeline step by step."
+            action={
+              <Button size="sm" onClick={() => void run()} disabled={running || current.length === 0}>
+                Run
+              </Button>
+            }
+          />
+        ) : result.columns.length === 0 || result.rows.length === 0 ? (
+          <EmptyState title="No documents" />
+        ) : (
+          <DataGrid columns={result.columns.map((c) => ({ name: c.name, typeName: c.typeName }))} rowCount={result.rows.length} getRow={(i) => result.rows[i]} rowHeight={DENSITIES[density].rowHeight} />
+        )}
+      </SplitLayout>
     </ToolShell>
   );
 }
