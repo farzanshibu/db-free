@@ -26,7 +26,7 @@ export function ToolTab({ connectionId, tool }: { connectionId: string; tool: To
     case "erd":
       return <ErdTab connectionId={connectionId} schema={null} />;
     case "key_browser":
-      return <EmptyState icon="hash" title="Key browser" body="Keys are listed in the Tables sidebar; open one to inspect and edit it by type." action={<Button size="sm" onClick={() => setSidebar("tables")}>Show keys</Button>} />;
+      return <EmptyState icon="hash" title="Key browser" tip="Keys are listed in the Tables sidebar; open one to inspect and edit it by type." action={<Button size="sm" onClick={() => setSidebar("tables")}>Show keys</Button>} />;
     case "vector_search":
       return <VectorSearchTab connectionId={connectionId} />;
     case "search_playground":

@@ -1,5 +1,5 @@
 // SOT: vector-search-tab, similarity-search-playground, query-vector-parsing
-import { useState } from "react";
+import { useId, useState } from "react";
 import type { ResultSet } from "@/lib/bindings";
 import type { JsonValue } from "@/lib/bindings/serde_json/JsonValue";
 import { ipc, normalizeError } from "@/lib/ipc";
@@ -7,7 +7,8 @@ import { parseJson } from "@/lib/json";
 import { DENSITIES, formatCount } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
-import { AppSelect, Check, Field, NumberInput } from "@/components/global/Field";
+import { AppSelect, Field, FieldLabel, NumberInput, Toggle } from "@/components/global/Field";
+import { Disclosure } from "@/components/global/Disclosure";
 import { EmptyState } from "@/components/global/EmptyState";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
@@ -46,6 +47,8 @@ export function VectorSearchTab({ connectionId }: { connectionId: string }) {
   const [running, setRunning] = useState(false);
   const [elapsed, setElapsed] = useState<number | null>(null);
   const current = collection.length > 0 ? collection : (options[0]?.value ?? "");
+  const vectorId = useId();
+  const filterId = useId();
 
   const run = async () => {
     const vector = parseVector(vectorText);
@@ -83,18 +86,19 @@ export function VectorSearchTab({ connectionId }: { connectionId: string }) {
           <>
             <AppSelect label="Collection" value={current} options={options} onChange={setCollection} />
             <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted">Query vector</span>
-              <Textarea aria-label="Query vector" value={vectorText} onChange={(e) => setVectorText(e.target.value)} placeholder="[0.12, -0.4, 0.88, …]" spellCheck={false} className="min-h-24 font-mono text-xs" />
+              <FieldLabel htmlFor={vectorId} label="Query vector" tip="A JSON array, or numbers separated by commas or spaces." />
+              <Textarea id={vectorId} aria-label="Query vector" value={vectorText} onChange={(e) => setVectorText(e.target.value)} placeholder="[0.12, -0.4, 0.88, …]" spellCheck={false} className="min-h-24 font-mono text-xs" />
               <span className="text-[11px] text-muted">{parseVector(vectorText)?.length ?? 0} dimensions</span>
             </div>
-            <Field label="Vector name" value={vectorName} onChange={setVectorName} optional placeholder="named vector / field" mono />
             <NumberInput label="Top K" integer value={topK} onChange={setTopK} />
-            <div className="flex flex-col gap-1">
-              <span className="text-[11px] font-medium text-muted">Payload filter</span>
-              <Textarea aria-label="Payload filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder='{ "must": [ { "key": "city", "match": { "value": "Berlin" } } ] }' spellCheck={false} className="min-h-20 font-mono text-xs" />
-              <span className="text-[11px] text-muted">Engine-native filter JSON, optional.</span>
-            </div>
-            <Check label="Include vectors in results" checked={includeVectors} onChange={setIncludeVectors} />
+            <Disclosure variant="inline" label="More options" count={3}>
+              <Field label="Vector name" value={vectorName} onChange={setVectorName} optional placeholder="named vector / field" mono tip="For collections with several named vectors." />
+              <div className="flex flex-col gap-1">
+                <FieldLabel htmlFor={filterId} label="Payload filter" optional tip="The engine's own filter JSON." />
+                <Textarea id={filterId} aria-label="Payload filter" value={filterText} onChange={(e) => setFilterText(e.target.value)} placeholder='{ "must": [ { "key": "city", "match": { "value": "Berlin" } } ] }' spellCheck={false} className="min-h-20 font-mono text-xs" />
+              </div>
+              <Toggle label="Include vectors in results" checked={includeVectors} onChange={setIncludeVectors} tip="Return each hit's stored vector alongside its score and payload." />
+            </Disclosure>
             <Button onClick={() => void run()} disabled={running || current.length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="radar" size={13} />}
               Search
@@ -104,7 +108,16 @@ export function VectorSearchTab({ connectionId }: { connectionId: string }) {
         }
       >
         {result === null ? (
-          <EmptyState icon="radar" title="Similarity search" body="Pick a collection, paste a query vector and search. Hits come back with their score and payload." />
+          <EmptyState
+            icon="radar"
+            title="Similarity search"
+            tip="Pick a collection, paste a query vector and search. Hits come back with their score and payload."
+            action={
+              <Button size="sm" onClick={() => void run()} disabled={running || current.length === 0}>
+                Search
+              </Button>
+            }
+          />
         ) : result.columns.length === 0 ? (
           <EmptyState title="No hits" />
         ) : (

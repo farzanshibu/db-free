@@ -5,8 +5,10 @@ import { ipc, normalizeError } from "@/lib/ipc";
 import { DENSITIES, formatCount } from "@/lib/format";
 import { Icon } from "@/lib/icons";
 import { useWorkspace } from "@/stores/workspace";
-import { AppSelect, Check, Field, NumberInput } from "@/components/global/Field";
+import { AppSelect, Field, NumberInput, Toggle } from "@/components/global/Field";
+import { Disclosure } from "@/components/global/Disclosure";
 import { EmptyState } from "@/components/global/EmptyState";
+import { SplitLayout } from "@/components/global/Layout";
 import { DataGrid } from "@/features/grid/DataGrid";
 import { ToolBody, ToolShell, useCollectionOptions } from "./ToolShell";
 import { Badge } from "@/components/ui/badge";
@@ -84,11 +86,13 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
           <>
             <AppSelect label="Index" value={current} options={options} onChange={setIndex} />
             <Field label="Query" value={query} onChange={setQuery} placeholder="free text, or * for everything" />
-            <Field label="Filter" value={filter} onChange={setFilter} optional placeholder='engine syntax, e.g. price > 10 AND brand = "acme"' mono />
-            <Field label="Facets" value={facets} onChange={setFacets} optional placeholder="brand, category" mono description="Comma-separated field names." />
-            <Field label="Sort" value={sort} onChange={setSort} optional placeholder="price:asc, name:desc" mono />
-            <NumberInput label="Page size" integer value={limit} onChange={setLimit} />
-            <Check label="Highlight matches" checked={highlight} onChange={setHighlight} />
+            <Field label="Filter" value={filter} onChange={setFilter} optional placeholder='price > 10 AND brand = "acme"' mono tip="In the engine's own filter syntax." />
+            <Disclosure variant="inline" label="More options" count={4}>
+              <Field label="Facets" value={facets} onChange={setFacets} optional placeholder="brand, category" mono tip="Comma-separated field names. Their value counts show beside the hits." />
+              <Field label="Sort" value={sort} onChange={setSort} optional placeholder="price:asc, name:desc" mono />
+              <NumberInput label="Page size" integer value={limit} onChange={setLimit} />
+              <Toggle label="Highlight matches" checked={highlight} onChange={setHighlight} />
+            </Disclosure>
             <Button onClick={() => void run(0)} disabled={running || current.length === 0}>
               {running ? <Spinner size="sm" /> : <Icon name="search" size={13} />}
               Search
@@ -98,25 +102,35 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
         }
       >
         {result === null ? (
-          <EmptyState icon="search-list" title="Search playground" body="Pick an index and type a query. Facet counts appear on the right when you ask for facets." />
+          <EmptyState
+            icon="search-list"
+            title="Search playground"
+            tip="Pick an index and type a query. Facet counts appear on the right when you ask for facets (More options)."
+            action={
+              <Button size="sm" onClick={() => void run(0)} disabled={running || current.length === 0}>
+                Search
+              </Button>
+            }
+          />
         ) : (
-          <div className="flex h-full min-h-0">
-            <div className="min-h-0 min-w-0 flex-1">
-              {result.hits.columns.length === 0 || result.hits.rows.length === 0 ? (
-                <EmptyState title="No hits" body="Nothing matched. Loosen the query or the filter." />
-              ) : (
-                <DataGrid columns={result.hits.columns.map((c) => ({ name: c.name, typeName: c.typeName }))} rowCount={result.hits.rows.length} getRow={(i) => result.hits.rows[i]} rowHeight={DENSITIES[density].rowHeight} />
-              )}
-            </div>
-            {result.facets.length > 0 ? (
-              <ScrollArea className="w-60 shrink-0 border-l border-border/40 p-2.5">
+          <SplitLayout
+            side="right"
+            defaultSize={240}
+            min={180}
+            max={480}
+            storageKey="db-free:search-facets-width"
+            resizeLabel="Resize facets panel"
+            collapsed={result.facets.length === 0}
+            panelClassName="border-l border-border/40"
+            panel={
+              <ScrollArea className="min-h-0 flex-1 p-2.5">
                 {result.facets.map((facet) => (
                   <div key={facet.field} className="mb-3">
                     <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-muted">{facet.field}</div>
                     <ul className="flex flex-col gap-0.5">
                       {facet.values.map((v) => (
                         <li key={v.value} className="flex items-center gap-2 text-xs">
-                          <span className="truncate text-foreground">{v.value}</span>
+                          <span className="truncate text-foreground" title={v.value}>{v.value}</span>
                           <Badge size="sm" variant="soft" className="ml-auto h-4 px-1 font-mono text-[9px]">
                             {formatCount(v.count)}
                           </Badge>
@@ -126,8 +140,14 @@ export function SearchTab({ connectionId }: { connectionId: string }) {
                   </div>
                 ))}
               </ScrollArea>
-            ) : null}
-          </div>
+            }
+          >
+            {result.hits.columns.length === 0 || result.hits.rows.length === 0 ? (
+              <EmptyState title="No hits" tip="Loosen the query or the filter." />
+            ) : (
+              <DataGrid columns={result.hits.columns.map((c) => ({ name: c.name, typeName: c.typeName }))} rowCount={result.hits.rows.length} getRow={(i) => result.hits.rows[i]} rowHeight={DENSITIES[density].rowHeight} />
+            )}
+          </SplitLayout>
         )}
       </ToolBody>
     </ToolShell>
