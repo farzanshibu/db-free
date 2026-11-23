@@ -13,6 +13,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogBody, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WithTip } from "@/components/global/InfoTip";
 
 /// The widget kinds the results chart draws: the ones that plot X against Y.
 type ChartKind = Extract<WidgetKind, "bar" | "line" | "area" | "pie">;
@@ -69,7 +71,7 @@ export function ResultChart({ connectionId, sql, result }: { connectionId: strin
     setMapping((m) => ({ ...m, ys: m.ys.includes(y) ? m.ys.filter((i) => i !== y) : [...m.ys, y].sort((a, b) => a - b).slice(0, SERIES_COLORS.length) }));
 
   if (!numeric.some(Boolean)) {
-    return <EmptyState icon="chart" title="Nothing to chart" body="The result has no numeric columns. Return a label column and at least one number." />;
+    return <EmptyState size="inline" icon="chart" title="Nothing to chart" tip="The result has no numeric columns. Return a label column and at least one number." />;
   }
 
   const hint =
@@ -87,7 +89,7 @@ export function ResultChart({ connectionId, sql, result }: { connectionId: strin
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <ScrollArea orientation="horizontal" hideScrollBar className="flex h-7 shrink-0 items-center gap-1.5 border-b border-border/40 px-2 text-xs">
+      <div className="@container flex min-h-7 shrink-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 border-b border-border/40 px-2 py-0.5 text-xs">
         <AppSelect ariaLabel="Chart type" value={kind} options={KINDS} onChange={setKind} size="sm" className="w-24 shrink-0" />
         <span className="text-muted">X</span>
         <AppSelect ariaLabel="X column" value={String(mapping.x)} options={names.map((name, i) => ({ value: String(i), label: name }))} onChange={setX} size="sm" className="w-36 shrink-0" />
@@ -122,11 +124,11 @@ export function ResultChart({ connectionId, sql, result }: { connectionId: strin
         <span className="ml-auto shrink-0 pl-2">
           <AddToDashboard connectionId={connectionId} sql={sql} result={result} mapping={kind === "pie" ? { ...mapping, group: null } : mapping} kind={kind} horizontal={horizontal} xLabel={xName} yLabel={yName} disabled={mapping.ys.length === 0} />
         </span>
-      </ScrollArea>
+      </div>
       {hint !== null ? <p className="shrink-0 px-2.5 pt-1 text-[11px] text-muted">{hint}</p> : null}
       <div className="min-h-0 flex-1 p-2.5">
         {mapping.ys.length === 0 ? (
-          <EmptyState icon="chart" title="Pick a Y column" body="Choose one or more numeric columns to plot." />
+          <EmptyState size="inline" icon="chart" title="Pick a Y column" tip="Choose one or more numeric columns to plot." />
         ) : kind === "pie" ? (
           <PieChart data={{ labels: data.labels, series: data.series.slice(0, 1) }} tint={SERIES_COLORS[0]} />
         ) : kind === "bar" ? (
@@ -234,22 +236,30 @@ function AddToDashboard({ connectionId, sql, result, mapping, kind, horizontal, 
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogTrigger asChild>
-        <Button size="xs" variant="soft" disabled={disabled}>
-          <Icon name="plus" size={12} />
-          Add to dashboard
-        </Button>
-      </DialogTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DialogTrigger asChild>
+            <Button size="xs" variant="soft" aria-label="Add to dashboard" disabled={disabled}>
+              <Icon name="plus" size={12} />
+              <span className="hidden @2xl:inline">Add to dashboard</span>
+            </Button>
+          </DialogTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Add to dashboard</TooltipContent>
+      </Tooltip>
       <DialogContent className="sm:max-w-110">
         <DialogHeader>
-          <DialogTitle>Add chart to a dashboard</DialogTitle>
+          <DialogTitle>
+            <WithTip tip="The widget re-runs this query each time the dashboard refreshes." tipLabel="About dashboard widgets">
+              Add chart to a dashboard
+            </WithTip>
+          </DialogTitle>
         </DialogHeader>
         <DialogBody className="flex flex-col gap-2">
           <AppSelect label="Dashboard" value={target} options={[{ value: NEW_DASHBOARD, label: "New dashboard" }, ...dashboards.map((d) => ({ value: d.id, label: d.name }))]} onChange={setTarget} />
           {chosen ? null : <Field label="Dashboard name" value={dashboardName} onChange={setDashboardName} />}
           <Field label="Widget title" value={title} onChange={setTitle} placeholder="e.g. Revenue by month" optional />
           {otherConnection ? <p className="text-xs text-warning">This dashboard queries {connectionName(chosen.connectionId)}; the widget will run there, not on this connection.</p> : null}
-          <p className="text-xs text-muted">The widget re-runs this query each time the dashboard refreshes.</p>
         </DialogBody>
         <DialogFooter>
           <Button variant="tertiary" onClick={() => setOpen(false)}>Cancel</Button>

@@ -19,6 +19,8 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuGroup, DropdownMenuItem,
 import { ExportDialog } from "@/features/transfer/ExportDialog";
 import { resultScopes } from "@/features/transfer/exportScopes";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Shortcut } from "@/components/global/Kbd";
 
 // WHAT:  Says how many rows the script really has, not just how many fit.
 // WHY:   A row cap that reads as the whole answer is worse than no cap: "1,000
@@ -182,22 +184,27 @@ export function ResultsPane({ run, connectionId, collapsed, onToggleCollapsed, o
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-7 shrink-0 items-center gap-1 border-b border-border bg-surface px-2 text-xs">
+      <div className="@container flex h-7 shrink-0 items-center gap-1 border-b border-border bg-surface px-2 text-xs">
         <ScrollArea orientation="horizontal" hideScrollBar className="flex min-w-0 items-center gap-1">
           {tabs.length > 1 ? (
             tabs.map((tab) => (
-              <Button
-                key={tab.key}
-                size="sm"
-                variant={tab.key === current?.key ? "secondary" : "ghost"}
-                onClick={() => { if (run !== undefined) setPicked({ seq: run.seq, key: tab.key }); }}
-                title={tab.statement.sql}
-                className={cn("h-6 shrink-0 gap-1.5 rounded-md px-2 py-0.5 text-xs", tab.key === current?.key ? "font-medium text-foreground" : "text-muted hover:text-foreground")}
-              >
-                <StatusIcon state={tab.statement.state} />
-                {tab.label}
-                {tabMeta(tab) !== null ? <span className="font-normal text-muted">{tabMeta(tab)}</span> : null}
-              </Button>
+              <Tooltip key={tab.key}>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant={tab.key === current?.key ? "secondary" : "ghost"}
+                    onClick={() => { if (run !== undefined) setPicked({ seq: run.seq, key: tab.key }); }}
+                    className={cn("h-6 shrink-0 gap-1.5 rounded-md px-2 py-0.5 text-xs", tab.key === current?.key ? "font-medium text-foreground" : "text-muted hover:text-foreground")}
+                  >
+                    <StatusIcon state={tab.statement.state} />
+                    {tab.label}
+                    {tabMeta(tab) !== null ? <span className="font-normal text-muted">{tabMeta(tab)}</span> : null}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" align="start" className="max-w-md">
+                  <span className="line-clamp-6 font-mono text-[11px] whitespace-pre-wrap">{tab.statement.sql}</span>
+                </TooltipContent>
+              </Tooltip>
             ))
           ) : (
             <span className="px-1 font-medium text-muted">Results</span>
@@ -210,13 +217,18 @@ export function ResultsPane({ run, connectionId, collapsed, onToggleCollapsed, o
           {rowsResult !== null && !collapsed ? (
             <>
             <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="ghost" className="h-6 rounded-md px-2 text-xs text-muted hover:text-foreground" disabled={!exportable}>
-                  <Icon name="download" size={12} />
-                  Export
-                  <Icon name="chevron-down" size={11} />
-                </Button>
-              </DropdownMenuTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <Button size="sm" variant="ghost" aria-label="Export result" className="h-6 rounded-md px-2 text-xs text-muted hover:text-foreground" disabled={!exportable}>
+                      <Icon name="download" size={12} />
+                      <span className="hidden @2xl:inline">Export</span>
+                      <Icon name="chevron-down" size={11} />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>Export result</TooltipContent>
+              </Tooltip>
               <DropdownMenuContent className="glass-modal rounded-lg">
                 <DropdownMenuGroup>
                   <DropdownMenuItem textValue="Copy as CSV" onSelect={() => { onExportAction("copy-csv"); }}><span>Copy as CSV</span></DropdownMenuItem>
@@ -240,10 +252,16 @@ export function ResultsPane({ run, connectionId, collapsed, onToggleCollapsed, o
             </>
           ) : null}
           {truncated && capped && current !== undefined && !collapsed ? (
-            <Button size="xs" variant="soft" pending={rerunning} onClick={() => { onRunWithoutLimit(current.statement); }}>
-              <Icon name="refresh" size={11} />
-              Run without limit
-            </Button>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button size="xs" variant="soft" aria-label="Run without limit" pending={rerunning} onClick={() => { onRunWithoutLimit(current.statement); }}>
+                  <Icon name="refresh" size={11} />
+                  <span className="hidden @2xl:inline">Run without limit</span>
+                  <span className="@2xl:hidden">No limit</span>
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Run this statement again without the row cap</TooltipContent>
+            </Tooltip>
           ) : null}
           {rowsResult !== null ? (
             <Badge size="sm" variant={truncated ? "warning" : "soft"}>
@@ -268,7 +286,7 @@ export function ResultsPane({ run, connectionId, collapsed, onToggleCollapsed, o
       </div>
       <div className={cn("min-h-0 flex-1", collapsed ? "hidden" : undefined)}>
         {run === undefined || (run.statements.length === 0 && run.fatal === null && !run.running) ? (
-          <EmptyState icon="terminal" title="No results yet" body="Run a query with ⌘/Ctrl + Enter. Results appear here." />
+          <EmptyState size="inline" icon="terminal" title="No results yet" tip={<span className="inline-flex items-center gap-1">Run a query (<Shortcut action="run" />) and its results appear here.</span>} />
         ) : run.statements.length === 0 ? (
           run.fatal !== null ? (
             <QueryErrorPanel error={run.fatal} sql={null} onCopy={copyError(showInfo)} />
@@ -324,16 +342,16 @@ function TabBody({ run, tab, view, connectionId, onGoToError, onAskAi, onTick, o
   const { statement, result } = tab;
   switch (statement.state) {
     case "pending":
-      return <EmptyState icon="clock" title="Waiting" body="This statement runs after the ones above it." />;
+      return <EmptyState size="inline" icon="clock" title="Waiting" tip="This statement runs after the ones above it." />;
     case "running":
       return <Waiting label="Running…" />;
     case "skipped":
-      return <EmptyState icon="minus" title="Skipped" body={run.params?.stopOnError === true ? "An earlier statement failed, and the run stops at the first failure." : "The run was stopped before this statement."} />;
+      return <EmptyState size="inline" icon="minus" title="Skipped" tip={run.params?.stopOnError === true ? "An earlier statement failed, and the run stops at the first failure." : "The run was stopped before this statement."} />;
     case "cancelled":
-      return <EmptyState icon="stop" title="Cancelled" body="You stopped this statement before it finished." />;
+      return <EmptyState size="inline" icon="stop" title="Cancelled" tip="You stopped this statement before it finished." />;
     case "error":
       return statement.error === null ? (
-        <EmptyState icon="alert" title="Failed" body="The statement failed." />
+        <EmptyState size="inline" icon="alert" title="Statement failed" />
       ) : (
         <QueryErrorPanel
           error={statement.error}
@@ -347,9 +365,9 @@ function TabBody({ run, tab, view, connectionId, onGoToError, onAskAi, onTick, o
       break;
   }
   const outcome = statement.outcome;
-  if (result === null || outcome === null) return <EmptyState title="Statement executed" body="No result set was returned." />;
-  if (result.kind === "affected") return <EmptyState icon="check" title="Statement OK" body={`${formatCount(result.rowsAffected)} row(s) affected.`} />;
-  if (result.result.columns.length === 0) return <EmptyState title="Empty result" body="The statement returned no rows." />;
+  if (result === null || outcome === null) return <EmptyState size="inline" icon="check" title="Statement executed" tip="No result set was returned." />;
+  if (result.kind === "affected") return <EmptyState size="inline" icon="check" title={`${formatCount(result.rowsAffected)} ${result.rowsAffected === 1 ? "row" : "rows"} affected`} />;
+  if (result.result.columns.length === 0) return <EmptyState size="inline" icon="table" title="No rows" tip="The statement returned no columns or rows." />;
   const key = `${outcomeId(outcome)}:${tab.key}`;
   return (
     <>
